@@ -30,12 +30,26 @@ class LatencyBenchmarker:
             full_cmd = ["mosh", "--ssh=ssh -o BatchMode=yes", self.target, "--", command]
 
         start = time.perf_counter()
-
         try:
-            subprocess.run(full_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+            result = subprocess.run(
+                full_cmd, 
+                stdout=subprocess.DEVNULL, 
+                stderr=subprocess.PIPE, 
+                text=True,              
+                check=True
+            )
             end = time.perf_counter()
-            return (end - start) * 1000 
-        except Exception:
+            return (end - start) * 1000
+            
+        except subprocess.CalledProcessError as e:
+            print(f"\n[LỖI TỪ SERVER] Giao thức {protocol.upper()} thất bại. Chi tiết: {e.stderr.strip()}")
+            return None
+        except FileNotFoundError:
+            print(f"\n[LỖI HỆ THỐNG] Không tìm thấy lệnh '{full_cmd[0]}'.")
+            return None
+        except Exception as e:
+            # Các lỗi khác
+            print(f"\n[LỖI KHÔNG XÁC ĐỊNH]: {e}")
             return None
 
     def execute_workload(self):
