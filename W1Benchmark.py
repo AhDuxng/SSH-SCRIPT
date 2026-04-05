@@ -25,7 +25,7 @@ class LatencyBenchmarker:
         if protocol == "ssh":
             full_cmd = ["ssh", "-o", "BatchMode=yes", self.target, command]
         elif protocol == "ssh3":
-            full_cmd = ["ssh3", self.target, command]
+            full_cmd = ["ssh3", "-insecure", self.target, command]
         elif protocol == "mosh":
             full_cmd = ["mosh", "--ssh=ssh -o BatchMode=yes", self.target, "--", command]
 
