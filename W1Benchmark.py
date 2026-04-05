@@ -3,7 +3,7 @@ import time
 import statistics
 import json
 
-TARGET_USER = "pi"
+TARGET_USER = "trungnt"
 TARGET_HOST = "100.106.17.78"
 ITERATIONS = 10  
 COMMANDS = [
