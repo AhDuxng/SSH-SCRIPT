@@ -24,7 +24,7 @@ OUTPUT_CSV = "w3_raw_samples.csv"
 PROTOCOLS = ["ssh", "ssh3", "mosh"]
 WORKLOADS = ["interactive_shell", "vim", "nano"]
 KEY_POOL = list("asdfjklqwertyuiopzxcvbnm")
-SHELL_PROMPT = "__W3_PROMPT__# "
+SHELL_PROMPT = "__W3_PROMPT__#"
 
 
 def percentile(values, p):
