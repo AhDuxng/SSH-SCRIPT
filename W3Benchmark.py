@@ -62,6 +62,7 @@ class W3KeystrokeBenchmarker:
         child = pexpect.spawn(
             self._session_command(protocol),
             encoding="utf-8",
+            codec_errors="ignore",
             timeout=SESSION_TIMEOUT_SEC,
         )
         child.sendline(f"export PS1='{SHELL_PROMPT}'")
