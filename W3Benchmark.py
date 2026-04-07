@@ -12,9 +12,15 @@ Primary metrics
    accepts commands.
 
 2. line_echo_ms
-   Time from sending a line of input to observing the echoed line from a
-   persistent remote helper process. This avoids command-line echo pollution and
-   reduces prompt-dependent bias, which is especially important for Mosh.
+   Time from sending a line of input to receiving the server-side done_marker
+   confirmation from the remote helper process. This measures the true
+   application-level round-trip time (RTT): the token must travel to the server,
+   be processed by the helper, and the done_marker must return to the client.
+
+   IMPORTANT: We do NOT stop timing at the PTY echo of the token itself, because
+   PTY echo can be handled locally (especially in Mosh with local prediction).
+   Stopping at done_marker guarantees the server actually received and processed
+   the line — making the measurement protocol-fair.
 
 Methodology notes
 -----------------
@@ -22,6 +28,8 @@ Methodology notes
 - Each trial opens a fresh session. One setup-latency sample is recorded per trial.
 - Interactive samples are measured inside a persistent session-local helper.
 - Results are exported as JSON and CSV for later statistical analysis.
+- Network baseline RTT (ping) is recorded per trial as a covariate.
+- Remote system metadata (kernel, protocol version) is captured once at preflight.
 """
 
 from __future__ import annotations
@@ -36,9 +44,10 @@ import random
 import shlex
 import statistics
 import string
+import subprocess
 import sys
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -94,6 +103,16 @@ class SummaryRow:
     ci95_half_width_ms: Optional[float]
 
 
+@dataclass
+class RemoteMeta:
+    """System metadata collected from the remote host at preflight time."""
+    kernel: str = "unknown"
+    mosh_version: str = "unknown"
+    ssh_version: str = "unknown"
+    ssh3_version: str = "unknown"
+    python_version: str = "unknown"
+
+
 class SessionOpenError(RuntimeError):
     pass
 
@@ -110,6 +129,8 @@ class Benchmark:
         self.records: List[SampleRecord] = []
         self.failures: List[FailureRecord] = []
         self.protocol_skip_reasons: Dict[str, str] = {}
+        self.ping_rtts: Dict[str, List[Optional[float]]] = {p: [] for p in args.protocols}
+        self.remote_meta = RemoteMeta()
         self.results: Dict[str, Dict[str, List[float]]] = {
             protocol: {metric: [] for metric in args.metrics}
             for protocol in args.protocols
@@ -118,6 +139,24 @@ class Benchmark:
     def _token(self, protocol: str, metric: str, trial_id: int, sample_id: int) -> str:
         rand = "".join(random.choices(string.ascii_uppercase + string.digits, k=8))
         return f"__W3TOK__{protocol}__{metric}__t{trial_id}__s{sample_id}__{rand}__"
+
+    def _measure_ping_rtt(self) -> Optional[float]:
+        """Send a single ICMP ping to the target host and return RTT in ms, or None on failure."""
+        try:
+            result = subprocess.run(
+                ["ping", "-c", "1", "-W", "3", self.args.host],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            for line in result.stdout.splitlines():
+                if "time=" in line:
+                    for part in line.split():
+                        if part.startswith("time="):
+                            return float(part.split("=")[1])
+        except Exception:
+            pass
+        return None
 
     def _session_command(self, protocol: str) -> str:
         target = self.target
@@ -333,6 +372,31 @@ class Benchmark:
             )
         )
 
+    def _collect_remote_meta(self, child: pexpect.spawn) -> None:
+        """Query remote system info and populate self.remote_meta."""
+        def _run(cmd: str) -> str:
+            child.sendline(cmd)
+            child.expect_exact(self.args.prompt, timeout=10)
+            return (child.before or "").strip()
+
+        self.remote_meta.kernel = _run("uname -r").splitlines()[-1] if _run("uname -r") else "unknown"
+
+        child.sendline("uname -r")
+        child.expect_exact(self.args.prompt, timeout=10)
+        self.remote_meta.kernel = (child.before or "unknown").strip().splitlines()[-1]
+
+        child.sendline("mosh --version 2>&1 | head -1")
+        child.expect_exact(self.args.prompt, timeout=10)
+        self.remote_meta.mosh_version = (child.before or "unknown").strip().splitlines()[-1]
+
+        child.sendline("ssh -V 2>&1 | head -1")
+        child.expect_exact(self.args.prompt, timeout=10)
+        self.remote_meta.ssh_version = (child.before or "unknown").strip().splitlines()[-1]
+
+        child.sendline("python3 --version 2>&1")
+        child.expect_exact(self.args.prompt, timeout=10)
+        self.remote_meta.python_version = (child.before or "unknown").strip().splitlines()[-1]
+
     def _preflight_protocol(self, protocol: str) -> None:
         child, _ = self._open_session(protocol)
         try:
@@ -341,6 +405,9 @@ class Benchmark:
             child.expect_exact(self.args.prompt)
             if idx == 1:
                 raise PreflightError("Remote host is missing python3, required for controlled line-echo helper")
+
+            if self.remote_meta.kernel == "unknown":
+                self._collect_remote_meta(child)
         finally:
             self._close_session(child)
 
@@ -355,12 +422,12 @@ class Benchmark:
             "done=os.environ['W3_DONE']; "
             "bye=os.environ['W3_BYE']; "
             "print(ready, flush=True); "
-            "\nfor line in sys.stdin:" \
-            "\n    line=line.rstrip('\\n')" \
-            "\n    if line == '__W3_EXIT_HELPER__':" \
-            "\n        print(bye, flush=True)" \
-            "\n        break" \
-            "\n    print(line, flush=True)" \
+            "\nfor line in sys.stdin:"
+            "\n    line=line.rstrip('\\n')"
+            "\n    if line == '__W3_EXIT_HELPER__':"
+            "\n        print(bye, flush=True)"
+            "\n        break"
+            "\n    print(line, flush=True)"
             "\n    print(done, flush=True)"
         )
 
@@ -389,18 +456,37 @@ class Benchmark:
         sample_id: int,
         done_marker: str,
     ) -> tuple[str, float]:
+        """Measure true application-level round-trip time.
+
+        Timing starts immediately before sendline() and ends when done_marker
+        is observed. done_marker is emitted by the remote Python helper *after*
+        it has echoed the token back — so the measurement spans:
+
+            client sendline → network → server receives → helper processes
+            → server sends token + done_marker → network → client observes done_marker
+
+        This is NOT stopped at the PTY echo of the token, which would capture
+        only local PTY processing and is meaningless as a protocol comparison
+        metric (especially for Mosh, which uses local echo prediction).
+        """
         token = self._token(protocol, "line_echo", trial_id, sample_id)
         start_ns = time.perf_counter_ns()
         child.sendline(token)
+        # Drain the token echo (may be local PTY echo — do NOT time this)
         child.expect_exact(token)
-        end_ns = time.perf_counter_ns()
+        # Wait for the server-side done_marker: this IS the round-trip confirmation
         child.expect_exact(done_marker)
-        if protocol == "mosh":
-            time.sleep(self.args.mosh_settle_ms / 1000.0)
+        end_ns = time.perf_counter_ns()
         return token, (end_ns - start_ns) / 1_000_000.0
 
     def _run_protocol(self, protocol: str) -> None:
         for trial_id in range(1, self.args.trials + 1):
+            # Measure network baseline RTT before each trial
+            ping_rtt = self._measure_ping_rtt()
+            self.ping_rtts[protocol].append(ping_rtt)
+            ping_str = f"{ping_rtt:.2f} ms" if ping_rtt is not None else "N/A"
+            print(f"[{protocol:>4}] trial {trial_id}/{self.args.trials} — ping baseline: {ping_str}")
+
             child: Optional[pexpect.spawn] = None
             done_marker = None
             exit_marker = None
@@ -442,7 +528,6 @@ class Benchmark:
                     self._record_failure(protocol, "session_setup", trial_id, 1, False, exc, None)
                     print(f"[{protocol:>4}/session_setup] trial {trial_id}: FAIL ({type(exc).__name__}: {exc})")
                 else:
-                    # setup was successful, but later stage failed and was already logged.
                     if done_marker is None:
                         self._record_failure(protocol, "line_echo", trial_id, 0, False, exc, child)
                         print(f"[{protocol:>4}/line_echo   ] trial {trial_id}: FAIL ({type(exc).__name__}: {exc})")
@@ -533,6 +618,7 @@ class Benchmark:
         summary_json = outdir / "research_summary.json"
         raw_csv = outdir / "research_samples.csv"
         failures_csv = outdir / "research_failures.csv"
+        ping_csv = outdir / "research_ping_rtts.csv"
 
         payload = {
             "meta": {
@@ -555,9 +641,17 @@ class Benchmark:
                     "platform": platform.platform(),
                     "hostname": platform.node(),
                 },
+                "remote_system": {
+                    "kernel": self.remote_meta.kernel,
+                    "mosh_version": self.remote_meta.mosh_version,
+                    "ssh_version": self.remote_meta.ssh_version,
+                    "ssh3_version": self.remote_meta.ssh3_version,
+                    "python_version": self.remote_meta.python_version,
+                },
                 "metric_note": (
-                    "session_setup_ms = client-spawn to stable shell; "
-                    "line_echo_ms = PTY-observed line echo in a persistent remote helper. "
+                    "session_setup_ms = client-spawn to stable shell (includes TCP+crypto handshake + shell init); "
+                    "line_echo_ms = true application-level RTT measured from sendline() to server-side done_marker "
+                    "(NOT stopped at local PTY echo — ensures Mosh local prediction does not artificially deflate results). "
                     "These are application-level terminal timings, not human-perceived keyboard-to-screen latency."
                 ),
                 "skipped_protocols": self.protocol_skip_reasons,
@@ -578,9 +672,17 @@ class Benchmark:
             for r in self.failures:
                 writer.writerow([r.protocol, r.metric, r.trial_id, r.sample_id, r.is_warmup, r.error_type, r.error_message])
 
-        print(f"Saved summary JSON: {summary_json}")
-        print(f"Saved raw samples CSV: {raw_csv}")
-        print(f"Saved failures CSV: {failures_csv}")
+        with ping_csv.open("w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(["protocol", "trial_id", "ping_rtt_ms"])
+            for proto, rtts in self.ping_rtts.items():
+                for i, rtt in enumerate(rtts, start=1):
+                    writer.writerow([proto, i, f"{rtt:.3f}" if rtt is not None else ""])
+
+        print(f"Saved summary JSON:      {summary_json}")
+        print(f"Saved raw samples CSV:   {raw_csv}")
+        print(f"Saved failures CSV:      {failures_csv}")
+        print(f"Saved ping RTT CSV:      {ping_csv}")
 
     def run(self) -> None:
         random.seed(self.args.seed)
@@ -605,7 +707,6 @@ class Benchmark:
         for protocol in runnable_protocols:
             self._run_protocol(protocol)
 
-
 def build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Research-oriented terminal benchmark")
     p.add_argument("--host", default="192.168.8.102", help="Target host IP or hostname")
@@ -614,7 +715,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--identity-file", default=str(Path.home() / ".ssh" / "id_rsa"), help="SSH private key path")
     p.add_argument("--protocols", nargs="+", default=DEFAULT_PROTOCOLS, choices=DEFAULT_PROTOCOLS)
     p.add_argument("--metrics", nargs="+", default=DEFAULT_METRICS, choices=DEFAULT_METRICS)
-    p.add_argument("--trials", type=int, default=10, help="Independent session trials per protocol")
+    p.add_argument("--trials", type=int, default=30,
+                   help="Independent session trials per protocol (recommended >= 30 for reliable CI)")
     p.add_argument("--samples-per-trial", type=int, default=50, help="Measured line-echo samples per trial")
     p.add_argument("--warmup-samples", type=int, default=5, help="Warmup line-echo samples per trial (excluded from summaries)")
     p.add_argument("--timeout", type=int, default=20, help="pexpect timeout in seconds")
@@ -626,8 +728,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--ssh3-trust-on-first-use", action="store_true", help="Automatically answer yes to SSH3 certificate trust prompts")
     p.add_argument("--batch-mode", action="store_true", help="Enable BatchMode for SSHv2/Mosh bootstrap SSH")
     p.add_argument("--strict-host-key-checking", action="store_true", help="Keep strict host key checking enabled")
-    p.add_argument("--mosh-predict", default="never", choices=["adaptive", "always", "never"], help="Mosh prediction mode; 'never' is recommended for fairer protocol comparison")
-    p.add_argument("--mosh-settle-ms", type=float, default=50.0, help="Small post-sample settle delay for Mosh full-screen updates")
+    p.add_argument("--mosh-predict", default="never", choices=["adaptive", "always", "never"],
+                   help="Mosh prediction mode; 'never' is recommended for protocol comparison (disables local echo prediction)")
     p.add_argument("--preflight", action="store_true", help="Run bootstrap and python3 availability check before measurements")
     p.add_argument("--log-pexpect", action="store_true", help="Save raw pexpect output per protocol")
     p.add_argument("--shuffle-protocols", action="store_true", help="Randomize protocol order")
