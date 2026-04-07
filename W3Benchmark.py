@@ -1,18 +1,27 @@
 #!/usr/bin/env python3
-"""W3 Interactive Editing benchmark.
+"""Research-oriented remote terminal benchmark.
 
-Measures interactive response latency for remote terminal sessions across:
-- SSHv2
-- SSHv3
-- Mosh
+This benchmark is designed for reproducible, protocol-comparison experiments
+across SSHv2, SSHv3, and Mosh. It intentionally measures PTY-observed terminal
+latency rather than human-perceived keyboard-to-screen latency.
 
-Topology defaults:
-- Client / AI agent: 192.168.8.100
-- Target host: 192.168.8.102
+Primary metrics
+---------------
+1. session_setup_ms
+   Time from spawning the client process to obtaining a stable remote shell that
+   accepts commands.
 
-Important:
-This measures interactive response latency observed through pexpect,
-not physical keyboard-to-screen keystroke latency.
+2. line_echo_ms
+   Time from sending a line of input to observing the echoed line from a
+   persistent remote helper process. This avoids command-line echo pollution and
+   reduces prompt-dependent bias, which is especially important for Mosh.
+
+Methodology notes
+-----------------
+- Warmup samples are excluded from summary statistics.
+- Each trial opens a fresh session. One setup-latency sample is recorded per trial.
+- Interactive samples are measured inside a persistent session-local helper.
+- Results are exported as JSON and CSV for later statistical analysis.
 """
 
 from __future__ import annotations
@@ -21,6 +30,8 @@ import argparse
 import csv
 import json
 import math
+import os
+import platform
 import random
 import shlex
 import statistics
@@ -39,17 +50,18 @@ except ImportError as exc:
 
 
 DEFAULT_PROTOCOLS = ["ssh", "ssh3", "mosh"]
-DEFAULT_WORKLOADS = ["interactive_shell", "vim", "nano"]
 DEFAULT_PROMPT = "__W3_PROMPT__#"
 DEFAULT_SSH3_PATH = "/ssh3-term"
+DEFAULT_METRICS = ["session_setup", "line_echo"]
 
 
 @dataclass
 class SampleRecord:
     protocol: str
-    workload: str
-    round_id: int
+    metric: str
+    trial_id: int
     sample_id: int
+    is_warmup: bool
     token: str
     latency_ms: float
 
@@ -57,9 +69,10 @@ class SampleRecord:
 @dataclass
 class FailureRecord:
     protocol: str
-    workload: str
-    round_id: int
+    metric: str
+    trial_id: int
     sample_id: int
+    is_warmup: bool
     error_type: str
     error_message: str
 
@@ -67,7 +80,7 @@ class FailureRecord:
 @dataclass
 class SummaryRow:
     protocol: str
-    workload: str
+    metric: str
     n: int
     failures: int
     success_rate_pct: float
@@ -85,11 +98,11 @@ class SessionOpenError(RuntimeError):
     pass
 
 
-class WorkloadPrecheckError(RuntimeError):
+class PreflightError(RuntimeError):
     pass
 
 
-class W3Benchmark:
+class Benchmark:
     def __init__(self, args: argparse.Namespace) -> None:
         self.args = args
         self.target = f"{args.user}@{args.host}"
@@ -97,19 +110,17 @@ class W3Benchmark:
         self.records: List[SampleRecord] = []
         self.failures: List[FailureRecord] = []
         self.protocol_skip_reasons: Dict[str, str] = {}
-
         self.results: Dict[str, Dict[str, List[float]]] = {
-            protocol: {workload: [] for workload in args.workloads}
+            protocol: {metric: [] for metric in args.metrics}
             for protocol in args.protocols
         }
 
-    def _token(self, protocol: str, workload: str, round_id: int, sample_id: int) -> str:
+    def _token(self, protocol: str, metric: str, trial_id: int, sample_id: int) -> str:
         rand = "".join(random.choices(string.ascii_uppercase + string.digits, k=8))
-        return f"__W3TOK__{protocol}__{workload}__r{round_id}__s{sample_id}__{rand}__"
+        return f"__W3TOK__{protocol}__{metric}__t{trial_id}__s{sample_id}__{rand}__"
 
     def _session_command(self, protocol: str) -> str:
         target = self.target
-
         ssh_common = ["ssh", "-tt"]
         if self.args.source_ip:
             ssh_common += ["-b", self.args.source_ip]
@@ -125,7 +136,6 @@ class W3Benchmark:
 
         if protocol == "ssh":
             return shlex.join(ssh_common)
-
         if protocol == "mosh":
             ssh_cmd = shlex.join(ssh_common[:-1])
             parts = ["mosh", f"--ssh={ssh_cmd}"]
@@ -133,7 +143,6 @@ class W3Benchmark:
                 parts += ["--predict", self.args.mosh_predict]
             parts += [target]
             return shlex.join(parts)
-
         if protocol == "ssh3":
             parts = ["ssh3"]
             if self.args.identity_file:
@@ -145,40 +154,18 @@ class W3Benchmark:
 
         raise ValueError(f"Unsupported protocol: {protocol}")
 
-    def _open_session(self, protocol: str) -> pexpect.spawn:
+    def _spawn_child(self, protocol: str) -> pexpect.spawn:
         child = pexpect.spawn(
             self._session_command(protocol),
             encoding="utf-8",
             codec_errors="ignore",
             timeout=self.args.timeout,
         )
-
         if self.args.log_pexpect:
             log_path = Path(self.args.output_dir) / f"pexpect_{protocol}.log"
             log_path.parent.mkdir(parents=True, exist_ok=True)
             child.logfile_read = open(log_path, "a", encoding="utf-8")
-
-        try:
-            self._await_shell_ready(child)
-
-            setup_marker = "__W3_PS1_OK__"
-            setup_cmd = (
-                "unset PROMPT_COMMAND >/dev/null 2>&1 || true; "
-                "bind 'set enable-bracketed-paste off' >/dev/null 2>&1 || true; "
-                f"export PS1={shlex.quote(self.args.prompt)}; "
-                f"printf '{setup_marker}\\n'"
-            )
-            child.sendline(setup_cmd)
-            child.expect_exact(setup_marker)
-            child.expect_exact(self.args.prompt)
-
-            child.sendline("stty -echoctl cols 200 rows 40 >/dev/null 2>&1 || true")
-            child.expect_exact(self.args.prompt)
-
-            return child
-        except Exception:
-            self._safe_close(child)
-            raise
+        return child
 
     def _await_shell_ready(self, child: pexpect.spawn) -> None:
         deadline = time.monotonic() + self.args.timeout
@@ -189,7 +176,7 @@ class W3Benchmark:
                 [
                     r"Are you sure you want to continue connecting \(yes/no(?:/\[fingerprint\])?\)\?",
                     r"Do you want to add this certificate to .*known_hosts \(yes/no\)\?",
-                    r"[Pp]assword:",
+                    r"\[Pp\]assword:",
                     r"Permission denied",
                     r"Connection refused",
                     r"No route to host",
@@ -211,8 +198,10 @@ class W3Benchmark:
                 child.sendline("yes")
                 continue
             if idx == 1:
-                child.sendline("yes")
-                continue
+                if self.args.ssh3_trust_on_first_use or self.args.ssh3_insecure:
+                    child.sendline("yes")
+                    continue
+                raise SessionOpenError("SSH3 certificate prompt requires trust; rerun with --ssh3-insecure or --ssh3-trust-on-first-use")
             if idx == 2:
                 raise SessionOpenError("Authentication fell back to password; key auth is not working")
             if idx == 3:
@@ -235,13 +224,7 @@ class W3Benchmark:
             if idx in (11, 12, 13):
                 child.sendline("printf '__W3_READY__\\n'")
                 probe_idx = child.expect(
-                    [
-                        "__W3_READY__",
-                        r"[Pp]assword:",
-                        "Permission denied",
-                        pexpect.EOF,
-                        pexpect.TIMEOUT,
-                    ],
+                    ["__W3_READY__", r"\[Pp\]assword:", "Permission denied", pexpect.EOF, pexpect.TIMEOUT],
                     timeout=max(1, min(5, remaining)),
                 )
                 if probe_idx == 0:
@@ -260,6 +243,32 @@ class W3Benchmark:
                 raise SessionOpenError(f"Timeout waiting for remote shell. Output: {child.before!r}")
 
         raise SessionOpenError(f"Timeout waiting for remote shell. Output: {child.before!r}")
+
+    def _open_session(self, protocol: str) -> tuple[pexpect.spawn, float]:
+        start_ns = time.perf_counter_ns()
+        child = self._spawn_child(protocol)
+        try:
+            self._await_shell_ready(child)
+
+            setup_marker = "__W3_PS1_OK__"
+            setup_cmd = (
+                "unset PROMPT_COMMAND >/dev/null 2>&1 || true; "
+                "bind 'set enable-bracketed-paste off' >/dev/null 2>&1 || true; "
+                f"export PS1={shlex.quote(self.args.prompt)}; "
+                f"printf '{setup_marker}\\n'"
+            )
+            child.sendline(setup_cmd)
+            child.expect_exact(setup_marker)
+            child.expect_exact(self.args.prompt)
+
+            child.sendline("stty -echoctl cols 200 rows 40 >/dev/null 2>&1 || true")
+            child.expect_exact(self.args.prompt)
+
+            end_ns = time.perf_counter_ns()
+            return child, (end_ns - start_ns) / 1_000_000.0
+        except Exception:
+            self._safe_close(child)
+            raise
 
     def _close_session(self, child: pexpect.spawn) -> None:
         try:
@@ -281,159 +290,28 @@ class W3Benchmark:
         except Exception:
             pass
 
-    def _ensure_remote_command(self, child: pexpect.spawn, command_name: str) -> None:
-        yes_marker = f"__W3_HAS_{command_name.upper()}__"
-        no_marker = f"__W3_NO_{command_name.upper()}__"
-        child.sendline(
-            f"command -v {shlex.quote(command_name)} >/dev/null 2>&1 "
-            f"&& printf '{yes_marker}\\n' "
-            f"|| printf '{no_marker}\\n'"
-        )
-        idx = child.expect([yes_marker, no_marker], timeout=self.args.timeout)
-        child.expect_exact(self.args.prompt)
-        if idx == 1:
-            raise WorkloadPrecheckError(f"Remote command not found: {command_name}")
-
-    def _measure_interactive_shell(self, child: pexpect.spawn, token: str, protocol: str) -> float:
-        done_marker = f"__W3_DONE__{protocol}__{token}__"
-        script = 'IFS= read -r line; printf "%s\\n%s\\n" "$line" "$DONE_MARKER"'
-        cmd = f"DONE_MARKER={shlex.quote(done_marker)} bash -lc {shlex.quote(script)}"
-
-        child.sendline(cmd)
-
-        start_ns = time.perf_counter_ns()
-        child.sendline(token)
-        child.expect_exact(token)
-        end_ns = time.perf_counter_ns()
-
-        child.expect_exact(done_marker)
-
-        if protocol != "mosh":
-            child.expect_exact(self.args.prompt)
-        else:
-            time.sleep(0.05)
-
-        return (end_ns - start_ns) / 1_000_000.0
-
-    def _measure_vim(self, child: pexpect.spawn, token: str, protocol: str) -> float:
-        remote_file = self.args.remote_vim_file
-        child.sendline(f"vim -Nu NONE -n {shlex.quote(remote_file)}")
-
-        idx = child.expect(
-            [
-                r"\[New File\]",
-                r'"[^"]*".*',
-                r"~",
-                r"E325:",
-                r"command not found",
-                pexpect.TIMEOUT,
-                pexpect.EOF,
-            ],
-            timeout=self.args.timeout,
-        )
-
-        if idx == 3:
-            child.send("Q")
-            child.expect_exact(self.args.prompt)
-            raise RuntimeError("vim swap file warning (E325)")
-        if idx == 4:
-            child.expect_exact(self.args.prompt)
-            raise RuntimeError("vim not available on remote host")
-        if idx == 5:
-            raise RuntimeError("timeout waiting for vim to open")
-        if idx == 6:
-            raise RuntimeError("EOF while opening vim")
-
-        child.send("i")
-        try:
-            child.expect([r"-- INSERT --", r"INSERT"], timeout=2)
-        except Exception:
-            pass
-
-        start_ns = time.perf_counter_ns()
-        child.send(token)
-        child.expect_exact(token)
-        end_ns = time.perf_counter_ns()
-
-        child.send("\x1b")
-        child.sendline(":q!")
-        child.expect_exact(self.args.prompt)
-
-        return (end_ns - start_ns) / 1_000_000.0
-
-    def _measure_nano(self, child: pexpect.spawn, token: str, protocol: str) -> float:
-        remote_file = self.args.remote_nano_file
-        child.sendline(f"nano --ignorercfiles {shlex.quote(remote_file)}")
-
-        idx = child.expect(
-            [r"GNU nano", r"\^G Help", r"command not found", pexpect.TIMEOUT, pexpect.EOF],
-            timeout=self.args.timeout,
-        )
-        if idx == 2:
-            child.expect_exact(self.args.prompt)
-            raise RuntimeError("nano not available on remote host")
-        if idx == 3:
-            raise RuntimeError("timeout waiting for nano to open")
-        if idx == 4:
-            raise RuntimeError("EOF while opening nano")
-
-        start_ns = time.perf_counter_ns()
-        child.send(token)
-        child.expect_exact(token)
-        end_ns = time.perf_counter_ns()
-
-        child.sendcontrol("x")
-        child.send("n")
-        child.expect_exact(self.args.prompt)
-
-        return (end_ns - start_ns) / 1_000_000.0
-
-    def _run_sample(
+    def _record_success(
         self,
-        child: pexpect.spawn,
         protocol: str,
-        workload: str,
-        round_id: int,
+        metric: str,
+        trial_id: int,
         sample_id: int,
-        record: bool,
-    ) -> Optional[float]:
-        token = self._token(protocol, workload, round_id, sample_id)
-
-        if workload == "interactive_shell":
-            latency = self._measure_interactive_shell(child, token, protocol)
-        elif workload == "vim":
-            latency = self._measure_vim(child, token, protocol)
-        elif workload == "nano":
-            latency = self._measure_nano(child, token, protocol)
-        else:
-            raise ValueError(f"Unsupported workload: {workload}")
-
-        if record:
-            self.results[protocol][workload].append(latency)
-            self.records.append(SampleRecord(protocol, workload, round_id, sample_id, token, latency))
-
-        return latency
-
-    def _preflight_protocol(self, protocol: str) -> None:
-        child = self._open_session(protocol)
-        try:
-            child.sendline("printf '__W3_PREFLIGHT_OK__\\n'")
-            child.expect_exact("__W3_PREFLIGHT_OK__")
-            child.expect_exact(self.args.prompt)
-
-            if "vim" in self.args.workloads:
-                self._ensure_remote_command(child, "vim")
-            if "nano" in self.args.workloads:
-                self._ensure_remote_command(child, "nano")
-        finally:
-            self._close_session(child)
+        is_warmup: bool,
+        token: str,
+        latency_ms: float,
+    ) -> None:
+        if is_warmup:
+            return
+        self.results[protocol][metric].append(latency_ms)
+        self.records.append(SampleRecord(protocol, metric, trial_id, sample_id, is_warmup, token, latency_ms))
 
     def _record_failure(
         self,
         protocol: str,
-        workload: str,
-        round_id: int,
+        metric: str,
+        trial_id: int,
         sample_id: int,
+        is_warmup: bool,
         exc: Exception,
         child: Optional[pexpect.spawn] = None,
     ) -> None:
@@ -443,103 +321,139 @@ class W3Benchmark:
                 extra = f" | before={child.before!r}"
             except Exception:
                 pass
-
         self.failures.append(
             FailureRecord(
                 protocol=protocol,
-                workload=workload,
-                round_id=round_id,
+                metric=metric,
+                trial_id=trial_id,
                 sample_id=sample_id,
+                is_warmup=is_warmup,
                 error_type=type(exc).__name__,
                 error_message=f"{exc}{extra}",
             )
         )
 
-    def _run_session_group(self, protocol: str, workload: str) -> None:
-        total = self.args.iterations + self.args.warmup_rounds
-        child: Optional[pexpect.spawn] = None
-
+    def _preflight_protocol(self, protocol: str) -> None:
+        child, _ = self._open_session(protocol)
         try:
-            child = self._open_session(protocol)
-
-            if workload == "vim":
-                self._ensure_remote_command(child, "vim")
-            elif workload == "nano":
-                self._ensure_remote_command(child, "nano")
-
-            for sample_idx in range(1, total + 1):
-                is_warmup = sample_idx <= self.args.warmup_rounds
-                round_id = 0 if is_warmup else (sample_idx - self.args.warmup_rounds)
-                sample_id = sample_idx if is_warmup else (sample_idx - self.args.warmup_rounds)
-                record = not is_warmup
-
-                try:
-                    self._run_sample(child, protocol, workload, round_id, sample_id, record=record)
-                    tag = "warmup" if is_warmup else "measure"
-                    limit = self.args.warmup_rounds if is_warmup else self.args.iterations
-                    print(f"[{protocol:>4}/{workload:<18}] {tag} {sample_id}/{limit}: OK")
-                except (pexpect.TIMEOUT, pexpect.EOF, RuntimeError, ValueError) as exc:
-                    self._record_failure(protocol, workload, round_id, sample_id, exc, child)
-                    print(
-                        f"[{protocol:>4}/{workload:<18}] "
-                        f"{'warmup' if is_warmup else 'measure'} {sample_id}: "
-                        f"FAIL ({type(exc).__name__}: {exc})"
-                    )
-
-                    if child is not None:
-                        self._safe_close(child)
-                        child = None
-
-                    if self.args.reopen_on_failure:
-                        try:
-                            child = self._open_session(protocol)
-                            if workload == "vim":
-                                self._ensure_remote_command(child, "vim")
-                            elif workload == "nano":
-                                self._ensure_remote_command(child, "nano")
-                        except Exception as reopen_exc:
-                            self._record_failure(protocol, workload, round_id, sample_id, reopen_exc, child)
-                            print(
-                                f"[{protocol:>4}/{workload:<18}] reopen after fail: "
-                                f"FAIL ({type(reopen_exc).__name__}: {reopen_exc})"
-                            )
-                            break
-                    else:
-                        break
+            child.sendline("command -v python3 >/dev/null 2>&1 && printf '__W3_HAS_PY3__\\n' || printf '__W3_NO_PY3__\\n'")
+            idx = child.expect(["__W3_HAS_PY3__", "__W3_NO_PY3__"], timeout=self.args.timeout)
+            child.expect_exact(self.args.prompt)
+            if idx == 1:
+                raise PreflightError("Remote host is missing python3, required for controlled line-echo helper")
         finally:
-            if child is not None:
-                self._close_session(child)
+            self._close_session(child)
 
-    def run(self) -> None:
-        random.seed(self.args.seed)
+    def _start_line_helper(self, child: pexpect.spawn, protocol: str, trial_id: int) -> tuple[str, str]:
+        ready_marker = f"__W3_HELPER_READY__{protocol}__t{trial_id}__"
+        done_marker = f"__W3_HELPER_DONE__{protocol}__t{trial_id}__"
+        exit_marker = f"__W3_HELPER_BYE__{protocol}__t{trial_id}__"
 
-        runnable_protocols = list(self.args.protocols)
+        helper_code = (
+            "import os, sys; "
+            "ready=os.environ['W3_READY']; "
+            "done=os.environ['W3_DONE']; "
+            "bye=os.environ['W3_BYE']; "
+            "print(ready, flush=True); "
+            "\nfor line in sys.stdin:" \
+            "\n    line=line.rstrip('\\n')" \
+            "\n    if line == '__W3_EXIT_HELPER__':" \
+            "\n        print(bye, flush=True)" \
+            "\n        break" \
+            "\n    print(line, flush=True)" \
+            "\n    print(done, flush=True)"
+        )
 
-        if self.args.preflight:
-            runnable_protocols = []
-            for protocol in self.args.protocols:
-                print(f"[preflight/{protocol}] checking session bootstrap and remote tools...")
-                try:
-                    self._preflight_protocol(protocol)
-                    print(f"[preflight/{protocol}] OK")
-                    runnable_protocols.append(protocol)
-                except Exception as exc:
-                    self.protocol_skip_reasons[protocol] = str(exc)
-                    print(f"[preflight/{protocol}] FAIL ({type(exc).__name__}: {exc})")
+        cmd = (
+            f"W3_READY={shlex.quote(ready_marker)} "
+            f"W3_DONE={shlex.quote(done_marker)} "
+            f"W3_BYE={shlex.quote(exit_marker)} "
+            f"python3 -u -c {shlex.quote(helper_code)}"
+        )
+        child.sendline(cmd)
+        child.expect_exact(ready_marker)
+        return done_marker, exit_marker
 
-        pairs = [(p, w) for p in runnable_protocols for w in self.args.workloads]
-        if self.args.shuffle_pairs:
-            random.shuffle(pairs)
+    def _stop_line_helper(self, child: pexpect.spawn, exit_marker: str) -> None:
+        child.sendline("__W3_EXIT_HELPER__")
+        child.expect_exact(exit_marker)
+        child.sendline("printf '__W3_BACK__\\n'")
+        child.expect_exact("__W3_BACK__")
+        child.expect_exact(self.args.prompt)
 
-        for protocol, workload in pairs:
-            if protocol in self.protocol_skip_reasons:
-                continue
+    def _measure_line_echo(
+        self,
+        child: pexpect.spawn,
+        protocol: str,
+        trial_id: int,
+        sample_id: int,
+        done_marker: str,
+    ) -> tuple[str, float]:
+        token = self._token(protocol, "line_echo", trial_id, sample_id)
+        start_ns = time.perf_counter_ns()
+        child.sendline(token)
+        child.expect_exact(token)
+        end_ns = time.perf_counter_ns()
+        child.expect_exact(done_marker)
+        if protocol == "mosh":
+            time.sleep(self.args.mosh_settle_ms / 1000.0)
+        return token, (end_ns - start_ns) / 1_000_000.0
+
+    def _run_protocol(self, protocol: str) -> None:
+        for trial_id in range(1, self.args.trials + 1):
+            child: Optional[pexpect.spawn] = None
+            done_marker = None
+            exit_marker = None
             try:
-                self._run_session_group(protocol, workload)
+                child, setup_ms = self._open_session(protocol)
+                self._record_success(
+                    protocol=protocol,
+                    metric="session_setup",
+                    trial_id=trial_id,
+                    sample_id=1,
+                    is_warmup=False,
+                    token="__W3_SETUP__",
+                    latency_ms=setup_ms,
+                )
+                print(f"[{protocol:>4}/session_setup] trial {trial_id}/{self.args.trials}: OK ({setup_ms:.2f} ms)")
+
+                if "line_echo" not in self.args.metrics:
+                    continue
+
+                done_marker, exit_marker = self._start_line_helper(child, protocol, trial_id)
+                total = self.args.warmup_samples + self.args.samples_per_trial
+                for i in range(1, total + 1):
+                    is_warmup = i <= self.args.warmup_samples
+                    sample_id = i if is_warmup else (i - self.args.warmup_samples)
+                    try:
+                        token, latency_ms = self._measure_line_echo(child, protocol, trial_id, sample_id, done_marker)
+                        self._record_success(protocol, "line_echo", trial_id, sample_id, is_warmup, token, latency_ms)
+                        tag = "warmup" if is_warmup else "measure"
+                        limit = self.args.warmup_samples if is_warmup else self.args.samples_per_trial
+                        print(f"[{protocol:>4}/line_echo   ] {tag} {sample_id}/{limit}: OK ({latency_ms:.2f} ms)")
+                    except Exception as exc:
+                        self._record_failure(protocol, "line_echo", trial_id, sample_id, is_warmup, exc, child)
+                        print(f"[{protocol:>4}/line_echo   ] {'warmup' if is_warmup else 'measure'} {sample_id}: FAIL ({type(exc).__name__}: {exc})")
+                        if not self.args.reopen_on_failure:
+                            raise
+                        break
             except Exception as exc:
-                self.protocol_skip_reasons.setdefault(protocol, str(exc))
-                self._record_failure(protocol, workload, 0, 0, exc, None)
-                print(f"[{protocol:>4}/{workload:<18}] group setup FAIL ({type(exc).__name__}: {exc})")
+                if child is None:
+                    self._record_failure(protocol, "session_setup", trial_id, 1, False, exc, None)
+                    print(f"[{protocol:>4}/session_setup] trial {trial_id}: FAIL ({type(exc).__name__}: {exc})")
+                else:
+                    # setup was successful, but later stage failed and was already logged.
+                    if done_marker is None:
+                        self._record_failure(protocol, "line_echo", trial_id, 0, False, exc, child)
+                        print(f"[{protocol:>4}/line_echo   ] trial {trial_id}: FAIL ({type(exc).__name__}: {exc})")
+            finally:
+                if child is not None:
+                    try:
+                        if exit_marker is not None:
+                            self._stop_line_helper(child, exit_marker)
+                    except Exception:
+                        pass
+                    self._safe_close(child)
 
     @staticmethod
     def _percentile(values: List[float], p: float) -> Optional[float]:
@@ -555,38 +469,23 @@ class W3Benchmark:
             return s[int(k)]
         return s[lower] + (s[upper] - s[lower]) * (k - lower)
 
-    def _summary_row(self, protocol: str, workload: str) -> SummaryRow:
-        data = self.results[protocol][workload]
-        fail_n = sum(1 for f in self.failures if f.protocol == protocol and f.workload == workload)
+    def _summary_row(self, protocol: str, metric: str) -> SummaryRow:
+        data = self.results[protocol][metric]
+        fail_n = sum(1 for f in self.failures if f.protocol == protocol and f.metric == metric and not f.is_warmup)
         n = len(data)
         total = n + fail_n
         success_rate = (100.0 * n / total) if total else 0.0
 
         if n == 0:
-            return SummaryRow(
-                protocol=protocol,
-                workload=workload,
-                n=0,
-                failures=fail_n,
-                success_rate_pct=success_rate,
-                min_ms=None,
-                mean_ms=None,
-                median_ms=None,
-                stdev_ms=None,
-                p95_ms=None,
-                p99_ms=None,
-                max_ms=None,
-                ci95_half_width_ms=None,
-            )
+            return SummaryRow(protocol, metric, 0, fail_n, success_rate, None, None, None, None, None, None, None, None)
 
         mean_ms = statistics.mean(data)
         median_ms = statistics.median(data)
         stdev_ms = statistics.stdev(data) if n > 1 else 0.0
         ci95 = (1.96 * stdev_ms / math.sqrt(n)) if n > 1 else 0.0
-
         return SummaryRow(
             protocol=protocol,
-            workload=workload,
+            metric=metric,
             n=n,
             failures=fail_n,
             success_rate_pct=success_rate,
@@ -601,13 +500,13 @@ class W3Benchmark:
         )
 
     def summaries(self) -> List[SummaryRow]:
-        return [self._summary_row(p, w) for p in self.args.protocols for w in self.args.workloads]
+        return [self._summary_row(p, m) for p in self.args.protocols for m in self.args.metrics]
 
     def print_report(self) -> None:
         width = 146
         print("\n" + "=" * width)
         print(
-            f"{'Protocol':<8} | {'Workload':<18} | {'N':>4} | {'Fail':>4} | {'Success%':>8} | "
+            f"{'Protocol':<8} | {'Metric':<14} | {'N':>4} | {'Fail':>4} | {'Success%':>8} | "
             f"{'Min':>8} | {'Mean':>8} | {'Median':>8} | {'Std':>8} | {'P95':>8} | {'P99':>8} | {'Max':>8} | {'CI95+/-':>9}"
         )
         print("-" * width)
@@ -617,11 +516,10 @@ class W3Benchmark:
 
         for row in self.summaries():
             print(
-                f"{row.protocol:<8} | {row.workload:<18} | {row.n:>4} | {row.failures:>4} | {row.success_rate_pct:>8.1f} | "
+                f"{row.protocol:<8} | {row.metric:<14} | {row.n:>4} | {row.failures:>4} | {row.success_rate_pct:>8.1f} | "
                 f"{fmt(row.min_ms):>8} | {fmt(row.mean_ms):>8} | {fmt(row.median_ms):>8} | {fmt(row.stdev_ms):>8} | "
                 f"{fmt(row.p95_ms):>8} | {fmt(row.p99_ms):>8} | {fmt(row.max_ms):>8} | {fmt(row.ci95_half_width_ms):>9}"
             )
-
         print("=" * width)
 
         if self.protocol_skip_reasons:
@@ -632,10 +530,9 @@ class W3Benchmark:
     def export(self) -> None:
         outdir = Path(self.args.output_dir)
         outdir.mkdir(parents=True, exist_ok=True)
-
-        summary_json = outdir / "w3_summary.json"
-        raw_csv = outdir / "w3_raw_samples.csv"
-        failures_csv = outdir / "w3_failures.csv"
+        summary_json = outdir / "research_summary.json"
+        raw_csv = outdir / "research_samples.csv"
+        failures_csv = outdir / "research_failures.csv"
 
         payload = {
             "meta": {
@@ -643,69 +540,98 @@ class W3Benchmark:
                 "target": self.target,
                 "client_source_ip": self.args.source_ip,
                 "protocols": self.args.protocols,
-                "workloads": self.args.workloads,
-                "iterations": self.args.iterations,
-                "warmup_rounds": self.args.warmup_rounds,
+                "metrics": self.args.metrics,
+                "trials": self.args.trials,
+                "samples_per_trial": self.args.samples_per_trial,
+                "warmup_samples": self.args.warmup_samples,
                 "timeout_sec": self.args.timeout,
                 "random_seed": self.args.seed,
                 "topology": {
                     "client": self.args.source_ip or "default-route",
                     "server": self.args.host,
                 },
-                "metric_name": "interactive_response_latency_ms",
+                "system": {
+                    "python": sys.version.split()[0],
+                    "platform": platform.platform(),
+                    "hostname": platform.node(),
+                },
                 "metric_note": (
-                    "Measured from input injection by pexpect to output observation in the terminal stream; "
-                    "this is not physical keyboard-to-screen keystroke latency."
+                    "session_setup_ms = client-spawn to stable shell; "
+                    "line_echo_ms = PTY-observed line echo in a persistent remote helper. "
+                    "These are application-level terminal timings, not human-perceived keyboard-to-screen latency."
                 ),
                 "skipped_protocols": self.protocol_skip_reasons,
             },
             "summary": [asdict(row) for row in self.summaries()],
         }
-
         summary_json.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
         with raw_csv.open("w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
-            writer.writerow(["protocol", "workload", "round_id", "sample_id", "token", "latency_ms"])
+            writer.writerow(["protocol", "metric", "trial_id", "sample_id", "is_warmup", "token", "latency_ms"])
             for r in self.records:
-                writer.writerow([r.protocol, r.workload, r.round_id, r.sample_id, r.token, f"{r.latency_ms:.6f}"])
+                writer.writerow([r.protocol, r.metric, r.trial_id, r.sample_id, r.is_warmup, r.token, f"{r.latency_ms:.6f}"])
 
         with failures_csv.open("w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
-            writer.writerow(["protocol", "workload", "round_id", "sample_id", "error_type", "error_message"])
+            writer.writerow(["protocol", "metric", "trial_id", "sample_id", "is_warmup", "error_type", "error_message"])
             for r in self.failures:
-                writer.writerow([r.protocol, r.workload, r.round_id, r.sample_id, r.error_type, r.error_message])
+                writer.writerow([r.protocol, r.metric, r.trial_id, r.sample_id, r.is_warmup, r.error_type, r.error_message])
 
         print(f"Saved summary JSON: {summary_json}")
         print(f"Saved raw samples CSV: {raw_csv}")
         print(f"Saved failures CSV: {failures_csv}")
 
+    def run(self) -> None:
+        random.seed(self.args.seed)
+
+        runnable_protocols = list(self.args.protocols)
+        if self.args.shuffle_protocols:
+            random.shuffle(runnable_protocols)
+
+        if self.args.preflight:
+            approved = []
+            for protocol in runnable_protocols:
+                print(f"[preflight/{protocol}] checking session bootstrap and python3 availability...")
+                try:
+                    self._preflight_protocol(protocol)
+                    print(f"[preflight/{protocol}] OK")
+                    approved.append(protocol)
+                except Exception as exc:
+                    self.protocol_skip_reasons[protocol] = str(exc)
+                    print(f"[preflight/{protocol}] FAIL ({type(exc).__name__}: {exc})")
+            runnable_protocols = approved
+
+        for protocol in runnable_protocols:
+            self._run_protocol(protocol)
+
 
 def build_arg_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="W3 Interactive Editing benchmark")
+    p = argparse.ArgumentParser(description="Research-oriented terminal benchmark")
     p.add_argument("--host", default="192.168.8.102", help="Target host IP or hostname")
     p.add_argument("--user", default="trungnt", help="Remote username")
     p.add_argument("--source-ip", default=None, help="Client source IP for SSH/Mosh where supported")
     p.add_argument("--identity-file", default=str(Path.home() / ".ssh" / "id_rsa"), help="SSH private key path")
     p.add_argument("--protocols", nargs="+", default=DEFAULT_PROTOCOLS, choices=DEFAULT_PROTOCOLS)
-    p.add_argument("--workloads", nargs="+", default=DEFAULT_WORKLOADS, choices=DEFAULT_WORKLOADS)
-    p.add_argument("--iterations", type=int, default=100, help="Recorded samples per protocol/workload")
-    p.add_argument("--warmup-rounds", type=int, default=5, help="Warmup samples per protocol/workload")
+    p.add_argument("--metrics", nargs="+", default=DEFAULT_METRICS, choices=DEFAULT_METRICS)
+    p.add_argument("--trials", type=int, default=10, help="Independent session trials per protocol")
+    p.add_argument("--samples-per-trial", type=int, default=50, help="Measured line-echo samples per trial")
+    p.add_argument("--warmup-samples", type=int, default=5, help="Warmup line-echo samples per trial (excluded from summaries)")
     p.add_argument("--timeout", type=int, default=20, help="pexpect timeout in seconds")
     p.add_argument("--seed", type=int, default=42, help="Random seed")
-    p.add_argument("--output-dir", default="w3_results", help="Directory for JSON/CSV outputs")
+    p.add_argument("--output-dir", default="research_results", help="Directory for JSON/CSV outputs")
     p.add_argument("--prompt", default=DEFAULT_PROMPT, help="Temporary shell prompt marker")
     p.add_argument("--ssh3-path", default=DEFAULT_SSH3_PATH, help="SSH3 terminal path suffix")
     p.add_argument("--ssh3-insecure", action="store_true", help="Use -insecure for ssh3")
+    p.add_argument("--ssh3-trust-on-first-use", action="store_true", help="Automatically answer yes to SSH3 certificate trust prompts")
     p.add_argument("--batch-mode", action="store_true", help="Enable BatchMode for SSHv2/Mosh bootstrap SSH")
     p.add_argument("--strict-host-key-checking", action="store_true", help="Keep strict host key checking enabled")
-    p.add_argument("--mosh-predict", default="adaptive", choices=["adaptive", "always", "never"], help="Mosh prediction mode")
-    p.add_argument("--remote-vim-file", default="/tmp/w3_vim_bench.txt", help="Remote file path used for vim workload")
-    p.add_argument("--remote-nano-file", default="/tmp/w3_nano_bench.txt", help="Remote file path used for nano workload")
-    p.add_argument("--shuffle-pairs", action="store_true", help="Shuffle protocol/workload order")
-    p.add_argument("--reopen-on-failure", action="store_true", help="Reopen session after a failed sample")
+    p.add_argument("--mosh-predict", default="never", choices=["adaptive", "always", "never"], help="Mosh prediction mode; 'never' is recommended for fairer protocol comparison")
+    p.add_argument("--mosh-settle-ms", type=float, default=50.0, help="Small post-sample settle delay for Mosh full-screen updates")
+    p.add_argument("--preflight", action="store_true", help="Run bootstrap and python3 availability check before measurements")
     p.add_argument("--log-pexpect", action="store_true", help="Save raw pexpect output per protocol")
-    p.add_argument("--preflight", action="store_true", help="Run one bootstrap/probe session per protocol before benchmarking")
+    p.add_argument("--shuffle-protocols", action="store_true", help="Randomize protocol order")
+    p.add_argument("--reopen-on-failure", action="store_true", help="Continue next trial after a sample failure by reopening a fresh session")
     return p
 
 
@@ -713,12 +639,14 @@ def main() -> int:
     parser = build_arg_parser()
     args = parser.parse_args()
 
-    if args.iterations <= 0:
-        parser.error("--iterations must be > 0")
-    if args.warmup_rounds < 0:
-        parser.error("--warmup-rounds must be >= 0")
+    if args.trials <= 0:
+        parser.error("--trials must be > 0")
+    if args.samples_per_trial <= 0:
+        parser.error("--samples-per-trial must be > 0")
+    if args.warmup_samples < 0:
+        parser.error("--warmup-samples must be >= 0")
 
-    bench = W3Benchmark(args)
+    bench = Benchmark(args)
     bench.run()
     bench.print_report()
     bench.export()
