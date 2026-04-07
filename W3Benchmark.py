@@ -155,10 +155,15 @@ class W3Benchmark:
             child.logfile_read = open(log_path, "a", encoding="utf-8")
 
         try:
-            self._await_shell_ready(child, protocol)
+            self._await_shell_ready(child)
+
+            # Reduce shell/UI noise before switching to stable prompt.
+            child.sendline("unset PROMPT_COMMAND >/dev/null 2>&1 || true")
+            child.sendline("bind 'set enable-bracketed-paste off' >/dev/null 2>&1 || true")
+            child.sendline("export TERM=dumb >/dev/null 2>&1 || true")
             child.sendline(f"export PS1='{self.args.prompt}'")
             child.expect_exact(self.args.prompt)
-            # disable line wrapping side effects where possible
+
             child.sendline("stty -echoctl cols 200 rows 40 >/dev/null 2>&1 || true")
             child.expect_exact(self.args.prompt)
             return child
@@ -166,83 +171,77 @@ class W3Benchmark:
             self._safe_close(child)
             raise
 
-    def _await_shell_ready(self, child: pexpect.spawn, protocol: str) -> None:
-        prompt_patterns = [
-            self.args.prompt,
-            r"[$#] ",
-            r"[$#]$",
-            r"\x1b\[[0-9;?]*[A-Za-z]",
-        ]
-
-        auth_patterns = [
-            r"Are you sure you want to continue connecting \(yes/no(?:/\[fingerprint\])?\)\?",
-            r"[Pp]assword:",
-            r"Permission denied",
-            r"Connection refused",
-            r"No route to host",
-            r"Connection timed out",
-            r"Could not resolve hostname",
-            r"Cannot assign requested address",
-            r"Network is unreachable",
-            r"closed by remote host",
-            pexpect.EOF,
-            pexpect.TIMEOUT,
-        ]
-
+    def _await_shell_ready(self, child: pexpect.spawn) -> None:
         deadline = time.monotonic() + self.args.timeout
 
         while time.monotonic() < deadline:
             remaining = max(1, int(deadline - time.monotonic()))
-            idx = child.expect(prompt_patterns + auth_patterns, timeout=remaining)
+            idx = child.expect(
+                [
+                    r"Are you sure you want to continue connecting \(yes/no(?:/\[fingerprint\])?\)\?",
+                    r"[Pp]assword:",
+                    r"Permission denied",
+                    r"Connection refused",
+                    r"No route to host",
+                    r"Connection timed out",
+                    r"Could not resolve hostname",
+                    r"Cannot assign requested address",
+                    r"Network is unreachable",
+                    r"closed by remote host",
+                    self.args.prompt,
+                    r"[$#] ?",
+                    r"\x1b\[[0-9;?]*[A-Za-z]",
+                    pexpect.EOF,
+                    pexpect.TIMEOUT,
+                ],
+                timeout=remaining,
+            )
 
             if idx == 0:
-                return
-
-            if idx in (1, 2, 3):
-                # Saw a normal shell prompt or ANSI escape noise; probe shell readiness.
+                child.sendline("yes")
+                continue
+            if idx == 1:
+                raise SessionOpenError("Authentication fell back to password; key auth is not working")
+            if idx == 2:
+                raise SessionOpenError("Permission denied")
+            if idx == 3:
+                raise SessionOpenError("Connection refused")
+            if idx == 4:
+                raise SessionOpenError("No route to host")
+            if idx == 5:
+                raise SessionOpenError("Connection timed out")
+            if idx == 6:
+                raise SessionOpenError("Could not resolve hostname")
+            if idx == 7:
+                raise SessionOpenError("Cannot assign requested address for source IP")
+            if idx == 8:
+                raise SessionOpenError("Network is unreachable")
+            if idx == 9:
+                raise SessionOpenError("Connection closed by remote host")
+            if idx in (10, 11, 12):
                 child.sendline("printf '__W3_READY__\\n'")
                 probe_idx = child.expect(
-                    ["__W3_READY__", r"[Pp]assword:", "Permission denied", pexpect.EOF, pexpect.TIMEOUT],
+                    [
+                        "__W3_READY__",
+                        r"[Pp]assword:",
+                        "Permission denied",
+                        pexpect.EOF,
+                        pexpect.TIMEOUT,
+                    ],
                     timeout=max(1, min(5, remaining)),
                 )
                 if probe_idx == 0:
-                    child.expect([r"[$#] ", r"[$#]$", self.args.prompt], timeout=max(1, min(5, remaining)))
                     return
                 if probe_idx == 1:
-                    raise SessionOpenError("Authentication fell back to password; key auth is not working")
+                    raise SessionOpenError("Authentication fell back to password during readiness probe")
                 if probe_idx == 2:
                     raise SessionOpenError("Permission denied during readiness probe")
                 if probe_idx == 3:
                     raise SessionOpenError(f"Session closed early (EOF). Output before EOF: {child.before!r}")
                 raise SessionOpenError(f"Timeout while probing shell readiness. Output: {child.before!r}")
-
-            auth_offset = len(prompt_patterns)
-            which = idx - auth_offset
-
-            if which == 0:
-                child.sendline("yes")
-                continue
-            if which == 1:
-                raise SessionOpenError("Authentication fell back to password; key auth is not working")
-            if which == 2:
-                raise SessionOpenError("Permission denied")
-            if which == 3:
-                raise SessionOpenError("Connection refused")
-            if which == 4:
-                raise SessionOpenError("No route to host")
-            if which == 5:
-                raise SessionOpenError("Connection timed out")
-            if which == 6:
-                raise SessionOpenError("Could not resolve hostname")
-            if which == 7:
-                raise SessionOpenError("Cannot assign requested address for source IP")
-            if which == 8:
-                raise SessionOpenError("Network is unreachable")
-            if which == 9:
-                raise SessionOpenError("Connection closed by remote host")
-            if which == 10:
+            if idx == 13:
                 raise SessionOpenError(f"Session closed early (EOF). Output before EOF: {child.before!r}")
-            if which == 11:
+            if idx == 14:
                 raise SessionOpenError(f"Timeout waiting for remote shell. Output: {child.before!r}")
 
         raise SessionOpenError(f"Timeout waiting for remote shell. Output: {child.before!r}")
@@ -292,7 +291,32 @@ class W3Benchmark:
     def _measure_vim(self, child: pexpect.spawn, token: str) -> float:
         remote_file = self.args.remote_vim_file
         child.sendline(f"vim -Nu NONE -n {shlex.quote(remote_file)}")
-        child.expect([r"-- INSERT --", r"INSERT", r'"[^"]*".*', r"\[New File\]"], timeout=self.args.timeout)
+
+        idx = child.expect(
+            [
+                r"-- INSERT --",
+                r"INSERT",
+                r'"[^"]*".*',
+                r"\[New File\]",
+                r"E325:",
+                r"command not found",
+                pexpect.TIMEOUT,
+                pexpect.EOF,
+            ],
+            timeout=self.args.timeout,
+        )
+
+        if idx == 4:
+            child.send("Q")
+            child.expect_exact(self.args.prompt)
+            raise RuntimeError("vim swap file warning (E325)")
+        if idx == 5:
+            child.expect_exact(self.args.prompt)
+            raise RuntimeError("vim not available on remote host")
+        if idx == 6:
+            raise RuntimeError("timeout waiting for vim to open")
+        if idx == 7:
+            raise RuntimeError("EOF while opening vim")
 
         child.send("i")
         start_ns = time.perf_counter_ns()
@@ -308,7 +332,18 @@ class W3Benchmark:
     def _measure_nano(self, child: pexpect.spawn, token: str) -> float:
         remote_file = self.args.remote_nano_file
         child.sendline(f"nano --ignorercfiles {shlex.quote(remote_file)}")
-        child.expect([r"GNU nano", r"\^G Help"], timeout=self.args.timeout)
+
+        idx = child.expect(
+            [r"GNU nano", r"\^G Help", r"command not found", pexpect.TIMEOUT, pexpect.EOF],
+            timeout=self.args.timeout,
+        )
+        if idx == 2:
+            child.expect_exact(self.args.prompt)
+            raise RuntimeError("nano not available on remote host")
+        if idx == 3:
+            raise RuntimeError("timeout waiting for nano to open")
+        if idx == 4:
+            raise RuntimeError("EOF while opening nano")
 
         start_ns = time.perf_counter_ns()
         child.send(token)
@@ -407,22 +442,19 @@ class W3Benchmark:
                         self._safe_close(child)
                         child = None
 
-                    if self.args.reopen_on_failure or is_warmup or protocol in ("ssh", "mosh", "ssh3"):
-                        try:
-                            child = self._open_session(protocol)
-                            if workload == "vim":
-                                self._ensure_remote_command(child, "vim")
-                            elif workload == "nano":
-                                self._ensure_remote_command(child, "nano")
-                        except Exception as reopen_exc:
-                            self._record_failure(protocol, workload, round_id, measure_id, reopen_exc, child)
-                            print(
-                                f"[{protocol:>4}/{workload:<18}] reopen after fail: "
-                                f"FAIL ({type(reopen_exc).__name__}: {reopen_exc})"
-                            )
-                            child = None
-
-                    if child is None and not self.args.reopen_on_failure:
+                    try:
+                        child = self._open_session(protocol)
+                        if workload == "vim":
+                            self._ensure_remote_command(child, "vim")
+                        elif workload == "nano":
+                            self._ensure_remote_command(child, "nano")
+                    except Exception as reopen_exc:
+                        self._record_failure(protocol, workload, round_id, measure_id, reopen_exc, child)
+                        print(
+                            f"[{protocol:>4}/{workload:<18}] reopen after fail: "
+                            f"FAIL ({type(reopen_exc).__name__}: {reopen_exc})"
+                        )
+                        child = None
                         break
         finally:
             if child is not None:
@@ -582,7 +614,6 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--remote-vim-file", default="/tmp/w3_vim_bench.txt", help="Remote file path used for vim workload")
     p.add_argument("--remote-nano-file", default="/tmp/w3_nano_bench.txt", help="Remote file path used for nano workload")
     p.add_argument("--shuffle-pairs", action="store_true", help="Shuffle protocol/workload order")
-    p.add_argument("--reopen-on-failure", action="store_true", help="Reopen session after a failed measured sample")
     p.add_argument("--log-pexpect", action="store_true", help="Save raw pexpect output per protocol")
     p.add_argument("--preflight", action="store_true", help="Run one bootstrap/probe session per protocol before benchmarking")
     return p
