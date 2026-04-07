@@ -12,15 +12,16 @@ Primary metrics
    accepts commands.
 
 2. line_echo_ms
-   Time from sending a line of input to receiving the server-side done_marker
-   confirmation from the remote helper process. This measures the true
+   Time from sending a line of input to receiving a unique server-side
+   acknowledgement marker from the remote helper process. This measures the true
    application-level round-trip time (RTT): the token must travel to the server,
-   be processed by the helper, and the done_marker must return to the client.
+   be processed by the helper, and the acknowledgement marker must return to
+   the client.
 
    IMPORTANT: We do NOT stop timing at the PTY echo of the token itself, because
    PTY echo can be handled locally (especially in Mosh with local prediction).
-   Stopping at done_marker guarantees the server actually received and processed
-   the line — making the measurement protocol-fair.
+   Stopping at the server-side acknowledgement guarantees the server actually
+   received and processed the line — making the measurement protocol-fair.
 
 Methodology notes
 -----------------
@@ -41,13 +42,14 @@ import math
 import os
 import platform
 import random
+import re
 import shlex
 import statistics
 import string
 import subprocess
 import sys
 import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -62,6 +64,17 @@ DEFAULT_PROTOCOLS = ["ssh", "ssh3", "mosh"]
 DEFAULT_PROMPT = "__W3_PROMPT__#"
 DEFAULT_SSH3_PATH = "/ssh3-term"
 DEFAULT_METRICS = ["session_setup", "line_echo"]
+
+TERMINAL_NOISE_GAP = (
+    r"(?:"
+    r"\x1b\[[0-?]*[ -/]*[@-~]"
+    r"|\x1b[@-Z\\-_]"
+    r"|[\r\n\x00\x08]"
+    r")*"
+)
+ANSI_CSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+ANSI_FE_RE = re.compile(r"\x1b[@-Z\\-_]")
+CONTROL_CHAR_RE = re.compile(r"[\r\x00\x08]")
 
 
 @dataclass
@@ -132,9 +145,39 @@ class Benchmark:
         self.ping_rtts: Dict[str, List[Optional[float]]] = {p: [] for p in args.protocols}
         self.remote_meta = RemoteMeta()
         self.results: Dict[str, Dict[str, List[float]]] = {
-            protocol: {metric: [] for metric in args.metrics}
+            protocol: {metric: [] for metric in DEFAULT_METRICS}
             for protocol in args.protocols
         }
+        self._literal_pattern_cache: Dict[str, re.Pattern[str]] = {}
+
+    def _literal_pattern(self, literal: str) -> re.Pattern[str]:
+        pattern = self._literal_pattern_cache.get(literal)
+        if pattern is None:
+            pattern = re.compile(
+                "".join(f"{re.escape(ch)}{TERMINAL_NOISE_GAP}" for ch in literal),
+                re.DOTALL,
+            )
+            self._literal_pattern_cache[literal] = pattern
+        return pattern
+
+    def _expect_literal(self, child: pexpect.spawn, literal: str, timeout: Optional[float] = None) -> int:
+        return child.expect(self._literal_pattern(literal), timeout=timeout)
+
+    @staticmethod
+    def _strip_terminal_noise(text: str) -> str:
+        text = ANSI_CSI_RE.sub("", text)
+        text = ANSI_FE_RE.sub("", text)
+        text = CONTROL_CHAR_RE.sub("", text)
+        return text
+
+    def _debug_buffer(self, child: pexpect.spawn, limit: int = 400) -> str:
+        raw = getattr(child, "before", "") or ""
+        clean = self._strip_terminal_noise(raw)
+        if len(raw) > limit:
+            raw = raw[-limit:]
+        if len(clean) > limit:
+            clean = clean[-limit:]
+        return f"raw_tail={raw!r} | clean_tail={clean!r}"
 
     def _token(self, protocol: str, metric: str, trial_id: int, sample_id: int) -> str:
         rand = "".join(random.choices(string.ascii_uppercase + string.digits, k=8))
@@ -199,7 +242,12 @@ class Benchmark:
             encoding="utf-8",
             codec_errors="ignore",
             timeout=self.args.timeout,
+            maxread=65535,
         )
+        try:
+            child.setwinsize(self.args.pty_rows, self.args.pty_cols)
+        except Exception:
+            pass
         if self.args.log_pexpect:
             log_path = Path(self.args.output_dir) / f"pexpect_{protocol}.log"
             log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -210,7 +258,7 @@ class Benchmark:
         deadline = time.monotonic() + self.args.timeout
 
         while time.monotonic() < deadline:
-            remaining = max(1, int(deadline - time.monotonic()))
+            remaining = max(1.0, deadline - time.monotonic())
             idx = child.expect(
                 [
                     r"Are you sure you want to continue connecting \(yes/no(?:/\[fingerprint\])?\)\?",
@@ -224,7 +272,7 @@ class Benchmark:
                     r"Cannot assign requested address",
                     r"Network is unreachable",
                     r"closed by remote host",
-                    self.args.prompt,
+                    self._literal_pattern(self.args.prompt),
                     r"[$#] ?",
                     r"\x1b\[[0-9;?]*[A-Za-z]",
                     pexpect.EOF,
@@ -263,8 +311,14 @@ class Benchmark:
             if idx in (11, 12, 13):
                 child.sendline("printf '__W3_READY__\\n'")
                 probe_idx = child.expect(
-                    ["__W3_READY__", r"\[Pp\]assword:", "Permission denied", pexpect.EOF, pexpect.TIMEOUT],
-                    timeout=max(1, min(5, remaining)),
+                    [
+                        self._literal_pattern("__W3_READY__"),
+                        r"\[Pp\]assword:",
+                        "Permission denied",
+                        pexpect.EOF,
+                        pexpect.TIMEOUT,
+                    ],
+                    timeout=max(1.0, min(5.0, deadline - time.monotonic())),
                 )
                 if probe_idx == 0:
                     return
@@ -273,15 +327,15 @@ class Benchmark:
                 if probe_idx == 2:
                     raise SessionOpenError("Permission denied during readiness probe")
                 if probe_idx == 3:
-                    raise SessionOpenError(f"Session closed early (EOF). Output before EOF: {child.before!r}")
-                raise SessionOpenError(f"Timeout while probing shell readiness. Output: {child.before!r}")
+                    raise SessionOpenError(f"Session closed early (EOF). {self._debug_buffer(child)}")
+                raise SessionOpenError(f"Timeout while probing shell readiness. {self._debug_buffer(child)}")
 
             if idx == 14:
-                raise SessionOpenError(f"Session closed early (EOF). Output before EOF: {child.before!r}")
+                raise SessionOpenError(f"Session closed early (EOF). {self._debug_buffer(child)}")
             if idx == 15:
-                raise SessionOpenError(f"Timeout waiting for remote shell. Output: {child.before!r}")
+                raise SessionOpenError(f"Timeout waiting for remote shell. {self._debug_buffer(child)}")
 
-        raise SessionOpenError(f"Timeout waiting for remote shell. Output: {child.before!r}")
+        raise SessionOpenError(f"Timeout waiting for remote shell. {self._debug_buffer(child)}")
 
     def _open_session(self, protocol: str) -> tuple[pexpect.spawn, float]:
         start_ns = time.perf_counter_ns()
@@ -297,11 +351,13 @@ class Benchmark:
                 f"printf '{setup_marker}\\n'"
             )
             child.sendline(setup_cmd)
-            child.expect_exact(setup_marker)
-            child.expect_exact(self.args.prompt)
+            self._expect_literal(child, setup_marker, timeout=self.args.timeout)
+            self._expect_literal(child, self.args.prompt, timeout=self.args.timeout)
 
-            child.sendline("stty -echoctl cols 200 rows 40 >/dev/null 2>&1 || true")
-            child.expect_exact(self.args.prompt)
+            child.sendline(
+                f"stty -echo -echoctl cols {self.args.pty_cols} rows {self.args.pty_rows} >/dev/null 2>&1 || true"
+            )
+            self._expect_literal(child, self.args.prompt, timeout=self.args.timeout)
 
             end_ns = time.perf_counter_ns()
             return child, (end_ns - start_ns) / 1_000_000.0
@@ -357,7 +413,7 @@ class Benchmark:
         extra = ""
         if child is not None:
             try:
-                extra = f" | before={child.before!r}"
+                extra = f" | {self._debug_buffer(child)}"
             except Exception:
                 pass
         self.failures.append(
@@ -374,35 +430,32 @@ class Benchmark:
 
     def _collect_remote_meta(self, child: pexpect.spawn) -> None:
         """Query remote system info and populate self.remote_meta."""
-        def _run(cmd: str) -> str:
+
+        def _run(cmd: str, default: str = "unknown") -> str:
             child.sendline(cmd)
-            child.expect_exact(self.args.prompt, timeout=10)
-            return (child.before or "").strip()
+            self._expect_literal(child, self.args.prompt, timeout=10)
+            clean = self._strip_terminal_noise(child.before or "")
+            lines = [line.strip() for line in clean.splitlines() if line.strip()]
+            filtered = [line for line in lines if line != cmd]
+            return filtered[-1] if filtered else default
 
-        self.remote_meta.kernel = _run("uname -r").splitlines()[-1] if _run("uname -r") else "unknown"
-
-        child.sendline("uname -r")
-        child.expect_exact(self.args.prompt, timeout=10)
-        self.remote_meta.kernel = (child.before or "unknown").strip().splitlines()[-1]
-
-        child.sendline("mosh --version 2>&1 | head -1")
-        child.expect_exact(self.args.prompt, timeout=10)
-        self.remote_meta.mosh_version = (child.before or "unknown").strip().splitlines()[-1]
-
-        child.sendline("ssh -V 2>&1 | head -1")
-        child.expect_exact(self.args.prompt, timeout=10)
-        self.remote_meta.ssh_version = (child.before or "unknown").strip().splitlines()[-1]
-
-        child.sendline("python3 --version 2>&1")
-        child.expect_exact(self.args.prompt, timeout=10)
-        self.remote_meta.python_version = (child.before or "unknown").strip().splitlines()[-1]
+        self.remote_meta.kernel = _run("uname -r")
+        self.remote_meta.mosh_version = _run("mosh --version 2>&1 | head -1")
+        self.remote_meta.ssh_version = _run("ssh -V 2>&1 | head -1")
+        self.remote_meta.ssh3_version = _run(
+            "command -v ssh3 >/dev/null 2>&1 && ssh3 -version 2>&1 | head -1 || printf 'unknown\\n'"
+        )
+        self.remote_meta.python_version = _run("python3 --version 2>&1")
 
     def _preflight_protocol(self, protocol: str) -> None:
         child, _ = self._open_session(protocol)
         try:
             child.sendline("command -v python3 >/dev/null 2>&1 && printf '__W3_HAS_PY3__\\n' || printf '__W3_NO_PY3__\\n'")
-            idx = child.expect(["__W3_HAS_PY3__", "__W3_NO_PY3__"], timeout=self.args.timeout)
-            child.expect_exact(self.args.prompt)
+            idx = child.expect(
+                [self._literal_pattern("__W3_HAS_PY3__"), self._literal_pattern("__W3_NO_PY3__")],
+                timeout=self.args.timeout,
+            )
+            self._expect_literal(child, self.args.prompt, timeout=self.args.timeout)
             if idx == 1:
                 raise PreflightError("Remote host is missing python3, required for controlled line-echo helper")
 
@@ -413,13 +466,13 @@ class Benchmark:
 
     def _start_line_helper(self, child: pexpect.spawn, protocol: str, trial_id: int) -> tuple[str, str]:
         ready_marker = f"__W3_HELPER_READY__{protocol}__t{trial_id}__"
-        done_marker = f"__W3_HELPER_DONE__{protocol}__t{trial_id}__"
+        ack_prefix = f"__W3_HELPER_ACK__{protocol}__t{trial_id}__"
         exit_marker = f"__W3_HELPER_BYE__{protocol}__t{trial_id}__"
 
         helper_code = (
             "import os, sys; "
             "ready=os.environ['W3_READY']; "
-            "done=os.environ['W3_DONE']; "
+            "ack=os.environ['W3_ACK']; "
             "bye=os.environ['W3_BYE']; "
             "print(ready, flush=True); "
             "\nfor line in sys.stdin:"
@@ -427,26 +480,25 @@ class Benchmark:
             "\n    if line == '__W3_EXIT_HELPER__':"
             "\n        print(bye, flush=True)"
             "\n        break"
-            "\n    print(line, flush=True)"
-            "\n    print(done, flush=True)"
+            "\n    print(f'{ack}{line}', flush=True)"
         )
 
         cmd = (
             f"W3_READY={shlex.quote(ready_marker)} "
-            f"W3_DONE={shlex.quote(done_marker)} "
+            f"W3_ACK={shlex.quote(ack_prefix)} "
             f"W3_BYE={shlex.quote(exit_marker)} "
             f"python3 -u -c {shlex.quote(helper_code)}"
         )
         child.sendline(cmd)
-        child.expect_exact(ready_marker)
-        return done_marker, exit_marker
+        self._expect_literal(child, ready_marker, timeout=self.args.timeout)
+        return ack_prefix, exit_marker
 
     def _stop_line_helper(self, child: pexpect.spawn, exit_marker: str) -> None:
         child.sendline("__W3_EXIT_HELPER__")
-        child.expect_exact(exit_marker)
+        self._expect_literal(child, exit_marker, timeout=self.args.timeout)
         child.sendline("printf '__W3_BACK__\\n'")
-        child.expect_exact("__W3_BACK__")
-        child.expect_exact(self.args.prompt)
+        self._expect_literal(child, "__W3_BACK__", timeout=self.args.timeout)
+        self._expect_literal(child, self.args.prompt, timeout=self.args.timeout)
 
     def _measure_line_echo(
         self,
@@ -454,28 +506,27 @@ class Benchmark:
         protocol: str,
         trial_id: int,
         sample_id: int,
-        done_marker: str,
+        ack_prefix: str,
     ) -> tuple[str, float]:
         """Measure true application-level round-trip time.
 
-        Timing starts immediately before sendline() and ends when done_marker
-        is observed. done_marker is emitted by the remote Python helper *after*
-        it has echoed the token back — so the measurement spans:
+        Timing starts immediately before sendline() and ends when a unique
+        server-side acknowledgement marker is observed. The remote helper emits
+        ACK_PREFIX + TOKEN only after it has actually read and processed the
+        line, so the measurement spans:
 
             client sendline → network → server receives → helper processes
-            → server sends token + done_marker → network → client observes done_marker
+            → server sends ack_prefix + token → network → client observes ack
 
-        This is NOT stopped at the PTY echo of the token, which would capture
+        This is NOT stopped at any PTY echo of the token, which would capture
         only local PTY processing and is meaningless as a protocol comparison
         metric (especially for Mosh, which uses local echo prediction).
         """
         token = self._token(protocol, "line_echo", trial_id, sample_id)
+        ack_marker = f"{ack_prefix}{token}"
         start_ns = time.perf_counter_ns()
         child.sendline(token)
-        # Drain the token echo (may be local PTY echo — do NOT time this)
-        child.expect_exact(token)
-        # Wait for the server-side done_marker: this IS the round-trip confirmation
-        child.expect_exact(done_marker)
+        self._expect_literal(child, ack_marker, timeout=self.args.timeout)
         end_ns = time.perf_counter_ns()
         return token, (end_ns - start_ns) / 1_000_000.0
 
@@ -488,10 +539,12 @@ class Benchmark:
             print(f"[{protocol:>4}] trial {trial_id}/{self.args.trials} — ping baseline: {ping_str}")
 
             child: Optional[pexpect.spawn] = None
-            done_marker = None
+            ack_prefix = None
             exit_marker = None
+            setup_completed = False
             try:
                 child, setup_ms = self._open_session(protocol)
+                setup_completed = True
                 self._record_success(
                     protocol=protocol,
                     metric="session_setup",
@@ -506,13 +559,13 @@ class Benchmark:
                 if "line_echo" not in self.args.metrics:
                     continue
 
-                done_marker, exit_marker = self._start_line_helper(child, protocol, trial_id)
+                ack_prefix, exit_marker = self._start_line_helper(child, protocol, trial_id)
                 total = self.args.warmup_samples + self.args.samples_per_trial
                 for i in range(1, total + 1):
                     is_warmup = i <= self.args.warmup_samples
                     sample_id = i if is_warmup else (i - self.args.warmup_samples)
                     try:
-                        token, latency_ms = self._measure_line_echo(child, protocol, trial_id, sample_id, done_marker)
+                        token, latency_ms = self._measure_line_echo(child, protocol, trial_id, sample_id, ack_prefix)
                         self._record_success(protocol, "line_echo", trial_id, sample_id, is_warmup, token, latency_ms)
                         tag = "warmup" if is_warmup else "measure"
                         limit = self.args.warmup_samples if is_warmup else self.args.samples_per_trial
@@ -524,13 +577,12 @@ class Benchmark:
                             raise
                         break
             except Exception as exc:
-                if child is None:
-                    self._record_failure(protocol, "session_setup", trial_id, 1, False, exc, None)
+                if not setup_completed:
+                    self._record_failure(protocol, "session_setup", trial_id, 1, False, exc, child)
                     print(f"[{protocol:>4}/session_setup] trial {trial_id}: FAIL ({type(exc).__name__}: {exc})")
                 else:
-                    if done_marker is None:
-                        self._record_failure(protocol, "line_echo", trial_id, 0, False, exc, child)
-                        print(f"[{protocol:>4}/line_echo   ] trial {trial_id}: FAIL ({type(exc).__name__}: {exc})")
+                    self._record_failure(protocol, "line_echo", trial_id, 0, False, exc, child)
+                    print(f"[{protocol:>4}/line_echo   ] trial {trial_id}: FAIL ({type(exc).__name__}: {exc})")
             finally:
                 if child is not None:
                     try:
@@ -631,6 +683,8 @@ class Benchmark:
                 "samples_per_trial": self.args.samples_per_trial,
                 "warmup_samples": self.args.warmup_samples,
                 "timeout_sec": self.args.timeout,
+                "pty_cols": self.args.pty_cols,
+                "pty_rows": self.args.pty_rows,
                 "random_seed": self.args.seed,
                 "topology": {
                     "client": self.args.source_ip or "default-route",
@@ -650,9 +704,10 @@ class Benchmark:
                 },
                 "metric_note": (
                     "session_setup_ms = client-spawn to stable shell (includes TCP+crypto handshake + shell init); "
-                    "line_echo_ms = true application-level RTT measured from sendline() to server-side done_marker "
-                    "(NOT stopped at local PTY echo — ensures Mosh local prediction does not artificially deflate results). "
-                    "These are application-level terminal timings, not human-perceived keyboard-to-screen latency."
+                    "line_echo_ms = true application-level RTT measured from sendline() to a unique server-side ack marker "
+                    "(ACK_PREFIX + token emitted by the remote helper after it reads the line; NOT stopped at local PTY echo "
+                    "— ensures Mosh local prediction does not artificially deflate results). These are application-level "
+                    "terminal timings, not human-perceived keyboard-to-screen latency."
                 ),
                 "skipped_protocols": self.protocol_skip_reasons,
             },
@@ -720,6 +775,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--samples-per-trial", type=int, default=50, help="Measured line-echo samples per trial")
     p.add_argument("--warmup-samples", type=int, default=5, help="Warmup line-echo samples per trial (excluded from summaries)")
     p.add_argument("--timeout", type=int, default=20, help="pexpect timeout in seconds")
+    p.add_argument("--pty-cols", type=int, default=200, help="Client PTY width passed to the spawned terminal")
+    p.add_argument("--pty-rows", type=int, default=40, help="Client PTY height passed to the spawned terminal")
     p.add_argument("--seed", type=int, default=42, help="Random seed")
     p.add_argument("--output-dir", default="research_results", help="Directory for JSON/CSV outputs")
     p.add_argument("--prompt", default=DEFAULT_PROMPT, help="Temporary shell prompt marker")
@@ -747,6 +804,10 @@ def main() -> int:
         parser.error("--samples-per-trial must be > 0")
     if args.warmup_samples < 0:
         parser.error("--warmup-samples must be >= 0")
+    if args.pty_cols <= 0:
+        parser.error("--pty-cols must be > 0")
+    if args.pty_rows <= 0:
+        parser.error("--pty-rows must be > 0")
 
     bench = Benchmark(args)
     bench.run()
