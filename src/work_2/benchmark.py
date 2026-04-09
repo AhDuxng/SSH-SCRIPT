@@ -454,7 +454,11 @@ class Benchmark:
 
         t0 = time.perf_counter_ns()
         child.sendline(token)
-        self._wait_ack_via_stream(child, ack_marker, self.args.timeout)
+        try:
+            self._wait_ack_via_stream(child, ack_marker, self.args.timeout)
+        except pexpect.TIMEOUT:
+            child.sendline(token)
+            self._wait_ack_via_stream(child, ack_marker, self.args.timeout)
         t1 = time.perf_counter_ns()
 
         return token, (t1 - t0) / 1e6
