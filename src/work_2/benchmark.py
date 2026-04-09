@@ -451,14 +451,16 @@ class Benchmark:
         """
         token      = self._token(protocol, trial_id, sample_id)
         ack_marker = ack_prefix + token
+        echo_timeout = float(getattr(self.args, "echo_timeout", self.args.timeout))
+        echo_retry_timeout = float(getattr(self.args, "echo_retry_timeout", echo_timeout))
 
         t0 = time.perf_counter_ns()
         child.sendline(token)
         try:
-            self._wait_ack_via_stream(child, ack_marker, self.args.timeout)
+            self._wait_ack_via_stream(child, ack_marker, echo_timeout)
         except pexpect.TIMEOUT:
             child.sendline(token)
-            self._wait_ack_via_stream(child, ack_marker, self.args.timeout)
+            self._wait_ack_via_stream(child, ack_marker, echo_retry_timeout)
         t1 = time.perf_counter_ns()
 
         return token, (t1 - t0) / 1e6
@@ -613,6 +615,8 @@ class Benchmark:
                 "samples_per_trial": self.args.samples_per_trial,
                 "warmup_samples":    self.args.warmup_samples,
                 "timeout_sec":       self.args.timeout,
+                "echo_timeout_sec":  getattr(self.args, "echo_timeout", self.args.timeout),
+                "echo_retry_timeout_sec": getattr(self.args, "echo_retry_timeout", getattr(self.args, "echo_timeout", self.args.timeout)),
                 "pty_cols":          self.args.pty_cols,
                 "pty_rows":          self.args.pty_rows,
                 "random_seed":       self.args.seed,
