@@ -31,7 +31,7 @@ from models import FailureRecord, RemoteMeta, SampleRecord, SummaryRow
 ANSI_STRIP_RE = re.compile(
     r"\x1b\[[0-?]*[ -/]*[@-~]"
     r"|\x1b[@-Z\\-_]"
-    r"|[\r\x00\x08]"
+    r"|[\r\n\x00\x08]"
 )
 
 
@@ -163,21 +163,21 @@ class Benchmark:
 
 
     _SHELL_READY_PATTERNS = [
-        r"Are you sure you want to continue connecting \(yes/no(?:/\[fingerprint\])?\)\?",  # 0
-        r"Do you want to add this certificate to .*known_hosts \(yes/no\)\?",              # 1
-        r"\[Pp\]assword:",                                                                  # 2
-        r"Permission denied",                                                               # 3
-        r"Connection refused",                                                              # 4
-        r"No route to host",                                                                # 5
-        r"Connection timed out",                                                            # 6
-        r"Could not resolve hostname",                                                      # 7
-        r"Cannot assign requested address",                                                 # 8
-        r"Network is unreachable",                                                          # 9
-        r"closed by remote host",                                                           # 10
-        r"[$#] ?$",                                                                         # 11 shell prompt
-        r"\x1b\[[0-9;?]*[A-Za-z]",                                                         # 12 Mosh screen
-        pexpect.EOF,                                                                        # 13
-        pexpect.TIMEOUT,                                                                    # 14
+        r"Are you sure you want to continue connecting \(yes/no(?:/\[fingerprint\])?\)\?",  
+        r"Do you want to add this certificate to .*known_hosts \(yes/no\)\?",              
+        r"\[Pp\]assword:",                                                                  
+        r"Permission denied",                                                               
+        r"Connection refused",                                                              
+        r"No route to host",                                                                
+        r"Connection timed out",                                                            
+        r"Could not resolve hostname",                                                      
+        r"Cannot assign requested address",                                                 
+        r"Network is unreachable",                                                        
+        r"closed by remote host",                                                           
+        r"[$#] ?$",                                                                        
+        r"\x1b\[[0-9;?]*[A-Za-z]",                                                         
+        pexpect.EOF,                                                                       
+        pexpect.TIMEOUT,                                                                    
     ]
 
     _FATAL_MESSAGES = [
@@ -356,7 +356,7 @@ class Benchmark:
     ) -> Tuple[str, str]:
         """Start the Python helper on the server. Returns (ack_prefix, bye_marker)."""
         ready = f"W3RDY{protocol[:2].upper()}{trial_id:03d}Z"
-        ack   = f"W3ACK{protocol[:2].upper()}{trial_id:03d}A"   # prefix only
+        ack   = f"W3ACK{protocol[:2].upper()}{trial_id:03d}A"   
         bye   = f"W3BYE{protocol[:2].upper()}{trial_id:03d}Z"
 
         helper = (
@@ -412,7 +412,15 @@ class Benchmark:
 
         t0 = time.perf_counter_ns()
         child.sendline(token)
-        self._expect_literal(child, ack_marker, timeout=self.args.timeout)
+        try:
+            self._expect_literal(child, ack_marker, timeout=self.args.timeout)
+        except pexpect.TIMEOUT as exc:
+            cleaned = self._strip_ansi(getattr(child, "before", "") or "")
+            pos = cleaned.rfind(ack_prefix)
+            if pos >= 0 and token in cleaned[pos:]:
+                pass
+            else:
+                raise exc
         t1 = time.perf_counter_ns()
 
         return token, (t1 - t0) / 1e6
