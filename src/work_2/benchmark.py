@@ -389,6 +389,48 @@ class Benchmark:
         self._expect_literal(child, "W3BACK", timeout=self.args.timeout)
         self._expect_literal(child, self.args.prompt, timeout=self.args.timeout)
 
+    def _wait_ack_via_stream(
+        self,
+        child: pexpect.spawn,
+        ack_marker: str,
+        timeout_s: float,
+    ) -> None:
+        """Read PTY stream and search ACK in ANSI-stripped text.
+
+        This avoids false TIMEOUTs caused by Mosh redraw/control-sequence
+        interleaving that can break regex-based matching in pexpect's searcher.
+        """
+        deadline = time.monotonic() + timeout_s
+        raw_parts: List[str] = []
+        max_chars = 32768
+
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise pexpect.TIMEOUT(f"Timeout waiting ACK marker: {ack_marker}")
+
+            try:
+                chunk = child.read_nonblocking(
+                    size=4096,
+                    timeout=min(0.5, max(0.05, remaining)),
+                )
+            except pexpect.TIMEOUT:
+                continue
+            except pexpect.EOF as exc:
+                raise SessionOpenError(f"EOF while waiting ACK. {self._buf(child)}") from exc
+
+            if not chunk:
+                continue
+
+            raw_parts.append(chunk)
+            if sum(len(x) for x in raw_parts) > max_chars:
+                joined = "".join(raw_parts)[-max_chars:]
+                raw_parts = [joined]
+
+            cleaned = self._strip_ansi("".join(raw_parts))
+            if ack_marker in cleaned:
+                return
+
     def _measure_echo(
         self,
         child: pexpect.spawn,
@@ -412,15 +454,7 @@ class Benchmark:
 
         t0 = time.perf_counter_ns()
         child.sendline(token)
-        try:
-            self._expect_literal(child, ack_marker, timeout=self.args.timeout)
-        except pexpect.TIMEOUT as exc:
-            cleaned = self._strip_ansi(getattr(child, "before", "") or "")
-            pos = cleaned.rfind(ack_prefix)
-            if pos >= 0 and token in cleaned[pos:]:
-                pass
-            else:
-                raise exc
+        self._wait_ack_via_stream(child, ack_marker, self.args.timeout)
         t1 = time.perf_counter_ns()
 
         return token, (t1 - t0) / 1e6
