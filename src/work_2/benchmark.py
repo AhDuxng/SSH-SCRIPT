@@ -15,7 +15,7 @@ import time
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 try:
     import pexpect
@@ -53,8 +53,7 @@ class Benchmark:
 
     def _literal_pattern(self, literal: str) -> re.Pattern:
         """Regex that matches literal even with ANSI escape sequences interleaved.
-        Mosh injects cursor-positioning codes between characters of long tokens.
-        Result is cached — each unique string compiled only once."""
+        Uses ANSI_NOISE (which excludes \\r\\n) as the inter-character gap."""
         pat = self._pattern_cache.get(literal)
         if pat is None:
             pat = re.compile(
@@ -75,6 +74,7 @@ class Benchmark:
 
     @staticmethod
     def _strip_ansi(text: str) -> str:
+        """Remove ANSI codes + control chars for display / metadata purposes."""
         return ANSI_STRIP_RE.sub("", text)
 
     def _buf(self, child: pexpect.spawn, limit: int = 300) -> str:
@@ -82,14 +82,12 @@ class Benchmark:
         clean = self._strip_ansi(raw)[-limit:]
         return f"raw={raw!r} clean={clean!r}"
 
-
     def _token(self, protocol: str, trial_id: int, sample_id: int) -> str:
         rand = "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
-
+        # Max ≈ 19 chars — short enough to avoid Mosh line-wrap splitting
         return f"W3T{protocol[:2].upper()}{trial_id:03d}{sample_id:04d}{rand}Z"
 
     def _ping_rtt_ms(self) -> Optional[float]:
-        """One ICMP ping → RTT in ms, or None on failure."""
         try:
             result = subprocess.run(
                 ["ping", "-c", "1", "-W", "3", self.args.host],
@@ -123,7 +121,6 @@ class Benchmark:
     def _session_command(self, protocol: str) -> str:
         if protocol == "ssh":
             return shlex.join(self._ssh_base_args() + [self.target])
-
         if protocol == "mosh":
             ssh_cmd = shlex.join(self._ssh_base_args())
             parts   = ["mosh", f"--ssh={ssh_cmd}"]
@@ -131,7 +128,6 @@ class Benchmark:
                 parts += ["--predict", self.args.mosh_predict]
             parts += [self.target]
             return shlex.join(parts)
-
         if protocol == "ssh3":
             parts = ["ssh3"]
             if self.args.identity_file:
@@ -140,7 +136,6 @@ class Benchmark:
                 parts += ["-insecure"]
             parts.append(f"{self.target}{self.args.ssh3_path}")
             return shlex.join(parts)
-
         raise ValueError(f"Unknown protocol: {protocol!r}")
 
     def _spawn(self, protocol: str) -> pexpect.spawn:
@@ -161,23 +156,22 @@ class Benchmark:
             child.logfile_read = open(log_path, "a", encoding="utf-8")
         return child
 
-
     _SHELL_READY_PATTERNS = [
-        r"Are you sure you want to continue connecting \(yes/no(?:/\[fingerprint\])?\)\?",  
-        r"Do you want to add this certificate to .*known_hosts \(yes/no\)\?",              
-        r"\[Pp\]assword:",                                                                  
-        r"Permission denied",                                                               
-        r"Connection refused",                                                              
-        r"No route to host",                                                                
-        r"Connection timed out",                                                            
-        r"Could not resolve hostname",                                                      
-        r"Cannot assign requested address",                                                 
-        r"Network is unreachable",                                                        
-        r"closed by remote host",                                                           
-        r"[$#] ?$",                                                                        
-        r"\x1b\[[0-9;?]*[A-Za-z]",                                                         
-        pexpect.EOF,                                                                       
-        pexpect.TIMEOUT,                                                                    
+        r"Are you sure you want to continue connecting \(yes/no(?:/\[fingerprint\])?\)\?",
+        r"Do you want to add this certificate to .*known_hosts \(yes/no\)\?",
+        r"\[Pp\]assword:",
+        r"Permission denied",
+        r"Connection refused",
+        r"No route to host",
+        r"Connection timed out",
+        r"Could not resolve hostname",
+        r"Cannot assign requested address",
+        r"Network is unreachable",
+        r"closed by remote host",
+        r"[$#] ?$",
+        r"\x1b\[[0-9;?]*[A-Za-z]",
+        pexpect.EOF,
+        pexpect.TIMEOUT,
     ]
 
     _FATAL_MESSAGES = [
@@ -194,12 +188,10 @@ class Benchmark:
             idx = child.expect(self._SHELL_READY_PATTERNS, timeout=remaining)
 
             if idx == 0:
-                child.sendline("yes")
-                continue
+                child.sendline("yes"); continue
             if idx == 1:
                 if self.args.ssh3_trust_on_first_use or self.args.ssh3_insecure:
-                    child.sendline("yes")
-                    continue
+                    child.sendline("yes"); continue
                 raise SessionOpenError(
                     "SSH3 cert prompt: rerun with --ssh3-insecure or --ssh3-trust-on-first-use"
                 )
@@ -214,13 +206,9 @@ class Benchmark:
 
             child.sendline("printf '__W3PROBE__\\n'")
             probe = child.expect(
-                [
-                    self._literal_pattern("__W3PROBE__"),
-                    r"\[Pp\]assword:",
-                    "Permission denied",
-                    pexpect.EOF,
-                    pexpect.TIMEOUT,
-                ],
+                [self._literal_pattern("__W3PROBE__"),
+                 r"\[Pp\]assword:", "Permission denied",
+                 pexpect.EOF, pexpect.TIMEOUT],
                 timeout=max(1.0, min(8.0, deadline - time.monotonic())),
             )
             if probe == 0: return
@@ -230,14 +218,11 @@ class Benchmark:
             raise SessionOpenError(f"Timeout during probe. {self._buf(child)}")
 
         raise SessionOpenError(f"Overall timeout. {self._buf(child)}")
-
-
     def _open_session(self, protocol: str) -> Tuple[pexpect.spawn, float]:
         t0    = time.perf_counter_ns()
         child = self._spawn(protocol)
         try:
             self._await_shell(child)
-
             setup_marker = "__W3SETUP__"
             child.sendline(
                 "unset PROMPT_COMMAND 2>/dev/null || true; "
@@ -247,14 +232,12 @@ class Benchmark:
             )
             self._expect_literal(child, setup_marker)
             self._expect_literal(child, self.args.prompt)
-
             child.sendline(
                 f"stty -echo -echoctl "
                 f"cols {self.args.pty_cols} rows {self.args.pty_rows} "
                 f"2>/dev/null || true"
             )
             self._expect_literal(child, self.args.prompt)
-
             t1 = time.perf_counter_ns()
             return child, (t1 - t0) / 1e6
         except Exception:
@@ -277,7 +260,6 @@ class Benchmark:
     def _safe_close(self, child: pexpect.spawn) -> None:
         try: self._close_session(child)
         except Exception: pass
-
 
     def _record_ok(
         self, protocol: str, metric: str,
@@ -305,7 +287,6 @@ class Benchmark:
             error_message=f"{exc}{extra}",
         ))
 
-
     def _remote_cmd(self, child: pexpect.spawn, cmd: str) -> str:
         child.sendline(cmd)
         self._expect_literal(child, self.args.prompt, timeout=12)
@@ -315,20 +296,16 @@ class Benchmark:
         return lines[-1] if lines else "unknown"
 
     def _collect_remote_meta(self, child: pexpect.spawn) -> None:
-        self.remote_meta.kernel         = self._remote_cmd(child, "uname -r")
-        self.remote_meta.mosh_version   = self._remote_cmd(
-            child, "mosh --version 2>&1 | head -1")
-        self.remote_meta.ssh_version    = self._remote_cmd(
-            child, "ssh -V 2>&1 | head -1")
-        self.remote_meta.ssh3_version   = self._remote_cmd(
+        self.remote_meta.kernel       = self._remote_cmd(child, "uname -r")
+        self.remote_meta.mosh_version = self._remote_cmd(child, "mosh --version 2>&1 | head -1")
+        self.remote_meta.ssh_version  = self._remote_cmd(child, "ssh -V 2>&1 | head -1")
+        self.remote_meta.ssh3_version = self._remote_cmd(
             child,
             "command -v ssh3 >/dev/null 2>&1 "
             "&& ssh3 -version 2>&1 | head -1 "
             "|| printf 'not-installed\\n'",
         )
-        self.remote_meta.python_version = self._remote_cmd(
-            child, "python3 --version 2>&1")
-
+        self.remote_meta.python_version = self._remote_cmd(child, "python3 --version 2>&1")
 
     def _preflight_protocol(self, protocol: str) -> None:
         child, _ = self._open_session(protocol)
@@ -354,11 +331,9 @@ class Benchmark:
     def _start_helper(
         self, child: pexpect.spawn, protocol: str, trial_id: int
     ) -> Tuple[str, str]:
-        """Start the Python helper on the server. Returns (ack_prefix, bye_marker)."""
         ready = f"W3RDY{protocol[:2].upper()}{trial_id:03d}Z"
-        ack   = f"W3ACK{protocol[:2].upper()}{trial_id:03d}A"   
+        ack   = f"W3ACK{protocol[:2].upper()}{trial_id:03d}A"
         bye   = f"W3BYE{protocol[:2].upper()}{trial_id:03d}Z"
-
         helper = (
             "import os,sys\n"
             "rdy=os.environ['W3R']\n"
@@ -395,19 +370,22 @@ class Benchmark:
         ack_marker: str,
         timeout_s: float,
     ) -> None:
-        """Read PTY stream and search ACK in ANSI-stripped text.
+        """Read PTY stream and search for ack_marker in ANSI-stripped text.
 
-        This avoids false TIMEOUTs caused by Mosh redraw/control-sequence
-        interleaving that can break regex-based matching in pexpect's searcher.
+        This avoids false TIMEOUTs caused by Mosh redraw / cursor-positioning
+        codes that fragment long strings inside pexpect's regex searcher.
+
+        Raises pexpect.TIMEOUT if the marker is not seen within timeout_s.
+        Raises SessionOpenError on EOF (connection dropped).
         """
-        deadline = time.monotonic() + timeout_s
+        deadline   = time.monotonic() + timeout_s
         raw_parts: List[str] = []
-        max_chars = 32768
+        max_chars  = 32768
 
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                raise pexpect.TIMEOUT(f"Timeout waiting ACK marker: {ack_marker}")
+                raise pexpect.TIMEOUT(f"ACK not received within {timeout_s:.1f}s: {ack_marker!r}")
 
             try:
                 chunk = child.read_nonblocking(
@@ -417,18 +395,20 @@ class Benchmark:
             except pexpect.TIMEOUT:
                 continue
             except pexpect.EOF as exc:
-                raise SessionOpenError(f"EOF while waiting ACK. {self._buf(child)}") from exc
+                raise SessionOpenError(
+                    f"EOF while waiting for ACK. {self._buf(child)}"
+                ) from exc
 
             if not chunk:
                 continue
 
             raw_parts.append(chunk)
-            if sum(len(x) for x in raw_parts) > max_chars:
+            total = sum(len(x) for x in raw_parts)
+            if total > max_chars:
                 joined = "".join(raw_parts)[-max_chars:]
                 raw_parts = [joined]
 
-            cleaned = self._strip_ansi("".join(raw_parts))
-            if ack_marker in cleaned:
+            if ack_marker in self._strip_ansi("".join(raw_parts)):
                 return
 
     def _measure_echo(
@@ -441,26 +421,26 @@ class Benchmark:
     ) -> Tuple[str, float]:
         """Measure one full application-level RTT.
 
-        Timing starts at sendline(token) and ends when the server-side
-        ack_prefix+token is received.  The helper emits the ACK only after
-        it reads the token, guaranteeing a full network round-trip is covered.
-
-        Timing is NOT stopped at any local PTY echo — this is critical for
-        Mosh, whose local-prediction feature echoes tokens before the server
-        receives them.
+        Design invariants:
+        - t0 starts at sendline(token), t1 ends at ACK receipt.
+        - NO retry / resend path. Retrying would:
+            (a) inflate latency_ms by echo_timeout seconds, and
+            (b) send a duplicate token to the helper, causing it to emit
+                two ACKs that would confuse the next sample's measurement.
+        - If the ACK is not received within echo_timeout, a TIMEOUT exception
+          is raised, _record_fail() logs it, and (with --reopen-on-failure)
+          the benchmark moves to the next trial with a fresh session.
+          This is the correct behaviour: a genuine timeout IS a data point
+          about the protocol's reliability and should be recorded as a failure,
+          not silently inflated and counted as a valid latency sample.
         """
-        token      = self._token(protocol, trial_id, sample_id)
-        ack_marker = ack_prefix + token
+        token        = self._token(protocol, trial_id, sample_id)
+        ack_marker   = ack_prefix + token
         echo_timeout = float(getattr(self.args, "echo_timeout", self.args.timeout))
-        echo_retry_timeout = float(getattr(self.args, "echo_retry_timeout", echo_timeout))
 
         t0 = time.perf_counter_ns()
         child.sendline(token)
-        try:
-            self._wait_ack_via_stream(child, ack_marker, echo_timeout)
-        except pexpect.TIMEOUT:
-            child.sendline(token)
-            self._wait_ack_via_stream(child, ack_marker, echo_retry_timeout)
+        self._wait_ack_via_stream(child, ack_marker, echo_timeout)
         t1 = time.perf_counter_ns()
 
         return token, (t1 - t0) / 1e6
@@ -490,8 +470,7 @@ class Benchmark:
                 if "line_echo" not in self.args.metrics:
                     continue
 
-                ack_prefix, bye_marker = self._start_helper(
-                    child, protocol, trial_id)
+                ack_prefix, bye_marker = self._start_helper(child, protocol, trial_id)
 
                 total = self.args.warmup_samples + self.args.samples_per_trial
                 for i in range(1, total + 1):
@@ -616,7 +595,6 @@ class Benchmark:
                 "warmup_samples":    self.args.warmup_samples,
                 "timeout_sec":       self.args.timeout,
                 "echo_timeout_sec":  getattr(self.args, "echo_timeout", self.args.timeout),
-                "echo_retry_timeout_sec": getattr(self.args, "echo_retry_timeout", getattr(self.args, "echo_timeout", self.args.timeout)),
                 "pty_cols":          self.args.pty_cols,
                 "pty_rows":          self.args.pty_rows,
                 "random_seed":       self.args.seed,
@@ -641,7 +619,8 @@ class Benchmark:
                         "True application-level RTT: sendline(token) to server-side ACK. "
                         "ACK emitted by remote Python helper after it reads the token. "
                         "NOT stopped at local PTY echo — ensures Mosh local-prediction "
-                        "does not artificially deflate results."
+                        "does not artificially deflate results. "
+                        "No retry/resend: a timeout is recorded as a failure, not inflated latency."
                     ),
                 },
                 "skipped_protocols": self.protocol_skip_reasons,
