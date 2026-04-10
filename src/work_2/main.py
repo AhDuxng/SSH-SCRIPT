@@ -44,7 +44,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--timeout", type=int, default=45,
                    help="pexpect per-operation timeout (s); 45 recommended "
                         "to capture tail latency rather than recording failures")
-    p.add_argument("--echo-timeout", type=int, default=12,
+    p.add_argument("--echo-timeout", type=int, default=20,
                    help="Timeout for one line_echo ACK wait (seconds)")
     p.add_argument("--echo-retry-timeout", type=int, default=8,
                    help="Timeout for the one-time resend path in line_echo (seconds)")
