@@ -54,7 +54,7 @@ def login_and_prepare(
             return
         elif idx == 3:
             continue
-        else: 
+        else:  
             raise RuntimeError("SSH/SSH3 đóng kết nối sớm trong quá trình login")
 
 
@@ -144,7 +144,7 @@ def main() -> None:
     try:
         print("[1/6] Spawn kết nối SSH/SSH3...", flush=True)
         child = pexpect.spawn(args.cmd, encoding="utf-8", timeout=30)
-        child.delaybeforesend = 0 
+        child.delaybeforesend = 0  
 
         if args.verbose:
             child.logfile = sys.stdout
@@ -153,23 +153,28 @@ def main() -> None:
         login_and_prepare(child, args.password, args.prompt_regex)
 
         print(f"[3/6] Chạy remote setup: bash {args.remote_setup}", flush=True)
+
+        child.maxread = 65536
+        child.searchwindowsize = None  
         child.sendline(f"bash {args.remote_setup}")
 
         print("[4/6] Chờ __W3_PANE0_READY__ ...", flush=True)
         wait_exact_or_raise(
             child,
             "__W3_PANE0_READY__",
-            timeout=60,
+            timeout=120,
             step_name="remote setup ready",
         )
-        
-        drain(child, duration=0.4)
+
+        drain(child, duration=0.3)
 
         print(f"[5/6] Warm-up {args.warmup} lần...", flush=True)
         for i in range(args.warmup):
+            
             wtoken = random_token(-(i + 1), args.token_len)
             drain(child, duration=0.05)
             child.send(wtoken + "\r")
+            
             wait_exact_or_raise(
                 child,
                 wtoken + "\r\n",
@@ -205,6 +210,7 @@ def main() -> None:
                 print(f"  [TIMEOUT] sample={i} token={token!r} tail={tail}", flush=True)
 
             except pexpect.EOF:
+
                 raise RuntimeError(
                     f"Kết nối bị đóng ở sample {i} khi chờ token {token!r}"
                 )
