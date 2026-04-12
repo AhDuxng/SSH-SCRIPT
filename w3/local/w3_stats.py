@@ -4,6 +4,7 @@ import csv
 import math
 import statistics
 
+
 def percentile(data, p):
     if not data:
         return math.nan
@@ -14,6 +15,7 @@ def percentile(data, p):
     if f == c:
         return data[int(k)]
     return data[f] * (c - k) + data[c] * (k - f)
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -47,6 +49,7 @@ def main():
         print(f"p95_ms     : {percentile(vals, 95):.3f}")
         print(f"p99_ms     : {percentile(vals, 99):.3f}")
         print(f"std_ms     : {statistics.pstdev(vals):.3f}")
+
 
 if __name__ == "__main__":
     main()
