@@ -87,6 +87,7 @@ def random_token(idx: int, token_len: int) -> str:
     rand_part = "".join(random.choices(alphabet, k=token_len))
     return f"T{idx:04d}_{rand_part}"
 
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="W3 line-echo latency benchmark (fixed for research)",
@@ -153,9 +154,9 @@ def main() -> None:
         login_and_prepare(child, args.password, args.prompt_regex)
 
         print(f"[3/6] Chạy remote setup: bash {args.remote_setup}", flush=True)
-
+     
         child.maxread = 65536
-        child.searchwindowsize = None  
+        child.searchwindowsize = None 
         child.sendline(f"bash {args.remote_setup}")
 
         print("[4/6] Chờ __W3_PANE0_READY__ ...", flush=True)
@@ -170,11 +171,9 @@ def main() -> None:
 
         print(f"[5/6] Warm-up {args.warmup} lần...", flush=True)
         for i in range(args.warmup):
-            
             wtoken = random_token(-(i + 1), args.token_len)
             drain(child, duration=0.05)
             child.send(wtoken + "\r")
-            
             wait_exact_or_raise(
                 child,
                 wtoken + "\r\n",
