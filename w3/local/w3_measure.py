@@ -143,7 +143,7 @@ def main():
         child.send(token + "\r")
 
         try:
-            child.expect_exact(token, timeout=10)
+            child.expect_exact(token, timeout=20)
             t1 = time.perf_counter()
             latency_ms = (t1 - t0) * 1000.0
             ok = 1
@@ -152,7 +152,8 @@ def main():
             ok = 0
             fail_count += 1
             print(f"[sample {i}] FAIL token={token!r}", flush=True)
-            print(f"[sample {i}] Last output: {child.before!r}", flush=True)
+            snippet = repr(child.before[-300:]) if child.before else "''"
+            print(f"[sample {i}] Last output tail: {snippet}", flush=True)
 
         rows.append(
             {
