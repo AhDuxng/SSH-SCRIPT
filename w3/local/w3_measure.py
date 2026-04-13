@@ -74,9 +74,12 @@ def main():
         help="Regex shell prompt ban đầu, ví dụ mặc định: .*[$#] ?",
     )
     parser.add_argument("--remote-setup", required=True, help="Đường dẫn script w3_tmux_setup.sh trên remote")
-    parser.add_argument("--samples", type=int, default=200)
+    parser.add_argument("--trials", type=int, default=30)
+    parser.add_argument("--samples-per-trial", type=int, default=100)
+    parser.add_argument("--warmup-samples", type=int, default=10)
+    parser.add_argument("--samples", type=int, default=None)
     parser.add_argument("--token-len", type=int, default=12)
-    parser.add_argument("--warmup", type=int, default=10)
+    parser.add_argument("--warmup", type=int, default=None)
     parser.add_argument("--proto", required=True, help="Nhãn giao thức, ví dụ ssh2 hoặc ssh3")
     parser.add_argument("--scenario", required=True, help="Nhãn kịch bản mạng, ví dụ default/low/medium/high")
     parser.add_argument("--output", required=True, help="CSV output")
@@ -86,6 +89,16 @@ def main():
         help="Hiện toàn bộ output remote/ssh ra màn hình để debug",
     )
     args = parser.parse_args()
+
+    if args.samples is not None:
+        args.samples_per_trial = args.samples
+    if args.warmup is not None:
+        args.warmup_samples = args.warmup
+
+    if args.trials <= 0 or args.samples_per_trial <= 0 or args.token_len <= 0:
+        raise SystemExit("--trials, --samples-per-trial và --token-len phải > 0")
+    if args.warmup_samples < 0:
+        raise SystemExit("--warmup-samples phải >= 0")
 
     outdir = os.path.dirname(args.output)
     if outdir:
@@ -115,68 +128,77 @@ def main():
     time.sleep(2.0)
     drain(child, 0.3)
 
-    print(f"[5/6] Warm-up {args.warmup} lần...", flush=True)
-    for i in range(args.warmup):
-        token = f"WARM{i:03d}"
-        child.send(token + "\r")
-        wait_exact_or_raise(
-            child,
-            token,
-            timeout=10,
-            step_name=f"warmup #{i}",
-        )
-        print(f"[warmup] OK {i + 1}/{args.warmup}", flush=True)
-        drain(child, 0.05)
-
-    print(f"[6/6] Đo {args.samples} samples...", flush=True)
+    print(
+        f"[5/6] Chạy {args.trials} trial | warmup={args.warmup_samples} | samples={args.samples_per_trial}...",
+        flush=True,
+    )
 
     rows = []
     fail_count = 0
+    global_sample = 0
     alphabet = string.ascii_uppercase + string.digits
 
-    for i in range(args.samples):
-        rand_part = "".join(random.choice(alphabet) for _ in range(args.token_len))
-        token = f"T{i:04d}_{rand_part}"
+    for trial_id in range(1, args.trials + 1):
+        print(f"[trial] {trial_id}/{args.trials}", flush=True)
 
-        drain(child, 0.05)
-        t0 = time.perf_counter()
-        child.send(token + "\r")
+        for i in range(1, args.warmup_samples + 1):
+            token = f"WARM{trial_id:03d}_{i:03d}"
+            child.send(token + "\r")
+            try:
+                child.expect_exact(token, timeout=10)
+            except Exception as exc:
+                print(f"[warmup] FAIL trial={trial_id} idx={i}: {type(exc).__name__}", flush=True)
+                break
+            drain(child, 0.03)
 
-        try:
-            child.expect_exact(token, timeout=20)
-            t1 = time.perf_counter()
-            latency_ms = (t1 - t0) * 1000.0
-            ok = 1
-        except Exception:
-            latency_ms = ""
-            ok = 0
-            fail_count += 1
-            print(f"[sample {i}] FAIL token={token!r}", flush=True)
-            snippet = repr(child.before[-300:]) if child.before else "''"
-            print(f"[sample {i}] Last output tail: {snippet}", flush=True)
+        for sample_id in range(1, args.samples_per_trial + 1):
+            rand_part = "".join(random.choice(alphabet) for _ in range(args.token_len))
+            token = f"T{trial_id:03d}_{sample_id:04d}_{rand_part}"
 
-        rows.append(
-            {
-                "sample": i,
-                "proto": args.proto,
-                "scenario": args.scenario,
-                "token": token,
-                "latency_ms": latency_ms,
-                "ok": ok,
-            }
-        )
+            drain(child, 0.05)
+            t0 = time.perf_counter_ns()
+            child.send(token + "\r")
 
-        if (i + 1) % 10 == 0 or i == 0 or (i + 1) == args.samples:
-            print(
-                f"[progress] {i + 1}/{args.samples} | fail={fail_count}",
-                flush=True,
+            try:
+                child.expect_exact(token, timeout=20)
+                t1 = time.perf_counter_ns()
+                latency_ms = (t1 - t0) / 1e6
+                ok = 1
+            except Exception:
+                latency_ms = ""
+                ok = 0
+                fail_count += 1
+                snippet = repr(child.before[-300:]) if child.before else "''"
+                print(
+                    f"[sample] FAIL trial={trial_id} sample={sample_id} token={token!r} tail={snippet}",
+                    flush=True,
+                )
+
+            rows.append(
+                {
+                    "sample": global_sample,
+                    "trial_id": trial_id,
+                    "sample_id": sample_id,
+                    "proto": args.proto,
+                    "scenario": args.scenario,
+                    "token": token,
+                    "latency_ms": latency_ms,
+                    "ok": ok,
+                }
             )
+            global_sample += 1
+
+            if sample_id % 10 == 0 or sample_id == 1 or sample_id == args.samples_per_trial:
+                print(
+                    f"[progress] trial={trial_id}/{args.trials} sample={sample_id}/{args.samples_per_trial} | fail={fail_count}",
+                    flush=True,
+                )
 
     print("[write] Ghi CSV...", flush=True)
     with open(args.output, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(
             f,
-            fieldnames=["sample", "proto", "scenario", "token", "latency_ms", "ok"],
+            fieldnames=["sample", "trial_id", "sample_id", "proto", "scenario", "token", "latency_ms", "ok"],
         )
         writer.writeheader()
         writer.writerows(rows)
