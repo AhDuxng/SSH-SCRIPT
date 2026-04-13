@@ -676,11 +676,11 @@ class Benchmark:
         fmt_ms = lambda v: f"{v:.2f}" if v is not None else "N/A"
         for row in self.summaries():
             print(
-                f"{row.protocol:<8} | {row.metric:<14} | {row.n:>5} | "
-                f"{row.failures:>4} | {row.success_rate_pct:>5.1f}% | "
-                f"{fmt_ms(row.min_ms)} | {fmt_ms(row.mean_ms)} | {fmt_ms(row.median_ms)} | "
-                f"{fmt_ms(row.stdev_ms)} | {fmt_ms(row.p95_ms)} | {fmt_ms(row.p99_ms)} | "
-                f"{fmt_ms(row.max_ms)} | {fmt_ms(row.ci95_half_width_ms)}"
+                f"{row.protocol:<8} | {row.metric:<17} | {row.n:>5} | "
+                f"{row.failures:>5} | {row.success_rate_pct:>6.1f}% | "
+                f"{fmt_ms(row.min_ms):>8} | {fmt_ms(row.mean_ms):>8} | {fmt_ms(row.median_ms):>8} | "
+                f"{fmt_ms(row.stdev_ms):>8} | {fmt_ms(row.p95_ms):>8} | {fmt_ms(row.p99_ms):>8} | "
+                f"{fmt_ms(row.max_ms):>8} | {fmt_ms(row.ci95_half_width_ms):>8}"
             )
         print("=" * w)
         if self.protocol_skip_reasons:
