@@ -424,6 +424,43 @@ class Benchmark:
             if ack_marker in self._strip_ansi("".join(raw_parts)):
                 return
 
+    def _wait_marker_via_stream(
+        self,
+        child: pexpect.spawn,
+        marker: str,
+        timeout_s: float,
+    ) -> str:
+        deadline = time.monotonic() + timeout_s
+        raw_parts: List[str] = []
+        max_chars = 32768
+
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise pexpect.TIMEOUT(f"Marker not received within {timeout_s:.1f}s: {marker!r}")
+
+            try:
+                chunk = child.read_nonblocking(
+                    size=4096,
+                    timeout=min(0.5, max(0.05, remaining)),
+                )
+            except pexpect.TIMEOUT:
+                continue
+            except pexpect.EOF as exc:
+                raise SessionOpenError(f"EOF while waiting for marker. {self._buf(child)}") from exc
+
+            if not chunk:
+                continue
+
+            raw_parts.append(chunk)
+            total = sum(len(x) for x in raw_parts)
+            if total > max_chars:
+                raw_parts = ["".join(raw_parts)[-max_chars:]]
+
+            clean = self._strip_ansi("".join(raw_parts))
+            if marker in clean:
+                return clean
+
     def _measure_echo(
         self,
         child: pexpect.spawn,
@@ -443,6 +480,47 @@ class Benchmark:
 
         return token, (t1 - t0) / 1e6
 
+    def _measure_keystroke_latency(
+        self,
+        child: pexpect.spawn,
+        protocol: str,
+        trial_id: int,
+        sample_id: int,
+        state: int,
+    ) -> Tuple[str, float, int]:
+        token = self._token(protocol, trial_id, sample_id)
+        timeout_s = float(getattr(self.args, "echo_timeout", self.args.timeout))
+
+        obs_marker = f"__W3OBS__ {token} "
+        cmd1 = f"printf '__W3OBS__ {token} %d\\n' $(({state}*3+7))"
+        t0 = time.perf_counter_ns()
+        child.sendline(cmd1)
+        clean_obs = self._wait_marker_via_stream(child, obs_marker, timeout_s)
+        t1 = time.perf_counter_ns()
+
+        m = re.search(rf"__W3OBS__\s+{re.escape(token)}\s+(-?\d+)", clean_obs)
+        if not m:
+            raise RuntimeError(f"Cannot parse observation for token={token}")
+        obs = int(m.group(1))
+
+        if obs % 2 == 0:
+            action = "INC"
+            next_state = obs + 1
+        else:
+            action = "DEC"
+            next_state = obs - 1
+
+        act_marker = f"__W3ACT__ {token} {action} {next_state}"
+        cmd2 = f"printf '__W3ACT__ {token} {action} {next_state}\\n'"
+        t2 = time.perf_counter_ns()
+        child.sendline(cmd2)
+        self._wait_marker_via_stream(child, act_marker, timeout_s)
+        t3 = time.perf_counter_ns()
+
+        lat1_ms = (t1 - t0) / 1e6
+        lat2_ms = (t3 - t2) / 1e6
+        return token, (lat1_ms + lat2_ms) / 2.0, next_state
+
     def _run_protocol(self, protocol: str) -> None:
         for trial_id in range(1, self.args.trials + 1):
             rtt = self._ping_rtt_ms()
@@ -461,29 +539,53 @@ class Benchmark:
                 self._record_ok(protocol, "session_setup", trial_id, 1, False, "__W3_SETUP__", setup_ms)
                 print(f"[{protocol:>4}/setup      ] trial {trial_id:>2}:  OK  {setup_ms:.1f} ms")
 
-                if "line_echo" not in self.args.metrics:
-                    continue
+                if "keystroke_latency" in self.args.metrics:
+                    total = self.args.warmup_samples + self.args.samples_per_trial
+                    agent_state = trial_id
+                    for i in range(1, total + 1):
+                        is_warmup = i <= self.args.warmup_samples
+                        sid = i if is_warmup else (i - self.args.warmup_samples)
+                        tag = "warm" if is_warmup else "meas"
+                        lim = self.args.warmup_samples if is_warmup else self.args.samples_per_trial
+                        try:
+                            tok, lat, agent_state = self._measure_keystroke_latency(
+                                child,
+                                protocol,
+                                trial_id,
+                                sid,
+                                agent_state,
+                            )
+                            self._record_ok(protocol, "keystroke_latency", trial_id, sid, is_warmup, tok, lat)
+                            print(f"[{protocol:>4}/key  {tag} {sid:>3}/{lim}]  {lat:.2f} ms")
+                        except Exception as exc:
+                            self._record_fail(protocol, "keystroke_latency", trial_id, sid, is_warmup, exc, child)
+                            print(
+                                f"[{protocol:>4}/key  {tag} {sid:>3}     ]  FAIL  {type(exc).__name__}: {exc}"
+                            )
+                            if not self.args.reopen_on_failure:
+                                raise
+                            break
 
-                ack_prefix, bye_marker = self._start_helper(child, protocol, trial_id)
-
-                total = self.args.warmup_samples + self.args.samples_per_trial
-                for i in range(1, total + 1):
-                    is_warmup = i <= self.args.warmup_samples
-                    sid = i if is_warmup else (i - self.args.warmup_samples)
-                    tag = "warm" if is_warmup else "meas"
-                    lim = self.args.warmup_samples if is_warmup else self.args.samples_per_trial
-                    try:
-                        tok, lat = self._measure_echo(child, protocol, trial_id, sid, ack_prefix)
-                        self._record_ok(protocol, "line_echo", trial_id, sid, is_warmup, tok, lat)
-                        print(f"[{protocol:>4}/echo {tag} {sid:>3}/{lim}]  {lat:.2f} ms")
-                    except Exception as exc:
-                        self._record_fail(protocol, "line_echo", trial_id, sid, is_warmup, exc, child)
-                        print(
-                            f"[{protocol:>4}/echo {tag} {sid:>3}     ]  FAIL  {type(exc).__name__}: {exc}"
-                        )
-                        if not self.args.reopen_on_failure:
-                            raise
-                        break
+                if "line_echo" in self.args.metrics:
+                    ack_prefix, bye_marker = self._start_helper(child, protocol, trial_id)
+                    total = self.args.warmup_samples + self.args.samples_per_trial
+                    for i in range(1, total + 1):
+                        is_warmup = i <= self.args.warmup_samples
+                        sid = i if is_warmup else (i - self.args.warmup_samples)
+                        tag = "warm" if is_warmup else "meas"
+                        lim = self.args.warmup_samples if is_warmup else self.args.samples_per_trial
+                        try:
+                            tok, lat = self._measure_echo(child, protocol, trial_id, sid, ack_prefix)
+                            self._record_ok(protocol, "line_echo", trial_id, sid, is_warmup, tok, lat)
+                            print(f"[{protocol:>4}/echo {tag} {sid:>3}/{lim}]  {lat:.2f} ms")
+                        except Exception as exc:
+                            self._record_fail(protocol, "line_echo", trial_id, sid, is_warmup, exc, child)
+                            print(
+                                f"[{protocol:>4}/echo {tag} {sid:>3}     ]  FAIL  {type(exc).__name__}: {exc}"
+                            )
+                            if not self.args.reopen_on_failure:
+                                raise
+                            break
 
             except Exception as exc:
                 if not setup_ok:
@@ -516,7 +618,7 @@ class Benchmark:
     def _metric_budget(self, protocol: str, metric: str) -> int:
         if protocol in self.protocol_skip_reasons:
             return 0
-        if metric == "line_echo":
+        if metric in {"line_echo", "keystroke_latency"}:
             return self.args.trials * self.args.samples_per_trial
         if metric == "session_setup":
             return self.args.trials
@@ -620,11 +722,15 @@ class Benchmark:
                     "session_setup_ms": (
                         "Time-to-usable-shell from pexpect.spawn() to a configured, ready shell."
                     ),
+                    "keystroke_latency": (
+                        "Agent control-loop keystroke latency: send command, receive output, analyze output, send next command. "
+                        "Reported value is mean of the two command round-trips in one loop step."
+                    ),
                     "line_echo_ms": (
                         "Application-level terminal RTT from sendline(token) to ACK receipt."
                     ),
                     "success_rate_pct_note": (
-                        "Fixed-budget denominator. line_echo uses trials x samples_per_trial; "
+                        "Fixed-budget denominator. line_echo/keystroke_latency use trials x samples_per_trial; "
                         "session_setup uses trials. Missing observations are counted as non-success."
                     ),
                     "stdev_ms_note": "Sample standard deviation (statistics.stdev, ddof=1).",
