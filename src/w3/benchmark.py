@@ -668,7 +668,7 @@ class Benchmark:
         w = 150
         print("\n" + "=" * w)
         print(
-            f"{'Protocol':<8} | {'Metric':<14} | {'N':>5} | {'Fail':>4} | "
+            f"{'Protocol':<8} | {'Metric':<17} | {'N':>5} | {'Fail':>5} | "
             f"{'OK%':>6} | {'Min':>8} | {'Mean':>8} | {'Median':>8} | "
             f"{'Std':>8} | {'P95':>8} | {'P99':>8} | {'Max':>8} | {'CI95±':>9}"
         )
