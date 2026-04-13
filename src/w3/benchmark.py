@@ -388,6 +388,42 @@ class Benchmark:
         self._expect_literal(child, "W3BACK", timeout=self.args.timeout)
         self._expect_literal(child, self.args.prompt, timeout=self.args.timeout)
 
+    def _wait_ack_via_stream(
+        self,
+        child: pexpect.spawn,
+        ack_marker: str,
+        timeout_s: float,
+    ) -> None:
+        deadline = time.monotonic() + timeout_s
+        raw_parts: List[str] = []
+        max_chars = 32768
+
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise pexpect.TIMEOUT(f"ACK not received within {timeout_s:.1f}s: {ack_marker!r}")
+
+            try:
+                chunk = child.read_nonblocking(
+                    size=4096,
+                    timeout=min(0.5, max(0.05, remaining)),
+                )
+            except pexpect.TIMEOUT:
+                continue
+            except pexpect.EOF as exc:
+                raise SessionOpenError(f"EOF while waiting for ACK. {self._buf(child)}") from exc
+
+            if not chunk:
+                continue
+
+            raw_parts.append(chunk)
+            total = sum(len(x) for x in raw_parts)
+            if total > max_chars:
+                raw_parts = ["".join(raw_parts)[-max_chars:]]
+
+            if ack_marker in self._strip_ansi("".join(raw_parts)):
+                return
+
     def _measure_echo(
         self,
         child: pexpect.spawn,
@@ -402,7 +438,7 @@ class Benchmark:
 
         t0 = time.perf_counter_ns()
         child.sendline(token)
-        self._expect_literal(child, ack_marker, timeout=echo_timeout)
+        self._wait_ack_via_stream(child, ack_marker, echo_timeout)
         t1 = time.perf_counter_ns()
 
         return token, (t1 - t0) / 1e6
