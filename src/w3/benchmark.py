@@ -722,7 +722,7 @@ class Benchmark:
                     "session_setup_ms": (
                         "Time-to-usable-shell from pexpect.spawn() to a configured, ready shell."
                     ),
-                    "keystroke_latency": (
+                    "keystroke_latency_ms": (
                         "Agent control-loop keystroke latency: send command, receive output, analyze output, send next command. "
                         "Reported value is mean of the two command round-trips in one loop step."
                     ),
@@ -730,7 +730,7 @@ class Benchmark:
                         "Application-level terminal RTT from sendline(token) to ACK receipt."
                     ),
                     "success_rate_pct_note": (
-                        "Fixed-budget denominator. line_echo/keystroke_latency use trials x samples_per_trial; "
+                        "Fixed-budget denominator. Per-sample metrics (keystroke_latency/line_echo) use trials x samples_per_trial; "
                         "session_setup uses trials. Missing observations are counted as non-success."
                     ),
                     "stdev_ms_note": "Sample standard deviation (statistics.stdev, ddof=1).",
@@ -744,6 +744,45 @@ class Benchmark:
         }
         jpath = out / "summary.json"
         jpath.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+        cpath = out / "summary.csv"
+        with cpath.open("w", newline="", encoding="utf-8") as f:
+            w = csv.writer(f)
+            w.writerow([
+                "protocol",
+                "metric",
+                "n",
+                "failures",
+                "success_rate_pct",
+                "min_ms",
+                "mean_ms",
+                "median_ms",
+                "stdev_ms",
+                "p95_ms",
+                "p99_ms",
+                "max_ms",
+                "ci95_half_width_ms",
+                "ping_rtt_mean_ms",
+            ])
+            for row in self.summaries():
+                rtts = [x for x in self.ping_rtts.get(row.protocol, []) if x is not None]
+                ping_mean = statistics.mean(rtts) if rtts else None
+                w.writerow([
+                    row.protocol,
+                    row.metric,
+                    row.n,
+                    row.failures,
+                    f"{row.success_rate_pct:.3f}",
+                    "" if row.min_ms is None else f"{row.min_ms:.6f}",
+                    "" if row.mean_ms is None else f"{row.mean_ms:.6f}",
+                    "" if row.median_ms is None else f"{row.median_ms:.6f}",
+                    "" if row.stdev_ms is None else f"{row.stdev_ms:.6f}",
+                    "" if row.p95_ms is None else f"{row.p95_ms:.6f}",
+                    "" if row.p99_ms is None else f"{row.p99_ms:.6f}",
+                    "" if row.max_ms is None else f"{row.max_ms:.6f}",
+                    "" if row.ci95_half_width_ms is None else f"{row.ci95_half_width_ms:.6f}",
+                    "" if ping_mean is None else f"{ping_mean:.6f}",
+                ])
 
         spath = out / "samples.csv"
         with spath.open("w", newline="", encoding="utf-8") as f:
@@ -769,6 +808,7 @@ class Benchmark:
 
         print(f"\nOutputs written to {out}/")
         print("  summary.json  - metadata + per-protocol statistics")
+        print("  summary.csv   - consolidated protocol/metric comparison table")
         print("  samples.csv   - every raw measurement")
         print("  failures.csv  - every failure with context")
         print("  ping_rtts.csv - ICMP network-layer covariate per trial")
