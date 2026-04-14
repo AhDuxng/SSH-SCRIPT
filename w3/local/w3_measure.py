@@ -116,8 +116,10 @@ def main():
         help="Regex shell prompt ban đầu, ví dụ mặc định: .*[$#] ?",
     )
     parser.add_argument("--remote-setup", required=True, help="Đường dẫn script w3_tmux_setup.sh trên remote")
-    parser.add_argument("--trials", type=int, default=30)
-    parser.add_argument("--samples-per-trial", type=int, default=100)
+    parser.add_argument("--trials", type=int, default=30,
+                        help="Số trial độc lập (mỗi trial = 1 kết nối SSH)")
+    parser.add_argument("--samples-per-trial", type=int, default=100,
+                        help="Số sample đo thực sự mỗi trial (sau khi bỏ warmup)")
     parser.add_argument("--warmup-samples", type=int, default=10)
     parser.add_argument("--samples", type=int, default=None)
     parser.add_argument("--token-len", type=int, default=12)
@@ -192,33 +194,48 @@ def main():
 
         for i in range(1, args.warmup_samples + 1):
             token = f"WARM{trial_id:03d}_{i:03d}"
-            if args.metric == "keystroke_latency":
-                cmd = f"OBS:{token}:{agent_state}"
+            if args.metric == "line_echo":
+                # Dùng printf để tạo server-side echo với prefix duy nhất.
+                # Marker "W3E:<token>" chỉ xuất hiện khi server thực thi lệnh
+                # → tránh nhầm với local PTY echo của SSH client.
+                cmd = f"printf 'W3E:{token}\\n'"
+                marker = f"W3E:{token}"
             else:
-                cmd = token
+                cmd = f"OBS:{token}:{agent_state}"
+                marker = cmd
             child.send(cmd + "\r")
             try:
-                wait_marker_via_stream(child, cmd, timeout=10)
+                wait_marker_via_stream(child, marker, timeout=10)
             except Exception as exc:
                 print(f"[warmup] FAIL trial={trial_id} idx={i}: {type(exc).__name__}", flush=True)
                 break
             if args.metric == "keystroke_latency":
                 agent_state = agent_state + 1 if agent_state % 2 == 0 else agent_state - 1
-            drain(child, 0.03)
+            drain(child, 0.05)
 
         for sample_id in range(1, args.samples_per_trial + 1):
             rand_part = "".join(random.choice(alphabet) for _ in range(args.token_len))
             token = f"T{trial_id:03d}_{sample_id:04d}_{rand_part}"
 
-            drain(child, 0.05)
+            # Drain 150ms để flush hết byte thừa từ sample trước.
+            # 50ms không đủ khi mạng có OWD lớn (response cũ vẫn đang trên đường)
+            drain(child, 0.15)
             latency_ms = ""
             ok = 0
 
             try:
                 if args.metric == "line_echo":
+                    # QUAN TRỌNG: KHÔNG gửi token trực tiếp mà dùng printf trên server.
+                    # Lý do: SSH PTY echo trả về ký tự gõ ngay khi server nhận STDIN
+                    # (sau 1 OWD). Nếu wait marker là chính token đó thì có thể
+                    # khớp với PTY echo (1 OWD) thay vì stdout của lệnh (1 RTT).
+                    # Marker "W3E:<token>" chỉ xuất hiện khi printf chạy xong
+                    # trên server → đảm bảo đo đúng 1 RTT ứng với đường đi đầy đủ.
+                    echo_cmd = f"printf 'W3E:{token}\\n'"
+                    echo_marker = f"W3E:{token}"
                     t0 = time.perf_counter_ns()
-                    child.send(token + "\r")
-                    wait_marker_via_stream(child, token, timeout=args.echo_timeout)
+                    child.send(echo_cmd + "\r")
+                    wait_marker_via_stream(child, echo_marker, timeout=args.echo_timeout)
                     t1 = time.perf_counter_ns()
                     latency_ms = (t1 - t0) / 1e6
                 else:
@@ -228,7 +245,9 @@ def main():
                     clean_obs = wait_marker_via_stream(child, cmd_obs, timeout=args.echo_timeout)
                     t1 = time.perf_counter_ns()
 
-                    m = re.search(rf"OBS:{re.escape(token)}:(-?\\d+)", clean_obs)
+                    # BUG FIX: trong raw string r"...", \\d là chuỗi ký tự backslash-d,
+                    # không phải pattern digit. Phải dùng \d (một backslash trong regex).
+                    m = re.search(rf"OBS:{re.escape(token)}:(-?\d+)", clean_obs)
                     if m:
                         obs = int(m.group(1))
                     else:

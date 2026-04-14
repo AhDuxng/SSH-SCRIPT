@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import csv
 import json
@@ -291,6 +291,12 @@ class Benchmark:
     ) -> None:
         if is_warmup:
             return
+        # Guard: only write to results if metric was requested.
+        # Without this guard, calling _record_ok("session_setup", ...) when
+        # "session_setup" is not in args.metrics raises KeyError because
+        # self.results[protocol] is keyed only by args.metrics.
+        if metric not in self.results[protocol]:
+            return
         self.results[protocol][metric].append(latency_ms)
         self.records.append(
             SampleRecord(protocol, metric, trial_id, sample_id, is_warmup, token, latency_ms)
@@ -306,6 +312,12 @@ class Benchmark:
         exc: Exception,
         child: Optional[pexpect.spawn] = None,
     ) -> None:
+        # Guard: only record failures for metrics that were actually requested.
+        # Session setup failure is always recorded regardless (diagnostics),
+        # but per-sample failures for metrics outside args.metrics are silently
+        # dropped to keep failures.csv coherent.
+        if metric != "session_setup" and metric not in self.results.get(protocol, {}):
+            return
         extra = f" | {self._buf(child)}" if child is not None else ""
         self.failures.append(
             FailureRecord(
@@ -540,27 +552,40 @@ class Benchmark:
                 print(f"[{protocol:>4}/setup      ] trial {trial_id:>2}:  OK  {setup_ms:.1f} ms")
 
                 if "keystroke_latency" in self.args.metrics:
-                    total = self.args.warmup_samples + self.args.samples_per_trial
+                    # Warmup phase: run warmup_samples iterations, excluded from stats.
+                    # sid for warmup uses negative range (-warmup_samples..-1) so that
+                    # sample_id values never collide with real measurement IDs (1..N)
+                    # in samples.csv, making CSV auditing unambiguous.
                     agent_state = trial_id
-                    for i in range(1, total + 1):
-                        is_warmup = i <= self.args.warmup_samples
-                        sid = i if is_warmup else (i - self.args.warmup_samples)
-                        tag = "warm" if is_warmup else "meas"
-                        lim = self.args.warmup_samples if is_warmup else self.args.samples_per_trial
+                    for i in range(1, self.args.warmup_samples + 1):
+                        sid = -i  # negative → clearly warmup, never overlaps real IDs
                         try:
                             tok, lat, agent_state = self._measure_keystroke_latency(
-                                child,
-                                protocol,
-                                trial_id,
-                                sid,
-                                agent_state,
+                                child, protocol, trial_id, sid, agent_state,
                             )
-                            self._record_ok(protocol, "keystroke_latency", trial_id, sid, is_warmup, tok, lat)
-                            print(f"[{protocol:>4}/key  {tag} {sid:>3}/{lim}]  {lat:.2f} ms")
+                            self._record_ok(protocol, "keystroke_latency", trial_id, sid, True, tok, lat)
+                            print(f"[{protocol:>4}/key  warm {i:>3}/{self.args.warmup_samples}]  {lat:.2f} ms")
                         except Exception as exc:
-                            self._record_fail(protocol, "keystroke_latency", trial_id, sid, is_warmup, exc, child)
+                            self._record_fail(protocol, "keystroke_latency", trial_id, sid, True, exc, child)
                             print(
-                                f"[{protocol:>4}/key  {tag} {sid:>3}     ]  FAIL  {type(exc).__name__}: {exc}"
+                                f"[{protocol:>4}/key  warm {i:>3}     ]  FAIL  {type(exc).__name__}: {exc}"
+                            )
+                            if not self.args.reopen_on_failure:
+                                raise
+                            break
+
+                    # Measurement phase: sample_ids 1..samples_per_trial, included in stats.
+                    for sid in range(1, self.args.samples_per_trial + 1):
+                        try:
+                            tok, lat, agent_state = self._measure_keystroke_latency(
+                                child, protocol, trial_id, sid, agent_state,
+                            )
+                            self._record_ok(protocol, "keystroke_latency", trial_id, sid, False, tok, lat)
+                            print(f"[{protocol:>4}/key  meas {sid:>3}/{self.args.samples_per_trial}]  {lat:.2f} ms")
+                        except Exception as exc:
+                            self._record_fail(protocol, "keystroke_latency", trial_id, sid, False, exc, child)
+                            print(
+                                f"[{protocol:>4}/key  meas {sid:>3}     ]  FAIL  {type(exc).__name__}: {exc}"
                             )
                             if not self.args.reopen_on_failure:
                                 raise
@@ -568,20 +593,32 @@ class Benchmark:
 
                 if "line_echo" in self.args.metrics:
                     ack_prefix, bye_marker = self._start_helper(child, protocol, trial_id)
-                    total = self.args.warmup_samples + self.args.samples_per_trial
-                    for i in range(1, total + 1):
-                        is_warmup = i <= self.args.warmup_samples
-                        sid = i if is_warmup else (i - self.args.warmup_samples)
-                        tag = "warm" if is_warmup else "meas"
-                        lim = self.args.warmup_samples if is_warmup else self.args.samples_per_trial
+                    # Warmup phase: negative sample_ids to avoid collision with real IDs.
+                    for i in range(1, self.args.warmup_samples + 1):
+                        sid = -i
                         try:
                             tok, lat = self._measure_echo(child, protocol, trial_id, sid, ack_prefix)
-                            self._record_ok(protocol, "line_echo", trial_id, sid, is_warmup, tok, lat)
-                            print(f"[{protocol:>4}/echo {tag} {sid:>3}/{lim}]  {lat:.2f} ms")
+                            self._record_ok(protocol, "line_echo", trial_id, sid, True, tok, lat)
+                            print(f"[{protocol:>4}/echo warm {i:>3}/{self.args.warmup_samples}]  {lat:.2f} ms")
                         except Exception as exc:
-                            self._record_fail(protocol, "line_echo", trial_id, sid, is_warmup, exc, child)
+                            self._record_fail(protocol, "line_echo", trial_id, sid, True, exc, child)
                             print(
-                                f"[{protocol:>4}/echo {tag} {sid:>3}     ]  FAIL  {type(exc).__name__}: {exc}"
+                                f"[{protocol:>4}/echo warm {i:>3}     ]  FAIL  {type(exc).__name__}: {exc}"
+                            )
+                            if not self.args.reopen_on_failure:
+                                raise
+                            break
+
+                    # Measurement phase: sample_ids 1..samples_per_trial.
+                    for sid in range(1, self.args.samples_per_trial + 1):
+                        try:
+                            tok, lat = self._measure_echo(child, protocol, trial_id, sid, ack_prefix)
+                            self._record_ok(protocol, "line_echo", trial_id, sid, False, tok, lat)
+                            print(f"[{protocol:>4}/echo meas {sid:>3}/{self.args.samples_per_trial}]  {lat:.2f} ms")
+                        except Exception as exc:
+                            self._record_fail(protocol, "line_echo", trial_id, sid, False, exc, child)
+                            print(
+                                f"[{protocol:>4}/echo meas {sid:>3}     ]  FAIL  {type(exc).__name__}: {exc}"
                             )
                             if not self.args.reopen_on_failure:
                                 raise

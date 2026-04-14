@@ -37,7 +37,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--trials",            type=int, default=30,
                    help="Independent sessions per protocol (>=30 for reliable CI)")
     p.add_argument("--samples-per-trial", type=int, default=100,
-                   help="line_echo measurements per trial (after warmup)")
+                   help="Per-sample measurements per trial (after warmup); applies to both line_echo and keystroke_latency")
     p.add_argument("--warmup-samples",    type=int, default=10,
                    help="Samples excluded from statistics")
 
@@ -45,9 +45,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="pexpect per-operation timeout (s); 45 recommended "
                         "to capture tail latency rather than recording failures")
     p.add_argument("--echo-timeout", type=int, default=20,
-                   help="Timeout for one line_echo ACK wait (seconds)")
-    p.add_argument("--echo-retry-timeout", type=int, default=8,
-                   help="Timeout for the one-time resend path in line_echo (seconds)")
+                   help="Timeout for one line_echo/keystroke ACK wait (seconds)")
 
     p.add_argument("--pty-cols", type=int, default=220,
                    help="PTY width; wide enough that tokens never wrap")
@@ -90,7 +88,6 @@ def main() -> int:
         ("--pty-rows",          args.pty_rows),
         ("--timeout",           args.timeout),
         ("--echo-timeout",      args.echo_timeout),
-        ("--echo-retry-timeout", args.echo_retry_timeout),
     ]:
         if val <= 0:
             build_parser().error(f"{flag} must be > 0")

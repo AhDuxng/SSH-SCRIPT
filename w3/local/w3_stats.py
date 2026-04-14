@@ -48,7 +48,17 @@ def main():
         print(f"median_ms  : {statistics.median(vals):.3f}")
         print(f"p95_ms     : {percentile(vals, 95):.3f}")
         print(f"p99_ms     : {percentile(vals, 99):.3f}")
-        print(f"std_ms     : {statistics.pstdev(vals):.3f}")
+        # stdev: Sample standard deviation (ddof=1), khớp với benchmark.py
+        # pstdev (population, ddof=0) SẼ SAI khi n < tổng số mẫu thực tế
+        std = statistics.stdev(vals) if len(vals) > 1 else 0.0
+        print(f"stdev_ms   : {std:.3f}")
+        # CV: hệ số biến động (std/mean × 100%) — thước đo độ ổn định
+        cv = (std / statistics.mean(vals) * 100.0) if statistics.mean(vals) > 0 else 0.0
+        print(f"cv_pct     : {cv:.1f}%")
+        # CI95: khoảng tin cậy 95% half-width (±)
+        import math
+        ci95 = 1.96 * std / math.sqrt(len(vals)) if len(vals) > 1 else 0.0
+        print(f"ci95_half  : ±{ci95:.3f} ms")
 
 
 if __name__ == "__main__":

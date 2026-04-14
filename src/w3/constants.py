@@ -1,5 +1,7 @@
 DEFAULT_PROTOCOLS = ["ssh", "ssh3", "mosh"]
-DEFAULT_METRICS   = ["session_setup", "keystroke_latency"]
+# session_setup luôn được đo (dùng để chẩn đoán) dù không có trong --metrics.
+# line_echo và keystroke_latency đo per-sample latency bên trong mỗi session.
+DEFAULT_METRICS   = ["session_setup", "keystroke_latency", "line_echo"]
 DEFAULT_PROMPT    = "__W3PROMPT__"
 DEFAULT_SSH3_PATH = "/ssh3-term"
 
