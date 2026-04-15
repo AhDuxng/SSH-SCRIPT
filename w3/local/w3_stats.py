@@ -58,7 +58,6 @@ def main():
         cv = (std / statistics.mean(vals) * 100.0) if statistics.mean(vals) > 0 else 0.0
         print(f"cv_pct     : {cv:.1f}%")
         # CI95: khoảng tin cậy 95% half-width (±)
-        import math
         ci95 = 1.96 * std / math.sqrt(len(vals)) if len(vals) > 1 else 0.0
         print(f"ci95_half  : ±{ci95:.3f} ms")
 

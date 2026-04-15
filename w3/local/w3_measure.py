@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import argparse
 import csv
-import math
 import os
 import random
 import re
@@ -274,14 +273,15 @@ def main():
     print(f"[3/6] Running remote setup: bash {args.remote_setup}", flush=True)
     child.sendline(f"bash {args.remote_setup}")
 
-    print("[4/6] Waiting for tmux attach...", flush=True)
+    print("[4/6] Waiting for pane-0 ready signal...", flush=True)
     try:
-        child.expect_exact("__W3_TMUX_ATTACHED__", timeout=args.timeout)
+        child.expect_exact("__W3_PANE0_READY__", timeout=args.timeout)
     except Exception as exc:
-        raise RuntimeError(f"Timeout waiting for tmux attach. {child.before}") from exc
+        raise RuntimeError(f"Timeout waiting for pane-0 ready. {child.before}") from exc
 
-    # Set up inner shell: identical to benchmark.py _open_session()
-    # Use shlex.quote so prompt survives any shell meta-character.
+    # ---------------------------------------------------------------------------
+    # Configure inner shell — identical sequence to benchmark.py _open_session()
+    # ---------------------------------------------------------------------------
     prompt = "__W3PROMPT__"
     setup_marker = "__W3SETUP__"
     child.sendline(
@@ -294,9 +294,10 @@ def main():
         child.expect_exact(setup_marker, timeout=args.timeout)
         child.expect_exact(prompt, timeout=args.timeout)
     except Exception as exc:
-        raise RuntimeError(f"Failed to setup inner tmux shell: {exc}")
+        raise RuntimeError(f"Failed to configure inner shell: {exc}")
+    # stty: disable echo and set PTY size (matches benchmark.py)
     child.sendline(
-        f"stty -echo -echoctl cols 220 rows 50 2>/dev/null || true"
+        "stty -echo -echoctl cols 220 rows 50 2>/dev/null || true"
     )
     try:
         child.expect_exact(prompt, timeout=args.timeout)
