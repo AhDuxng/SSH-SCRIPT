@@ -20,8 +20,8 @@ def main():
     
     parser.add_argument("--metrics", nargs="+", default=["keystroke_latency", "line_echo"],  
                         choices=["keystroke_latency", "line_echo"])
-    parser.add_argument("--protocols", nargs="+", default=["ssh", "mosh", "ssh3"], 
-                        choices=["ssh", "mosh", "ssh3"])
+    parser.add_argument("--protocols", nargs="+", default=["ssh", "ssh3"],
+                        choices=["ssh", "ssh3"])
     
     parser.add_argument("--scenario", default="default", help="Kịch bản giả lập mạng (tuỳ chọn)")
     parser.add_argument("--output-dir", default="results", help="Thư mục xuất CSV")

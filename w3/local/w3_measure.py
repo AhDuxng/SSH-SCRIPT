@@ -83,7 +83,7 @@ def wait_ack_via_stream(child: pexpect.spawn, ack_marker: str, timeout_s: float)
             return
 
 
-def login_and_prepare(child: pexpect.spawn, password: Optional[str], prompt_regex: str) -> None:
+def login_and_prepare(child: pexpect.spawn, password: Optional[str], prompt_regex: str, timeout_s: float) -> None:
     while True:
         idx = child.expect(
             [
@@ -94,7 +94,7 @@ def login_and_prepare(child: pexpect.spawn, password: Optional[str], prompt_rege
                 pexpect.TIMEOUT,
                 pexpect.EOF,
             ],
-            timeout=20,
+            timeout=timeout_s,
         )
 
         if idx == 0 or idx == 1:
@@ -269,32 +269,39 @@ def main():
         child.logfile = sys.stdout
 
     print("[2/6] Login to remote...", flush=True)
-    login_and_prepare(child, args.password, args.prompt_regex)
+    login_and_prepare(child, args.password, args.prompt_regex, timeout_s=args.timeout)
 
     print(f"[3/6] Running remote setup: bash {args.remote_setup}", flush=True)
     child.sendline(f"bash {args.remote_setup}")
 
     print("[4/6] Waiting for tmux attach...", flush=True)
     try:
-        child.expect_exact("__W3_TMUX_ATTACHED__", timeout=30)
+        child.expect_exact("__W3_TMUX_ATTACHED__", timeout=args.timeout)
     except Exception as exc:
         raise RuntimeError(f"Timeout waiting for tmux attach. {child.before}") from exc
 
-    # Set up the inner tmux shell identical to src/w3/benchmark.py
+    # Set up inner shell: identical to benchmark.py _open_session()
+    # Use shlex.quote so prompt survives any shell meta-character.
     prompt = "__W3PROMPT__"
     setup_marker = "__W3SETUP__"
     child.sendline(
         "unset PROMPT_COMMAND 2>/dev/null || true; "
         "bind 'set enable-bracketed-paste off' 2>/dev/null || true; "
-        f"export PS1='{prompt} '; "
-        "stty -echo -echoctl cols 220 rows 50 2>/dev/null || true; "
+        f"export PS1={shlex.quote(prompt)}; "
         f"printf '{setup_marker}\\n'"
     )
     try:
-        child.expect_exact(setup_marker, timeout=10)
-        child.expect_exact(f"{prompt} ", timeout=10)
+        child.expect_exact(setup_marker, timeout=args.timeout)
+        child.expect_exact(prompt, timeout=args.timeout)
     except Exception as exc:
         raise RuntimeError(f"Failed to setup inner tmux shell: {exc}")
+    child.sendline(
+        f"stty -echo -echoctl cols 220 rows 50 2>/dev/null || true"
+    )
+    try:
+        child.expect_exact(prompt, timeout=args.timeout)
+    except Exception:
+        pass
 
     time.sleep(1.0)
     print(
@@ -313,7 +320,7 @@ def main():
         bye_marker = None
         if args.metric == "line_echo":
             try:
-                ack_prefix, bye_marker = start_helper(child, trial_id, timeout_s=10)
+                ack_prefix, bye_marker = start_helper(child, trial_id, timeout_s=args.timeout)
             except Exception as exc:
                 print(f"[setup_fail] trial={trial_id} exc={exc}", flush=True)
                 continue
@@ -333,16 +340,18 @@ def main():
                     tok, lat, agent_state = measure_keystroke_latency(
                         child, trial_id, sid, args.token_len, agent_state, args.echo_timeout
                     )
+                    print(f"[{args.proto:>4}/key  warm {i:>3}/{args.warmup_samples}]  {lat:.2f} ms", flush=True)
                 else:
                     tok, lat = measure_echo(
                         child, trial_id, sid, args.token_len, ack_prefix, args.echo_timeout
                     )
+                    print(f"[{args.proto:>4}/echo warm {i:>3}/{args.warmup_samples}]  {lat:.2f} ms", flush=True)
                 ok = 1
             except Exception as exc:
                 fail_count += 1
                 err_type = type(exc).__name__
                 err_msg = str(exc)
-                print(f"[warmup_fail] trial={trial_id} idx={sid}: {err_type}", flush=True)
+                print(f"[{args.proto:>4}/      warm {sid}     ]  FAIL  {err_type}", flush=True)
                 break # abort trial on warmup fail
 
             rows.append({
@@ -373,16 +382,18 @@ def main():
                     tok, lat, agent_state = measure_keystroke_latency(
                         child, trial_id, sid, args.token_len, agent_state, args.echo_timeout
                     )
+                    print(f"[{args.proto:>4}/key  meas {sid:>3}/{args.samples_per_trial}]  {lat:.2f} ms", flush=True)
                 else:
                     tok, lat = measure_echo(
                         child, trial_id, sid, args.token_len, ack_prefix, args.echo_timeout
                     )
+                    print(f"[{args.proto:>4}/echo meas {sid:>3}/{args.samples_per_trial}]  {lat:.2f} ms", flush=True)
                 ok = 1
             except Exception as exc:
                 fail_count += 1
                 err_type = type(exc).__name__
                 err_msg = str(exc)
-                print(f"[sample_fail] trial={trial_id} idx={sid}: {err_type}", flush=True)
+                print(f"[{args.proto:>4}/      meas {sid:>3}     ]  FAIL  {err_type}", flush=True)
             
             rows.append({
                 "sample": global_sample,
@@ -400,11 +411,8 @@ def main():
             })
             global_sample += 1
 
-            if sid % 10 == 0 or sid == 1 or sid == args.samples_per_trial:
-                print(f"  [progress] sample={sid}/{args.samples_per_trial}", flush=True)
-
         if bye_marker is not None:
-            stop_helper(child, bye_marker, timeout_s=10, prompt=f"{prompt} ")
+            stop_helper(child, bye_marker, timeout_s=args.timeout, prompt=prompt)
 
     print("[6/6] Writing CSV...", flush=True)
     with open(args.output, "w", newline="", encoding="utf-8") as f:
