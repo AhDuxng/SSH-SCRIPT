@@ -10,12 +10,10 @@ tmux has-session -t "$SESSION" 2>/dev/null && tmux kill-session -t "$SESSION"
 rm -f "$LOGFILE"
 touch "$LOGFILE"
 
-# Pane 0: echo server — dùng để đo line_echo RTT thực sự (server-side echo)
-# QUAN TRỌNG: "cat" (không redirect stdout) → mỗi token gửi lên server
-# sẽ được cat echo lại qua SSH stream → đo được RTT hai chiều thực sự.
-# Nếu dùng "cat >/dev/null" thì chỉ đo local PTY echo của SSH client, KHÔNG phải RTT!
-tmux new-session -d -s "$SESSION" -n w3 \
-  "bash -lc 'stty -echo -echoctl; printf \"__W3_PANE0_READY__\r\n\"; exec cat'"
+# Pane 0: interactive shell
+# Thay vì cat, ta chạy bash tương tác để benchmark script có thể gửi lệnh
+tmux new-session -d -s "$SESSION" -n w3 "bash"
+tmux send-keys -t "$SESSION":0.0 "printf '__W3_TMUX_ATTACHED__\n'" Enter
 
 # Pane 1: periodic output nhỏ nhưng liên tục (background noise)
 tmux split-window -h -t "$SESSION":0 \

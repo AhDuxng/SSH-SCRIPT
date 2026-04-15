@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 import argparse
 import csv
+import math
 import os
 import random
 import re
+import shlex
 import string
 import sys
 import time
+from typing import List, Optional, Tuple
 
 import pexpect
-
 
 ANSI_STRIP_RE = re.compile(
     r"\x1b\[[0-?]*[ -/]*[@-~]"
@@ -18,35 +20,26 @@ ANSI_STRIP_RE = re.compile(
 )
 
 
-def drain(child, duration=0.15):
-    end = time.time() + duration
-    while time.time() < end:
-        try:
-            child.read_nonblocking(size=4096, timeout=0.02)
-        except Exception:
-            pass
-
-
-def strip_ansi(text):
+def strip_ansi(text: str) -> str:
     return ANSI_STRIP_RE.sub("", text)
 
 
-def wait_marker_via_stream(child, marker, timeout):
-    deadline = time.monotonic() + timeout
-    raw_parts = []
+def wait_marker_via_stream(child: pexpect.spawn, marker: str, timeout_s: float) -> str:
+    deadline = time.monotonic() + timeout_s
+    raw_parts: List[str] = []
     max_chars = 32768
 
     while True:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            raise pexpect.TIMEOUT(f"Timeout chờ marker: {marker!r}")
+            raise pexpect.TIMEOUT(f"Timeout waiting for marker: {marker!r}")
 
         try:
             chunk = child.read_nonblocking(size=4096, timeout=min(0.5, max(0.05, remaining)))
         except pexpect.TIMEOUT:
             continue
         except pexpect.EOF:
-            raise
+            raise RuntimeError(f"EOF while waiting for marker. raw={raw_parts}")
 
         if not chunk:
             continue
@@ -61,11 +54,41 @@ def wait_marker_via_stream(child, marker, timeout):
             return clean
 
 
-def login_and_prepare(child, password, prompt_regex):
+def wait_ack_via_stream(child: pexpect.spawn, ack_marker: str, timeout_s: float) -> None:
+    deadline = time.monotonic() + timeout_s
+    raw_parts: List[str] = []
+    max_chars = 32768
+
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise pexpect.TIMEOUT(f"ACK not received within {timeout_s:.1f}s: {ack_marker!r}")
+
+        try:
+            chunk = child.read_nonblocking(size=4096, timeout=min(0.5, max(0.05, remaining)))
+        except pexpect.TIMEOUT:
+            continue
+        except pexpect.EOF:
+            raise RuntimeError(f"EOF while waiting for ACK. raw={raw_parts}")
+
+        if not chunk:
+            continue
+
+        raw_parts.append(chunk)
+        total = sum(len(x) for x in raw_parts)
+        if total > max_chars:
+            raw_parts = ["".join(raw_parts)[-max_chars:]]
+
+        if ack_marker in strip_ansi("".join(raw_parts)):
+            return
+
+
+def login_and_prepare(child: pexpect.spawn, password: Optional[str], prompt_regex: str) -> None:
     while True:
         idx = child.expect(
             [
-                r"Are you sure you want to continue connecting \(yes/no(/\[fingerprint\])?\)\?",
+                r"Are you sure you want to continue connecting \(yes/no(?:/\[fingerprint\])?\)\?",
+                r"Do you want to add this certificate to .*known_hosts \(yes/no\)\?",
                 r"[Pp]assword:",
                 prompt_regex,
                 pexpect.TIMEOUT,
@@ -74,70 +97,153 @@ def login_and_prepare(child, password, prompt_regex):
             timeout=20,
         )
 
-        if idx == 0:
-            print("[login] Host key chưa có, tự động gửi 'yes'...", flush=True)
+        if idx == 0 or idx == 1:
+            print("[login] Auto-accepting host key/cert ('yes')...", flush=True)
             child.sendline("yes")
-        elif idx == 1:
-            print("[login] Remote yêu cầu password...", flush=True)
-            if password is None:
-                raise RuntimeError("Remote yêu cầu password nhưng chưa truyền --password")
-            child.sendline(password)
         elif idx == 2:
-            print("[login] Đã vào shell remote.", flush=True)
-            return
+            print("[login] Remote requested password...", flush=True)
+            if password is None:
+                raise RuntimeError("Remote requested password but --password was not provided.")
+            child.sendline(password)
         elif idx == 3:
-            print("[login] Đang chờ password hoặc shell prompt...", flush=True)
+            print("[login] Reached remote shell.", flush=True)
+            return
+        elif idx == 4:
+            print("[login] Waiting for shell prompt...", flush=True)
             continue
         else:
-            raise RuntimeError("SSH/SSH3 đóng kết nối sớm")
+            raise RuntimeError("SSH connection closed unexpectedly.")
 
 
-def wait_exact_or_raise(child, text, timeout, step_name):
+def start_helper(child: pexpect.spawn, trial_id: int, timeout_s: float) -> Tuple[str, str]:
+    ready = f"W3RDY{trial_id:03d}Z"
+    ack = f"W3ACK{trial_id:03d}A"
+    bye = f"W3BYE{trial_id:03d}Z"
+    helper = (
+        "import os,sys\n"
+        "rdy=os.environ['W3R']\n"
+        "ack=os.environ['W3A']\n"
+        "bye=os.environ['W3B']\n"
+        "print(rdy,flush=True)\n"
+        "for ln in sys.stdin:\n"
+        "    ln=ln.rstrip('\\n')\n"
+        "    if ln=='W3EXIT':\n"
+        "        print(bye,flush=True)\n"
+        "        break\n"
+        "    print(ack+ln,flush=True)\n"
+    )
+    cmd = (
+        f"W3R={shlex.quote(ready)} "
+        f"W3A={shlex.quote(ack)} "
+        f"W3B={shlex.quote(bye)} "
+        f"python3 -u -c {shlex.quote(helper)}"
+    )
+    child.sendline(cmd)
     try:
-        child.expect_exact(text, timeout=timeout)
-    except pexpect.TIMEOUT:
-        print(f"[error] Timeout ở bước: {step_name}", flush=True)
-        print(f"[error] Đang chờ chuỗi: {text!r}", flush=True)
-        print(f"[error] Output gần nhất: {child.before!r}", flush=True)
-        raise
-    except pexpect.EOF:
-        print(f"[error] EOF ở bước: {step_name}", flush=True)
-        print(f"[error] Output gần nhất: {child.before!r}", flush=True)
-        raise
+        child.expect_exact(ready, timeout=timeout_s)
+    except Exception as exc:
+        raise RuntimeError(f"Failed to start python helper: {exc}")
+    return ack, bye
+
+
+def stop_helper(child: pexpect.spawn, bye: str, timeout_s: float, prompt: str) -> None:
+    child.sendline("W3EXIT")
+    try:
+        child.expect_exact(bye, timeout=timeout_s)
+    except Exception:
+        pass
+    child.sendline("printf 'W3BACK\\n'")
+    try:
+        child.expect_exact("W3BACK", timeout=timeout_s)
+        child.expect_exact(prompt, timeout=timeout_s)
+    except Exception:
+        pass
+
+
+def measure_echo(
+    child: pexpect.spawn, trial_id: int, sample_id: int, token_len: int, ack_prefix: str, timeout_s: float
+) -> Tuple[str, float]:
+    rand_part = "".join(random.choices(string.ascii_uppercase + string.digits, k=token_len))
+    token = f"E{trial_id:03d}_{sample_id:04d}_{rand_part}"
+    ack_marker = ack_prefix + token
+
+    t0 = time.perf_counter_ns()
+    child.sendline(token)
+    wait_ack_via_stream(child, ack_marker, timeout_s)
+    t1 = time.perf_counter_ns()
+
+    return token, (t1 - t0) / 1e6
+
+
+def measure_keystroke_latency(
+    child: pexpect.spawn, trial_id: int, sample_id: int, token_len: int, state: int, timeout_s: float
+) -> Tuple[str, float, int]:
+    rand_part = "".join(random.choices(string.ascii_uppercase + string.digits, k=token_len))
+    token = f"K{trial_id:03d}_{sample_id:04d}_{rand_part}"
+
+    obs_marker = f"__W3OBS__ {token} "
+    cmd1 = f"printf '__W3OBS__ {token} %d\\n' $(({state}*3+7))"
+    
+    t0 = time.perf_counter_ns()
+    child.sendline(cmd1)
+    clean_obs = wait_marker_via_stream(child, obs_marker, timeout_s)
+    t1 = time.perf_counter_ns()
+
+    m = re.search(rf"__W3OBS__\s+{re.escape(token)}\s+(-?\d+)", clean_obs)
+    if not m:
+        raise RuntimeError(f"Cannot parse observation for token={token}")
+    obs = int(m.group(1))
+
+    if obs % 2 == 0:
+        action = "INC"
+        next_state = obs + 1
+    else:
+        action = "DEC"
+        next_state = obs - 1
+
+    act_marker = f"__W3ACT__ {token} {action} {next_state}"
+    cmd2 = f"printf '__W3ACT__ {token} {action} {next_state}\\n'"
+    
+    t2 = time.perf_counter_ns()
+    child.sendline(cmd2)
+    wait_marker_via_stream(child, act_marker, timeout_s)
+    t3 = time.perf_counter_ns()
+
+    lat1_ms = (t1 - t0) / 1e6
+    lat2_ms = (t3 - t2) / 1e6
+    return token, (lat1_ms + lat2_ms) / 2.0, next_state
 
 
 def main():
     parser = argparse.ArgumentParser(description="W3 interactive benchmark")
-    parser.add_argument("--cmd", required=True, help='Ví dụ: "ssh pi@192.168.8.102" hoặc lệnh ssh3 đầy đủ')
-    parser.add_argument("--password", default=None, help="Password nếu cần")
+    parser.add_argument("--cmd", required=True, help="SSH/SSH3 connection command")
+    parser.add_argument("--password", default=None, help="Password if needed")
     parser.add_argument(
         "--prompt-regex",
         default=r".*[$#] ?",
-        help="Regex shell prompt ban đầu, ví dụ mặc định: .*[$#] ?",
+        help="Initial shell prompt regex",
     )
-    parser.add_argument("--remote-setup", required=True, help="Đường dẫn script w3_tmux_setup.sh trên remote")
-    parser.add_argument("--trials", type=int, default=30,
-                        help="Số trial độc lập (mỗi trial = 1 kết nối SSH)")
-    parser.add_argument("--samples-per-trial", type=int, default=100,
-                        help="Số sample đo thực sự mỗi trial (sau khi bỏ warmup)")
+    parser.add_argument("--remote-setup", required=True, help="Path to w3_tmux_setup.sh on remote")
+    parser.add_argument("--trials", type=int, default=30)
+    parser.add_argument("--samples-per-trial", type=int, default=100)
     parser.add_argument("--warmup-samples", type=int, default=10)
-    parser.add_argument("--samples", type=int, default=None)
-    parser.add_argument("--token-len", type=int, default=12)
-    parser.add_argument("--warmup", type=int, default=None)
+    
+    # Retro-compatibility aliases
+    parser.add_argument("--samples", type=int, default=None, help="Alias for --samples-per-trial")
+    parser.add_argument("--warmup", type=int, default=None, help="Alias for--warmup-samples")
+    
+    parser.add_argument("--token-len", type=int, default=6)
     parser.add_argument(
         "--metric",
         choices=["keystroke_latency", "line_echo"],
         default="keystroke_latency",
     )
     parser.add_argument("--echo-timeout", type=float, default=20.0)
-    parser.add_argument("--proto", required=True, help="Nhãn giao thức, ví dụ ssh2 hoặc ssh3")
-    parser.add_argument("--scenario", required=True, help="Nhãn kịch bản mạng, ví dụ default/low/medium/high")
-    parser.add_argument("--output", required=True, help="CSV output")
-    parser.add_argument(
-        "--verbose",
-        action="store_true",
-        help="Hiện toàn bộ output remote/ssh ra màn hình để debug",
-    )
+    parser.add_argument("--proto", required=True, help="Protocol label")
+    parser.add_argument("--scenario", required=True, help="Scenario label")
+    parser.add_argument("--output", required=True, help="CSV output path")
+    parser.add_argument("--verbose", action="store_true", help="Print remote streams")
+
     args = parser.parse_args()
 
     if args.samples is not None:
@@ -146,181 +252,173 @@ def main():
         args.warmup_samples = args.warmup
 
     if args.trials <= 0 or args.samples_per_trial <= 0 or args.token_len <= 0:
-        raise SystemExit("--trials, --samples-per-trial và --token-len phải > 0")
+        raise SystemExit("--trials, --samples-per-trial, and --token-len must be > 0")
     if args.warmup_samples < 0:
-        raise SystemExit("--warmup-samples phải >= 0")
+        raise SystemExit("--warmup-samples must be >= 0")
 
     outdir = os.path.dirname(args.output)
     if outdir:
         os.makedirs(outdir, exist_ok=True)
 
-    print("[1/6] Spawn SSH/SSH3 command...", flush=True)
-    child = pexpect.spawn(args.cmd, encoding="utf-8", timeout=30)
+    print("[1/6] Spawn connection...", flush=True)
+    child = pexpect.spawn(args.cmd, encoding="utf-8", codec_errors="ignore", timeout=30, maxread=65535)
     child.delaybeforesend = 0
 
     if args.verbose:
         child.logfile = sys.stdout
 
-    print("[2/6] Login vào remote...", flush=True)
+    print("[2/6] Login to remote...", flush=True)
     login_and_prepare(child, args.password, args.prompt_regex)
 
-    print(f"[3/6] Chạy remote setup: bash {args.remote_setup}", flush=True)
+    print(f"[3/6] Running remote setup: bash {args.remote_setup}", flush=True)
     child.sendline(f"bash {args.remote_setup}")
 
-    print("[4/6] Chờ remote báo __W3_PANE0_READY__ ...", flush=True)
-    wait_exact_or_raise(
-        child,
-        "__W3_PANE0_READY__",
-        timeout=30,
-        step_name="wait remote setup ready",
+    print("[4/6] Waiting for tmux attach...", flush=True)
+    try:
+        child.expect_exact("__W3_TMUX_ATTACHED__", timeout=30)
+    except Exception as exc:
+        raise RuntimeError(f"Timeout waiting for tmux attach. {child.before}") from exc
+
+    # Set up the inner tmux shell identical to src/w3/benchmark.py
+    prompt = "__W3PROMPT__"
+    setup_marker = "__W3SETUP__"
+    child.sendline(
+        "unset PROMPT_COMMAND 2>/dev/null || true; "
+        "bind 'set enable-bracketed-paste off' 2>/dev/null || true; "
+        f"export PS1='{prompt} '; "
+        "stty -echo -echoctl cols 220 rows 50 2>/dev/null || true; "
+        f"printf '{setup_marker}\\n'"
     )
+    try:
+        child.expect_exact(setup_marker, timeout=10)
+        child.expect_exact(f"{prompt} ", timeout=10)
+    except Exception as exc:
+        raise RuntimeError(f"Failed to setup inner tmux shell: {exc}")
 
-    time.sleep(2.0)
-    drain(child, 0.3)
-
+    time.sleep(1.0)
     print(
-        f"[5/6] Chạy {args.trials} trial | warmup={args.warmup_samples} | samples={args.samples_per_trial} | metric={args.metric}...",
+        f"[5/6] Measuring {args.trials} trials | warmup={args.warmup_samples} | samples={args.samples_per_trial} | metric={args.metric}...",
         flush=True,
     )
 
     rows = []
     fail_count = 0
     global_sample = 0
-    alphabet = string.ascii_uppercase + string.digits
 
     for trial_id in range(1, args.trials + 1):
         print(f"[trial] {trial_id}/{args.trials}", flush=True)
+        
+        ack_prefix = None
+        bye_marker = None
+        if args.metric == "line_echo":
+            try:
+                ack_prefix, bye_marker = start_helper(child, trial_id, timeout_s=10)
+            except Exception as exc:
+                print(f"[setup_fail] trial={trial_id} exc={exc}", flush=True)
+                continue
+
         agent_state = trial_id
 
+        # Warmup
         for i in range(1, args.warmup_samples + 1):
-            token = f"WARM{trial_id:03d}_{i:03d}"
-            if args.metric == "line_echo":
-                # Dùng printf để tạo server-side echo với prefix duy nhất.
-                # Marker "W3E:<token>" chỉ xuất hiện khi server thực thi lệnh
-                # → tránh nhầm với local PTY echo của SSH client.
-                cmd = f"printf 'W3E:{token}\\n'"
-                marker = f"W3E:{token}"
-            else:
-                cmd = f"OBS:{token}:{agent_state}"
-                marker = cmd
-            child.send(cmd + "\r")
-            try:
-                wait_marker_via_stream(child, marker, timeout=10)
-            except Exception as exc:
-                print(f"[warmup] FAIL trial={trial_id} idx={i}: {type(exc).__name__}", flush=True)
-                break
-            if args.metric == "keystroke_latency":
-                agent_state = agent_state + 1 if agent_state % 2 == 0 else agent_state - 1
-            drain(child, 0.05)
-
-        for sample_id in range(1, args.samples_per_trial + 1):
-            rand_part = "".join(random.choice(alphabet) for _ in range(args.token_len))
-            token = f"T{trial_id:03d}_{sample_id:04d}_{rand_part}"
-
-            # Drain 150ms để flush hết byte thừa từ sample trước.
-            # 50ms không đủ khi mạng có OWD lớn (response cũ vẫn đang trên đường)
-            drain(child, 0.15)
-            latency_ms = ""
+            sid = -i
             ok = 0
-
+            lat = 0.0
+            tok = ""
+            err_type = ""
+            err_msg = ""
             try:
-                if args.metric == "line_echo":
-                    # QUAN TRỌNG: KHÔNG gửi token trực tiếp mà dùng printf trên server.
-                    # Lý do: SSH PTY echo trả về ký tự gõ ngay khi server nhận STDIN
-                    # (sau 1 OWD). Nếu wait marker là chính token đó thì có thể
-                    # khớp với PTY echo (1 OWD) thay vì stdout của lệnh (1 RTT).
-                    # Marker "W3E:<token>" chỉ xuất hiện khi printf chạy xong
-                    # trên server → đảm bảo đo đúng 1 RTT ứng với đường đi đầy đủ.
-                    echo_cmd = f"printf 'W3E:{token}\\n'"
-                    echo_marker = f"W3E:{token}"
-                    t0 = time.perf_counter_ns()
-                    child.send(echo_cmd + "\r")
-                    wait_marker_via_stream(child, echo_marker, timeout=args.echo_timeout)
-                    t1 = time.perf_counter_ns()
-                    latency_ms = (t1 - t0) / 1e6
+                if args.metric == "keystroke_latency":
+                    tok, lat, agent_state = measure_keystroke_latency(
+                        child, trial_id, sid, args.token_len, agent_state, args.echo_timeout
+                    )
                 else:
-                    cmd_obs = f"OBS:{token}:{agent_state}"
-                    t0 = time.perf_counter_ns()
-                    child.send(cmd_obs + "\r")
-                    clean_obs = wait_marker_via_stream(child, cmd_obs, timeout=args.echo_timeout)
-                    t1 = time.perf_counter_ns()
-
-                    # BUG FIX: trong raw string r"...", \\d là chuỗi ký tự backslash-d,
-                    # không phải pattern digit. Phải dùng \d (một backslash trong regex).
-                    m = re.search(rf"OBS:{re.escape(token)}:(-?\d+)", clean_obs)
-                    if m:
-                        obs = int(m.group(1))
-                    else:
-                        obs = agent_state
-
-                    if obs % 2 == 0:
-                        action = "INC"
-                        next_state = obs + 1
-                    else:
-                        action = "DEC"
-                        next_state = obs - 1
-
-                    cmd_act = f"ACT:{token}:{action}:{next_state}"
-                    t2 = time.perf_counter_ns()
-                    child.send(cmd_act + "\r")
-                    wait_marker_via_stream(child, cmd_act, timeout=args.echo_timeout)
-                    t3 = time.perf_counter_ns()
-
-                    latency_ms = (((t1 - t0) / 1e6) + ((t3 - t2) / 1e6)) / 2.0
-                    agent_state = next_state
+                    tok, lat = measure_echo(
+                        child, trial_id, sid, args.token_len, ack_prefix, args.echo_timeout
+                    )
                 ok = 1
-            except Exception:
+            except Exception as exc:
                 fail_count += 1
-                snippet = repr(child.before[-300:]) if child.before else "''"
-                print(
-                    f"[sample] FAIL trial={trial_id} sample={sample_id} token={token!r} tail={snippet}",
-                    flush=True,
-                )
+                err_type = type(exc).__name__
+                err_msg = str(exc)
+                print(f"[warmup_fail] trial={trial_id} idx={sid}: {err_type}", flush=True)
+                break # abort trial on warmup fail
 
-            rows.append(
-                {
-                    "sample": global_sample,
-                    "metric": args.metric,
-                    "trial_id": trial_id,
-                    "sample_id": sample_id,
-                    "is_warmup": 0,
-                    "proto": args.proto,
-                    "scenario": args.scenario,
-                    "token": token,
-                    "latency_ms": latency_ms,
-                    "ok": ok,
-                }
-            )
+            rows.append({
+                "sample": global_sample,
+                "metric": args.metric,
+                "trial_id": trial_id,
+                "sample_id": sid,
+                "is_warmup": 1,
+                "proto": args.proto,
+                "scenario": args.scenario,
+                "token": tok,
+                "latency_ms": lat if ok else "",
+                "ok": ok,
+                "error_type": err_type,
+                "error_message": err_msg,
+            })
             global_sample += 1
 
-            if sample_id % 10 == 0 or sample_id == 1 or sample_id == args.samples_per_trial:
-                print(
-                    f"[progress] trial={trial_id}/{args.trials} sample={sample_id}/{args.samples_per_trial} | fail={fail_count}",
-                    flush=True,
-                )
+        # Measurement
+        for sid in range(1, args.samples_per_trial + 1):
+            ok = 0
+            lat = 0.0
+            tok = ""
+            err_type = ""
+            err_msg = ""
+            try:
+                if args.metric == "keystroke_latency":
+                    tok, lat, agent_state = measure_keystroke_latency(
+                        child, trial_id, sid, args.token_len, agent_state, args.echo_timeout
+                    )
+                else:
+                    tok, lat = measure_echo(
+                        child, trial_id, sid, args.token_len, ack_prefix, args.echo_timeout
+                    )
+                ok = 1
+            except Exception as exc:
+                fail_count += 1
+                err_type = type(exc).__name__
+                err_msg = str(exc)
+                print(f"[sample_fail] trial={trial_id} idx={sid}: {err_type}", flush=True)
+            
+            rows.append({
+                "sample": global_sample,
+                "metric": args.metric,
+                "trial_id": trial_id,
+                "sample_id": sid,
+                "is_warmup": 0,
+                "proto": args.proto,
+                "scenario": args.scenario,
+                "token": tok,
+                "latency_ms": lat if ok else "",
+                "ok": ok,
+                "error_type": err_type,
+                "error_message": err_msg,
+            })
+            global_sample += 1
 
-    print("[write] Ghi CSV...", flush=True)
+            if sid % 10 == 0 or sid == 1 or sid == args.samples_per_trial:
+                print(f"  [progress] sample={sid}/{args.samples_per_trial}", flush=True)
+
+        if bye_marker is not None:
+            stop_helper(child, bye_marker, timeout_s=10, prompt=f"{prompt} ")
+
+    print("[6/6] Writing CSV...", flush=True)
     with open(args.output, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(
             f,
             fieldnames=[
-                "sample",
-                "metric",
-                "trial_id",
-                "sample_id",
-                "is_warmup",
-                "proto",
-                "scenario",
-                "token",
-                "latency_ms",
-                "ok",
+                "sample", "metric", "trial_id", "sample_id", "is_warmup",
+                "proto", "scenario", "token", "latency_ms", "ok", 
+                "error_type", "error_message"
             ],
         )
         writer.writeheader()
         writer.writerows(rows)
 
     print(f"Done. fail_count={fail_count}, output={args.output}", flush=True)
-
     child.close(force=True)
 
 
