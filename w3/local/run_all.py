@@ -15,8 +15,10 @@ def main():
     parser.add_argument("--trials", type=int, default=30)
     parser.add_argument("--samples-per-trial", type=int, default=100)
     parser.add_argument("--warmup-samples", type=int, default=10)
+    parser.add_argument("--timeout", type=int, default=45)
+    parser.add_argument("--echo-timeout", type=int, default=45)
     
-    parser.add_argument("--metrics", nargs="+", default=["keystroke_latency", "line_echo"], 
+    parser.add_argument("--metrics", nargs="+", default=["keystroke_latency", "line_echo"],  
                         choices=["keystroke_latency", "line_echo"])
     parser.add_argument("--protocols", nargs="+", default=["ssh", "mosh", "ssh3"], 
                         choices=["ssh", "mosh", "ssh3"])
@@ -63,6 +65,8 @@ def main():
                 "--trials", str(args.trials),
                 "--samples-per-trial", str(args.samples_per_trial),
                 "--warmup-samples", str(args.warmup_samples),
+                "--timeout", str(args.timeout),
+                "--echo-timeout", str(args.echo_timeout),
                 "--metric", metric,
                 "--proto", proto,
                 "--scenario", args.scenario,

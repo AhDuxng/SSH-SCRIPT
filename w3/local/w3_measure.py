@@ -238,7 +238,8 @@ def main():
         choices=["keystroke_latency", "line_echo"],
         default="keystroke_latency",
     )
-    parser.add_argument("--echo-timeout", type=float, default=20.0)
+    parser.add_argument("--timeout", type=float, default=45.0, help="pexpect spawn timeout")
+    parser.add_argument("--echo-timeout", type=float, default=45.0, help="ACK wait timeout")
     parser.add_argument("--proto", required=True, help="Protocol label")
     parser.add_argument("--scenario", required=True, help="Scenario label")
     parser.add_argument("--output", required=True, help="CSV output path")
@@ -261,7 +262,7 @@ def main():
         os.makedirs(outdir, exist_ok=True)
 
     print("[1/6] Spawn connection...", flush=True)
-    child = pexpect.spawn(args.cmd, encoding="utf-8", codec_errors="ignore", timeout=30, maxread=65535)
+    child = pexpect.spawn(args.cmd, encoding="utf-8", codec_errors="ignore", timeout=args.timeout, maxread=65535)
     child.delaybeforesend = 0
 
     if args.verbose:
