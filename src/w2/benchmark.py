@@ -499,8 +499,18 @@ class Benchmark:
     ) -> Tuple[str, float]:
         timeout_s = float(getattr(self.args, "echo_timeout", self.args.timeout))
         
-        self._wait_marker_via_stream(child, f"__W2_START__ {sid_actual}", timeout_s)
+        # Clear buffer
+        while True:
+            try:
+                child.read_nonblocking(size=4096, timeout=0.01)
+            except (pexpect.TIMEOUT, pexpect.EOF):
+                break
+
+        # Send pull request to the helper script
         t0 = time.perf_counter_ns()
+        child.sendline(f"W2PULL {sid_actual}")
+        
+        # Wait for the block end marker
         self._wait_marker_via_stream(child, f"__W2_END__ {sid_actual}", timeout_s)
         t1 = time.perf_counter_ns()
         
@@ -525,19 +535,27 @@ class Benchmark:
                 print(f"[{protocol:>4}/setup      ] trial {trial_id:>2}:  OK  {setup_ms:.1f} ms")
 
                 if "screen_update_latency" in self.args.metrics:
-                    total_iterations = self.args.warmup_samples + self.args.samples_per_trial
+                    # Start an interactive helper script that listens for W2PULL and outputs a block
                     script = (
-                        "import time, sys\n"
-                        "pay = 'X' * 2000\n"
-                        f"for i in range(1, {total_iterations + 1}):\n"
-                        "    print(f'__W2_START__ {{i}}')\n"
-                        "    print(pay)\n"
-                        "    print(f'__W2_END__ {{i}}')\n"
-                        "    sys.stdout.flush()\n"
-                        "    time.sleep(1.0)\n"
+                        "import sys\\n"
+                        "pay = 'X' * 2000\\n"
+                        "print('W2READY', flush=True)\\n"
+                        "for line in sys.stdin:\\n"
+                        "    line = line.strip()\\n"
+                        "    if line.startswith('W2PULL'):\\n"
+                        "        sid = line.split()[1]\\n"
+                        "        print(f'__W2_START__ {sid}')\\n"
+                        "        print(pay)\\n"
+                        "        print(f'__W2_END__ {sid}', flush=True)\\n"
+                        "    elif line == 'W2EXIT':\\n"
+                        "        print('W2BYE', flush=True)\\n"
+                        "        break\\n"
                     )
-                    child.sendline(f"python3 -c {shlex.quote(script)}")
+                    child.sendline(f"python3 -u -c \"{script}\"")
+                    self._wait_marker_via_stream(child, "W2READY", self.args.timeout)
 
+                    total_iterations = self.args.warmup_samples + self.args.samples_per_trial
+                    # Warmup and Measurement phase combined
                     for i in range(1, total_iterations + 1):
                         is_warmup = (i <= self.args.warmup_samples)
                         sid = -i if is_warmup else i - self.args.warmup_samples
@@ -553,7 +571,10 @@ class Benchmark:
                                 raise
                             break
 
+                    # Teardown the helper script gracefully
                     try:
+                        child.sendline("W2EXIT")
+                        self._wait_marker_via_stream(child, "W2BYE", 2.0)
                         self._wait_marker_via_stream(child, self.args.prompt, timeout_s=self.args.timeout)
                     except Exception:
                         pass
