@@ -1,7 +1,23 @@
 #!/usr/bin/env python3
+"""
+w3_measure.py — W3 interactive latency benchmark (line_echo & keystroke_latency).
+
+Usage example:
+    python3 w3_measure.py \
+        --cmd "ssh pi@192.168.8.102" \
+        --password "raspberry" \
+        --remote-setup "~/w3_tmux_setup.sh" \
+        --samples 200 \
+        --proto ssh2 \
+        --scenario default \
+        --output results/w3_ssh2_default.csv
+"""
+
+from __future__ import annotations
+
 import argparse
 import csv
-import os
+import math
 import random
 import re
 import shlex
@@ -12,10 +28,13 @@ from typing import List, Optional, Tuple
 
 import pexpect
 
+# ---------------------------------------------------------------------------
+# ANSI / control-character stripping
+# ---------------------------------------------------------------------------
 ANSI_STRIP_RE = re.compile(
-    r"\x1b\[[0-?]*[ -/]*[@-~]"
-    r"|\x1b[@-Z\\-_]"
-    r"|[\r\n\x00\x08]"
+    r"\x1b\[[0-?]*[ -/]*[@-~]"   # CSI sequences
+    r"|\x1b[@-Z\\-_]"             # 2-byte ESC sequences
+    r"|[\r\x00\x08]"              # CR, NUL, BS  (keep \n for line splits)
 )
 
 
@@ -23,10 +42,15 @@ def strip_ansi(text: str) -> str:
     return ANSI_STRIP_RE.sub("", text)
 
 
+# ---------------------------------------------------------------------------
+# Low-level stream helpers
+# ---------------------------------------------------------------------------
+
 def wait_marker_via_stream(child: pexpect.spawn, marker: str, timeout_s: float) -> str:
+    """Read until *marker* appears in the stripped stream; return accumulated text."""
     deadline = time.monotonic() + timeout_s
     raw_parts: List[str] = []
-    max_chars = 32768
+    max_chars = 32_768
 
     while True:
         remaining = deadline - time.monotonic()
@@ -38,14 +62,13 @@ def wait_marker_via_stream(child: pexpect.spawn, marker: str, timeout_s: float) 
         except pexpect.TIMEOUT:
             continue
         except pexpect.EOF:
-            raise RuntimeError(f"EOF while waiting for marker. raw={raw_parts}")
+            raise RuntimeError(f"EOF while waiting for marker {marker!r}. buf={raw_parts}")
 
         if not chunk:
             continue
 
         raw_parts.append(chunk)
-        total = sum(len(x) for x in raw_parts)
-        if total > max_chars:
+        if sum(len(x) for x in raw_parts) > max_chars:
             raw_parts = ["".join(raw_parts)[-max_chars:]]
 
         clean = strip_ansi("".join(raw_parts))
@@ -54,35 +77,47 @@ def wait_marker_via_stream(child: pexpect.spawn, marker: str, timeout_s: float) 
 
 
 def wait_ack_via_stream(child: pexpect.spawn, ack_marker: str, timeout_s: float) -> None:
+    """Read until *ack_marker* appears (used for line_echo)."""
     deadline = time.monotonic() + timeout_s
     raw_parts: List[str] = []
-    max_chars = 32768
+    max_chars = 32_768
 
     while True:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            raise pexpect.TIMEOUT(f"ACK not received within {timeout_s:.1f}s: {ack_marker!r}")
+            raise pexpect.TIMEOUT(
+                f"ACK not received within {timeout_s:.1f}s: {ack_marker!r}"
+            )
 
         try:
             chunk = child.read_nonblocking(size=4096, timeout=min(0.5, max(0.05, remaining)))
         except pexpect.TIMEOUT:
             continue
         except pexpect.EOF:
-            raise RuntimeError(f"EOF while waiting for ACK. raw={raw_parts}")
+            raise RuntimeError(f"EOF while waiting for ACK {ack_marker!r}.")
 
         if not chunk:
             continue
 
         raw_parts.append(chunk)
-        total = sum(len(x) for x in raw_parts)
-        if total > max_chars:
+        if sum(len(x) for x in raw_parts) > max_chars:
             raw_parts = ["".join(raw_parts)[-max_chars:]]
 
         if ack_marker in strip_ansi("".join(raw_parts)):
             return
 
 
-def login_and_prepare(child: pexpect.spawn, password: Optional[str], prompt_regex: str, timeout_s: float) -> None:
+# ---------------------------------------------------------------------------
+# Login / setup
+# ---------------------------------------------------------------------------
+
+def login_and_prepare(
+    child: pexpect.spawn,
+    password: Optional[str],
+    prompt_regex: str,
+    timeout_s: float,
+) -> None:
+    """Handle host-key prompts, password prompts, and wait for the shell."""
     while True:
         idx = child.expect(
             [
@@ -96,28 +131,35 @@ def login_and_prepare(child: pexpect.spawn, password: Optional[str], prompt_rege
             timeout=timeout_s,
         )
 
-        if idx == 0 or idx == 1:
-            print("[login] Auto-accepting host key/cert ('yes')...", flush=True)
+        if idx in (0, 1):
+            print("[login] Auto-accepting host key ('yes')...", flush=True)
             child.sendline("yes")
         elif idx == 2:
             print("[login] Remote requested password...", flush=True)
             if password is None:
-                raise RuntimeError("Remote requested password but --password was not provided.")
+                raise RuntimeError("Remote requested a password but --password was not given.")
             child.sendline(password)
         elif idx == 3:
-            print("[login] Reached remote shell.", flush=True)
+            print("[login] Shell prompt reached.", flush=True)
             return
         elif idx == 4:
-            print("[login] Waiting for shell prompt...", flush=True)
+            print("[login] Waiting for shell prompt (timeout retry)...", flush=True)
             continue
         else:
-            raise RuntimeError("SSH connection closed unexpectedly.")
+            raise RuntimeError("SSH connection closed unexpectedly during login.")
 
 
-def start_helper(child: pexpect.spawn, trial_id: int, timeout_s: float) -> Tuple[str, str]:
-    ready = f"W3RDY{trial_id:03d}Z"
-    ack = f"W3ACK{trial_id:03d}A"
-    bye = f"W3BYE{trial_id:03d}Z"
+# ---------------------------------------------------------------------------
+# Python helper process (line_echo metric)
+# ---------------------------------------------------------------------------
+
+def start_helper(
+    child: pexpect.spawn, trial_id: int, timeout_s: float
+) -> Tuple[str, str]:
+    """Start a Python echo helper on the remote; return (ack_prefix, bye_marker)."""
+    ready  = f"W3RDY{trial_id:03d}Z"
+    ack    = f"W3ACK{trial_id:03d}A"
+    bye    = f"W3BYE{trial_id:03d}Z"
     helper = (
         "import os,sys\n"
         "rdy=os.environ['W3R']\n"
@@ -141,11 +183,13 @@ def start_helper(child: pexpect.spawn, trial_id: int, timeout_s: float) -> Tuple
     try:
         child.expect_exact(ready, timeout=timeout_s)
     except Exception as exc:
-        raise RuntimeError(f"Failed to start python helper: {exc}")
+        raise RuntimeError(f"Failed to start Python echo helper: {exc}")
     return ack, bye
 
 
-def stop_helper(child: pexpect.spawn, bye: str, timeout_s: float, prompt: str) -> None:
+def stop_helper(
+    child: pexpect.spawn, bye: str, timeout_s: float, prompt: str
+) -> None:
     child.sendline("W3EXIT")
     try:
         child.expect_exact(bye, timeout=timeout_s)
@@ -159,11 +203,21 @@ def stop_helper(child: pexpect.spawn, bye: str, timeout_s: float, prompt: str) -
         pass
 
 
-def measure_echo(
-    child: pexpect.spawn, trial_id: int, sample_id: int, token_len: int, ack_prefix: str, timeout_s: float
+# ---------------------------------------------------------------------------
+# Measurement functions
+# ---------------------------------------------------------------------------
+
+def measure_line_echo(
+    child: pexpect.spawn,
+    trial_id: int,
+    sample_id: int,
+    token_len: int,
+    ack_prefix: str,
+    timeout_s: float,
 ) -> Tuple[str, float]:
+    """Send a unique token; measure RTT until the echo helper echoes it back."""
     rand_part = "".join(random.choices(string.ascii_uppercase + string.digits, k=token_len))
-    token = f"E{trial_id:03d}_{sample_id:04d}_{rand_part}"
+    token     = f"E{trial_id:03d}_{sample_id:04d}_{rand_part}"
     ack_marker = ack_prefix + token
 
     t0 = time.perf_counter_ns()
@@ -171,18 +225,29 @@ def measure_echo(
     wait_ack_via_stream(child, ack_marker, timeout_s)
     t1 = time.perf_counter_ns()
 
-    return token, (t1 - t0) / 1e6
+    return token, (t1 - t0) / 1_000_000.0
 
 
 def measure_keystroke_latency(
-    child: pexpect.spawn, trial_id: int, sample_id: int, token_len: int, state: int, timeout_s: float
+    child: pexpect.spawn,
+    trial_id: int,
+    sample_id: int,
+    token_len: int,
+    state: int,
+    timeout_s: float,
 ) -> Tuple[str, float, int]:
+    """
+    Two-RTT keystroke latency:
+      RTT-1: observe remote state
+      RTT-2: send action, observe confirmation
+    Returns (token, avg_latency_ms, next_state).
+    """
     rand_part = "".join(random.choices(string.ascii_uppercase + string.digits, k=token_len))
     token = f"K{trial_id:03d}_{sample_id:04d}_{rand_part}"
 
     obs_marker = f"__W3OBS__ {token} "
     cmd1 = f"printf '__W3OBS__ {token} %d\\n' $(({state}*3+7))"
-    
+
     t0 = time.perf_counter_ns()
     child.sendline(cmd1)
     clean_obs = wait_marker_via_stream(child, obs_marker, timeout_s)
@@ -190,99 +255,142 @@ def measure_keystroke_latency(
 
     m = re.search(rf"__W3OBS__\s+{re.escape(token)}\s+(-?\d+)", clean_obs)
     if not m:
-        raise RuntimeError(f"Cannot parse observation for token={token}")
+        raise RuntimeError(f"Cannot parse OBS for token={token!r}")
     obs = int(m.group(1))
 
     if obs % 2 == 0:
-        action = "INC"
-        next_state = obs + 1
+        action, next_state = "INC", obs + 1
     else:
-        action = "DEC"
-        next_state = obs - 1
+        action, next_state = "DEC", obs - 1
 
     act_marker = f"__W3ACT__ {token} {action} {next_state}"
     cmd2 = f"printf '__W3ACT__ {token} {action} {next_state}\\n'"
-    
+
     t2 = time.perf_counter_ns()
     child.sendline(cmd2)
     wait_marker_via_stream(child, act_marker, timeout_s)
     t3 = time.perf_counter_ns()
 
-    lat1_ms = (t1 - t0) / 1e6
-    lat2_ms = (t3 - t2) / 1e6
+    lat1_ms = (t1 - t0) / 1_000_000.0
+    lat2_ms = (t3 - t2) / 1_000_000.0
     return token, (lat1_ms + lat2_ms) / 2.0, next_state
 
 
-def main():
-    parser = argparse.ArgumentParser(description="W3 interactive benchmark")
-    parser.add_argument("--cmd", required=True, help="SSH/SSH3 connection command")
-    parser.add_argument("--password", default=None, help="Password if needed")
-    parser.add_argument(
-        "--prompt-regex",
-        default=r".*[$#] ?",
-        help="Initial shell prompt regex",
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="W3 interactive latency benchmark",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument("--remote-setup", required=True, help="Path to w3_tmux_setup.sh on remote")
-    parser.add_argument("--trials", type=int, default=30)
-    parser.add_argument("--samples-per-trial", type=int, default=100)
-    parser.add_argument("--warmup-samples", type=int, default=10)
-    
-    # Retro-compatibility aliases
-    parser.add_argument("--samples", type=int, default=None, help="Alias for --samples-per-trial")
-    parser.add_argument("--warmup", type=int, default=None, help="Alias for--warmup-samples")
-    
-    parser.add_argument("--token-len", type=int, default=6)
-    parser.add_argument(
-        "--metric",
-        choices=["keystroke_latency", "line_echo"],
-        default="keystroke_latency",
-    )
-    parser.add_argument("--timeout", type=float, default=45.0, help="pexpect spawn timeout")
-    parser.add_argument("--echo-timeout", type=float, default=45.0, help="ACK wait timeout")
-    parser.add_argument("--proto", required=True, help="Protocol label")
-    parser.add_argument("--scenario", required=True, help="Scenario label")
-    parser.add_argument("--output", required=True, help="CSV output path")
-    parser.add_argument("--verbose", action="store_true", help="Print remote streams")
+    # Connection
+    parser.add_argument("--cmd",          required=True, help="Full SSH/SSH3 connection command")
+    parser.add_argument("--password",     default=None,  help="Remote password (if needed)")
+    parser.add_argument("--prompt-regex", default=r".*[$#] ?",
+                        help="Regex matching the initial remote shell prompt")
+    parser.add_argument("--remote-setup", required=True,
+                        help="Absolute path to w3_tmux_setup.sh on remote host")
+
+    # Trial structure
+    parser.add_argument("--trials",            type=int, default=30,
+                        help="Number of independent trials")
+    parser.add_argument("--samples-per-trial", type=int, default=100,
+                        help="Measurement samples per trial (warmup excluded)")
+    parser.add_argument("--warmup-samples",    type=int, default=10,
+                        help="Warmup samples per trial (discarded from CSV)")
+    # Backward-compat short aliases
+    parser.add_argument("--samples", type=int, default=None,
+                        help="Alias for --samples-per-trial")
+    parser.add_argument("--warmup",  type=int, default=None,
+                        help="Alias for --warmup-samples")
+
+    # Timing
+    parser.add_argument("--token-len",    type=int,   default=6)
+    parser.add_argument("--timeout",      type=float, default=45.0,
+                        help="pexpect spawn / expect timeout (s)")
+    parser.add_argument("--echo-timeout", type=float, default=45.0,
+                        help="Per-sample ACK wait timeout (s)")
+
+    # Metric
+    parser.add_argument("--metric",
+                        choices=["line_echo", "keystroke_latency"],
+                        default="line_echo",           # default = line_echo per spec
+                        help="Metric to measure")
+
+    # Metadata
+    parser.add_argument("--proto",    required=True, help="Protocol label (ssh2 / ssh3 …)")
+    parser.add_argument("--scenario", required=True,
+                        choices=["default", "low", "medium", "high"],
+                        help="Network scenario label (tc applied manually beforehand)")
+
+    # Output
+    parser.add_argument("--output",  required=True, help="CSV output path")
+    parser.add_argument("--verbose", action="store_true",
+                        help="Echo remote stream to stdout")
 
     args = parser.parse_args()
 
+    # Resolve aliases
     if args.samples is not None:
         args.samples_per_trial = args.samples
     if args.warmup is not None:
         args.warmup_samples = args.warmup
 
+    # Validate
     if args.trials <= 0 or args.samples_per_trial <= 0 or args.token_len <= 0:
         raise SystemExit("--trials, --samples-per-trial, and --token-len must be > 0")
     if args.warmup_samples < 0:
         raise SystemExit("--warmup-samples must be >= 0")
 
+    import os
     outdir = os.path.dirname(args.output)
     if outdir:
         os.makedirs(outdir, exist_ok=True)
 
-    print("[1/6] Spawn connection...", flush=True)
-    child = pexpect.spawn(args.cmd, encoding="utf-8", codec_errors="ignore", timeout=args.timeout, maxread=65535)
+    # -----------------------------------------------------------------------
+    # Step 1: Spawn connection
+    # -----------------------------------------------------------------------
+    print("[1/6] Spawning connection...", flush=True)
+    child = pexpect.spawn(
+        args.cmd,
+        encoding="utf-8",
+        codec_errors="ignore",
+        timeout=args.timeout,
+        maxread=65535,
+    )
     child.delaybeforesend = 0
-
     if args.verbose:
         child.logfile = sys.stdout
 
-    print("[2/6] Login to remote...", flush=True)
+    # -----------------------------------------------------------------------
+    # Step 2: Login
+    # -----------------------------------------------------------------------
+    print("[2/6] Logging in to remote...", flush=True)
     login_and_prepare(child, args.password, args.prompt_regex, timeout_s=args.timeout)
 
+    # -----------------------------------------------------------------------
+    # Step 3: Remote tmux setup
+    # -----------------------------------------------------------------------
     print(f"[3/6] Running remote setup: bash {args.remote_setup}", flush=True)
     child.sendline(f"bash {args.remote_setup}")
 
+    # -----------------------------------------------------------------------
+    # Step 4: Wait for pane-0 readiness signal
+    # -----------------------------------------------------------------------
     print("[4/6] Waiting for pane-0 ready signal...", flush=True)
     try:
         child.expect_exact("__W3_PANE0_READY__", timeout=args.timeout)
     except Exception as exc:
-        raise RuntimeError(f"Timeout waiting for pane-0 ready. {child.before}") from exc
+        raise RuntimeError(
+            f"Timeout waiting for __W3_PANE0_READY__. Before buffer: {child.before!r}"
+        ) from exc
 
-    # ---------------------------------------------------------------------------
-    # Configure inner shell — identical sequence to benchmark.py _open_session()
-    # ---------------------------------------------------------------------------
-    prompt = "__W3PROMPT__"
+    # -----------------------------------------------------------------------
+    # Configure inner shell (disable bracketed paste, set PS1, stty)
+    # -----------------------------------------------------------------------
+    prompt       = "__W3PROMPT__"
     setup_marker = "__W3SETUP__"
     child.sendline(
         "unset PROMPT_COMMAND 2>/dev/null || true; "
@@ -292,33 +400,37 @@ def main():
     )
     try:
         child.expect_exact(setup_marker, timeout=args.timeout)
-        child.expect_exact(prompt, timeout=args.timeout)
+        child.expect_exact(prompt,       timeout=args.timeout)
     except Exception as exc:
         raise RuntimeError(f"Failed to configure inner shell: {exc}")
-    # stty: disable echo and set PTY size (matches benchmark.py)
-    child.sendline(
-        "stty -echo -echoctl cols 220 rows 50 2>/dev/null || true"
-    )
+
+    child.sendline("stty -echo -echoctl cols 220 rows 50 2>/dev/null || true")
     try:
         child.expect_exact(prompt, timeout=args.timeout)
     except Exception:
         pass
 
-    time.sleep(1.0)
+    time.sleep(1.0)  # allow pane load to stabilise
+
+    # -----------------------------------------------------------------------
+    # Step 5: Measure
+    # -----------------------------------------------------------------------
     print(
-        f"[5/6] Measuring {args.trials} trials | warmup={args.warmup_samples} | samples={args.samples_per_trial} | metric={args.metric}...",
+        f"[5/6] Measuring  trials={args.trials}  "
+        f"warmup={args.warmup_samples}  samples={args.samples_per_trial}  "
+        f"metric={args.metric}  proto={args.proto}  scenario={args.scenario}",
         flush=True,
     )
 
-    rows = []
-    fail_count = 0
+    rows: list[dict] = []
+    fail_count   = 0
     global_sample = 0
 
     for trial_id in range(1, args.trials + 1):
         print(f"[trial] {trial_id}/{args.trials}", flush=True)
-        
-        ack_prefix = None
-        bye_marker = None
+
+        ack_prefix  = None
+        bye_marker  = None
         if args.metric == "line_echo":
             try:
                 ack_prefix, bye_marker = start_helper(child, trial_id, timeout_s=args.timeout)
@@ -326,109 +438,97 @@ def main():
                 print(f"[setup_fail] trial={trial_id} exc={exc}", flush=True)
                 continue
 
-        agent_state = trial_id
+        agent_state = trial_id  # arbitrary starting state for keystroke metric
 
-        # Warmup
+        def _do_sample(sid: int, is_warmup: bool) -> None:
+            nonlocal fail_count, agent_state, global_sample
+            ok      = 0
+            lat     = 0.0
+            tok     = ""
+            err_type = ""
+            err_msg  = ""
+            label   = "warm" if is_warmup else "meas"
+
+            try:
+                if args.metric == "line_echo":
+                    tok, lat = measure_line_echo(
+                        child, trial_id, sid, args.token_len, ack_prefix, args.echo_timeout
+                    )
+                    print(
+                        f"[{args.proto:>5}/echo {label} {sid:>4}/{args.samples_per_trial if not is_warmup else args.warmup_samples}]"
+                        f"  {lat:.2f} ms",
+                        flush=True,
+                    )
+                else:
+                    tok, lat, agent_state = measure_keystroke_latency(
+                        child, trial_id, sid, args.token_len, agent_state, args.echo_timeout
+                    )
+                    print(
+                        f"[{args.proto:>5}/key  {label} {sid:>4}/{args.samples_per_trial if not is_warmup else args.warmup_samples}]"
+                        f"  {lat:.2f} ms",
+                        flush=True,
+                    )
+                ok = 1
+            except Exception as exc:
+                fail_count += 1
+                err_type = type(exc).__name__
+                err_msg  = str(exc)
+                print(
+                    f"[{args.proto:>5}/     {label} {sid:>4}    ]  FAIL  {err_type}",
+                    flush=True,
+                )
+
+            rows.append({
+                "sample":        global_sample,
+                "metric":        args.metric,
+                "trial_id":      trial_id,
+                "sample_id":     sid,
+                "is_warmup":     1 if is_warmup else 0,
+                "proto":         args.proto,
+                "scenario":      args.scenario,
+                "token":         tok,
+                "latency_ms":    lat if ok else "",
+                "ok":            ok,
+                "error_type":    err_type,
+                "error_message": err_msg,
+            })
+            global_sample += 1
+
+        # -- Warmup phase --
+        warmup_failed = False
         for i in range(1, args.warmup_samples + 1):
-            sid = -i
-            ok = 0
-            lat = 0.0
-            tok = ""
-            err_type = ""
-            err_msg = ""
-            try:
-                if args.metric == "keystroke_latency":
-                    tok, lat, agent_state = measure_keystroke_latency(
-                        child, trial_id, sid, args.token_len, agent_state, args.echo_timeout
-                    )
-                    print(f"[{args.proto:>4}/key  warm {i:>3}/{args.warmup_samples}]  {lat:.2f} ms", flush=True)
-                else:
-                    tok, lat = measure_echo(
-                        child, trial_id, sid, args.token_len, ack_prefix, args.echo_timeout
-                    )
-                    print(f"[{args.proto:>4}/echo warm {i:>3}/{args.warmup_samples}]  {lat:.2f} ms", flush=True)
-                ok = 1
-            except Exception as exc:
-                fail_count += 1
-                err_type = type(exc).__name__
-                err_msg = str(exc)
-                print(f"[{args.proto:>4}/      warm {sid}     ]  FAIL  {err_type}", flush=True)
-                break # abort trial on warmup fail
+            _do_sample(-i, is_warmup=True)
+            if rows and rows[-1]["ok"] == 0:
+                warmup_failed = True
+                break  # abort trial on warmup failure
 
-            rows.append({
-                "sample": global_sample,
-                "metric": args.metric,
-                "trial_id": trial_id,
-                "sample_id": sid,
-                "is_warmup": 1,
-                "proto": args.proto,
-                "scenario": args.scenario,
-                "token": tok,
-                "latency_ms": lat if ok else "",
-                "ok": ok,
-                "error_type": err_type,
-                "error_message": err_msg,
-            })
-            global_sample += 1
-
-        # Measurement
-        for sid in range(1, args.samples_per_trial + 1):
-            ok = 0
-            lat = 0.0
-            tok = ""
-            err_type = ""
-            err_msg = ""
-            try:
-                if args.metric == "keystroke_latency":
-                    tok, lat, agent_state = measure_keystroke_latency(
-                        child, trial_id, sid, args.token_len, agent_state, args.echo_timeout
-                    )
-                    print(f"[{args.proto:>4}/key  meas {sid:>3}/{args.samples_per_trial}]  {lat:.2f} ms", flush=True)
-                else:
-                    tok, lat = measure_echo(
-                        child, trial_id, sid, args.token_len, ack_prefix, args.echo_timeout
-                    )
-                    print(f"[{args.proto:>4}/echo meas {sid:>3}/{args.samples_per_trial}]  {lat:.2f} ms", flush=True)
-                ok = 1
-            except Exception as exc:
-                fail_count += 1
-                err_type = type(exc).__name__
-                err_msg = str(exc)
-                print(f"[{args.proto:>4}/      meas {sid:>3}     ]  FAIL  {err_type}", flush=True)
-            
-            rows.append({
-                "sample": global_sample,
-                "metric": args.metric,
-                "trial_id": trial_id,
-                "sample_id": sid,
-                "is_warmup": 0,
-                "proto": args.proto,
-                "scenario": args.scenario,
-                "token": tok,
-                "latency_ms": lat if ok else "",
-                "ok": ok,
-                "error_type": err_type,
-                "error_message": err_msg,
-            })
-            global_sample += 1
+        # -- Measurement phase (only if warmup succeeded) --
+        if not warmup_failed:
+            for sid in range(1, args.samples_per_trial + 1):
+                _do_sample(sid, is_warmup=False)
 
         if bye_marker is not None:
             stop_helper(child, bye_marker, timeout_s=args.timeout, prompt=prompt)
 
+    # -----------------------------------------------------------------------
+    # Step 6: Write CSV
+    # -----------------------------------------------------------------------
     print("[6/6] Writing CSV...", flush=True)
+    fieldnames = [
+        "sample", "metric", "trial_id", "sample_id", "is_warmup",
+        "proto", "scenario", "token", "latency_ms", "ok",
+        "error_type", "error_message",
+    ]
     with open(args.output, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(
-            f,
-            fieldnames=[
-                "sample", "metric", "trial_id", "sample_id", "is_warmup",
-                "proto", "scenario", "token", "latency_ms", "ok", 
-                "error_type", "error_message"
-            ],
-        )
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
 
-    print(f"Done. fail_count={fail_count}, output={args.output}", flush=True)
+    total_rows = sum(1 for r in rows if r["is_warmup"] == 0)
+    print(
+        f"Done. fail_count={fail_count}  measurement_rows={total_rows}  output={args.output}",
+        flush=True,
+    )
     child.close(force=True)
 
 
