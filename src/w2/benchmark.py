@@ -495,10 +495,13 @@ class Benchmark:
     def _measure_screen_update_latency(
         self,
         child: pexpect.spawn,
-        sid_actual: int,
+        protocol: str,
+        trial_id: int,
+        sample_id: int,
     ) -> Tuple[str, float]:
+        token = self._token(protocol, trial_id, sample_id)
         timeout_s = float(getattr(self.args, "echo_timeout", self.args.timeout))
-        
+
         # Clear buffer
         while True:
             try:
@@ -506,15 +509,15 @@ class Benchmark:
             except (pexpect.TIMEOUT, pexpect.EOF):
                 break
 
-        # Send pull request to the helper script
+        # Send pull request; token ensures Mosh renders a new frame each sample
         t0 = time.perf_counter_ns()
-        child.sendline(f"W2PULL {sid_actual}")
-        
+        child.sendline(f"W2PULL {token}")
+
         # Wait for the block end marker
-        self._wait_marker_via_stream(child, f"__W2_END__ {sid_actual}", timeout_s)
+        self._wait_marker_via_stream(child, f"__W2_END__ {token}", timeout_s)
         t1 = time.perf_counter_ns()
-        
-        return f"block_{sid_actual}", (t1 - t0) / 1e6
+
+        return token, (t1 - t0) / 1e6
 
     def _run_protocol(self, protocol: str) -> None:
         for trial_id in range(1, self.args.trials + 1):
@@ -535,23 +538,24 @@ class Benchmark:
                 print(f"[{protocol:>4}/setup      ] trial {trial_id:>2}:  OK  {setup_ms:.1f} ms")
 
                 if "screen_update_latency" in self.args.metrics:
-                    # Start an interactive helper script that listens for W2PULL and outputs a block
+                    # Start an interactive helper script that listens for W2PULL and outputs a block.
+                    # Use shlex.quote() to safely embed multi-line Python source (same pattern as W3).
                     script = (
-                        "import sys\\n"
-                        "pay = 'X' * 2000\\n"
-                        "print('W2READY', flush=True)\\n"
-                        "for line in sys.stdin:\\n"
-                        "    line = line.strip()\\n"
-                        "    if line.startswith('W2PULL'):\\n"
-                        "        sid = line.split()[1]\\n"
-                        "        print(f'__W2_START__ {sid}')\\n"
-                        "        print(pay)\\n"
-                        "        print(f'__W2_END__ {sid}', flush=True)\\n"
-                        "    elif line == 'W2EXIT':\\n"
-                        "        print('W2BYE', flush=True)\\n"
-                        "        break\\n"
+                        "import sys\n"
+                        "pay = 'X' * 2000\n"
+                        "print('W2READY', flush=True)\n"
+                        "for line in sys.stdin:\n"
+                        "    line = line.strip()\n"
+                        "    if line.startswith('W2PULL'):\n"
+                        "        tok = line.split()[1]\n"
+                        "        print(f'__W2_START__ {tok}')\n"
+                        "        print(pay)\n"
+                        "        print(f'__W2_END__ {tok}', flush=True)\n"
+                        "    elif line == 'W2EXIT':\n"
+                        "        print('W2BYE', flush=True)\n"
+                        "        break\n"
                     )
-                    child.sendline(f"python3 -u -c \"{script}\"")
+                    child.sendline(f"python3 -u -c {shlex.quote(script)}")
                     self._wait_marker_via_stream(child, "W2READY", self.args.timeout)
 
                     total_iterations = self.args.warmup_samples + self.args.samples_per_trial
@@ -561,7 +565,7 @@ class Benchmark:
                         sid = -i if is_warmup else i - self.args.warmup_samples
                         phase = "warm" if is_warmup else "meas"
                         try:
-                            tok, lat = self._measure_screen_update_latency(child, i)
+                            tok, lat = self._measure_screen_update_latency(child, protocol, trial_id, sid)
                             self._record_ok(protocol, "screen_update_latency", trial_id, sid, is_warmup, tok, lat)
                             print(f"[{protocol:>4}/scrn {phase} {abs(sid):>3}]  {lat:.2f} ms")
                         except Exception as exc:
@@ -575,7 +579,7 @@ class Benchmark:
                     try:
                         child.sendline("W2EXIT")
                         self._wait_marker_via_stream(child, "W2BYE", 2.0)
-                        self._wait_marker_via_stream(child, self.args.prompt, timeout_s=self.args.timeout)
+                        self._wait_marker_via_stream(child, self.args.prompt, self.args.timeout)
                     except Exception:
                         pass
 

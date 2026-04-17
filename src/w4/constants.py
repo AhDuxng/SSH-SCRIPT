@@ -1,10 +1,10 @@
 DEFAULT_PROTOCOLS = ["ssh", "ssh3", "mosh"]
 
-# Mặc định chỉ đo keystroke_latency (+ session_setup luôn được đo nội bộ).
+# Mặc định chỉ đo large_output_latency (+ session_setup luôn được đo nội bộ).
 # line_echo KHÔNG nằm mặc định vì:
-#   - Chạy cả 2 metric trong 1 trial = 110 + 110 = 220 vòng/trial (gấp đôi).
+#   - Chạy cả 2 metric trong 1 trial tốn thêm thời gian.
 #   - Hai metric đo độc lập, nên chạy riêng để tránh nhiễu chéo.
-# Để đo line_echo: thêm --metrics session_setup keystroke_latency line_echo
+# Để đo line_echo: thêm --metrics session_setup large_output_latency line_echo
 # Để chỉ đo line_echo: --metrics session_setup line_echo
 DEFAULT_METRICS   = ["session_setup", "large_output_latency"]
 DEFAULT_PROMPT    = "__W4PROMPT__"

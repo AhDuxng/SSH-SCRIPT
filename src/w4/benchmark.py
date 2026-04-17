@@ -520,7 +520,7 @@ class Benchmark:
         self._wait_marker_via_stream(child, f"__W4DONE__ {token}", timeout_s)
         t1 = time.perf_counter_ns()
 
-        return cmd, (t1 - t0) / 1e6
+        return token, (t1 - t0) / 1e6
 
     def _run_protocol(self, protocol: str) -> None:
         for trial_id in range(1, self.args.trials + 1):
