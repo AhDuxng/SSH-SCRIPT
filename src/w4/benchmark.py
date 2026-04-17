@@ -510,8 +510,9 @@ class Benchmark:
             except (pexpect.TIMEOUT, pexpect.EOF):
                 break
 
-        # Append unique token to force Mosh to render a new string
-        cmd_with_marker = f"{cmd}; printf '\\n__W4DONE__ {token}\\n'"
+        # Clear screen + cursor-home before marker so Mosh MUST render a new frame
+        # containing only the marker, even when cmd produced large scrolling output.
+        cmd_with_marker = f"{cmd}; printf '\\033[2J\\033[H__W4DONE__ {token}\\n'"
 
         t0 = time.perf_counter_ns()
         child.sendline(cmd_with_marker)
