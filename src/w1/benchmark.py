@@ -519,12 +519,6 @@ class Benchmark:
         # Wait for the unique marker instead of generic prompt
         self._wait_marker_via_stream(child, f"__W1DONE__ {token}", timeout_s)
         t1 = time.perf_counter_ns()
-        
-        # Optionally wait a bit for prompt to keep state clean, ignore timeout
-        try:
-            self._wait_marker_via_stream(child, self.args.prompt, 1.0)
-        except Exception:
-            pass
 
         return cmd, (t1 - t0) / 1e6
 
