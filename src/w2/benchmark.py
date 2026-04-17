@@ -449,7 +449,8 @@ class Benchmark:
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                raise pexpect.TIMEOUT(f"Marker not received within {timeout_s:.1f}s: {marker!r}")
+                clean_dump = self._strip_ansi("".join(raw_parts))[-500:]
+                raise pexpect.TIMEOUT(f"Marker not received within {timeout_s:.1f}s: {marker!r}. Buffer end: {clean_dump!r}")
 
             try:
                 chunk = child.read_nonblocking(

@@ -449,7 +449,8 @@ class Benchmark:
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                raise pexpect.TIMEOUT(f"Marker not received within {timeout_s:.1f}s: {marker!r}")
+                clean_dump = self._strip_ansi("".join(raw_parts))[-500:]
+                raise pexpect.TIMEOUT(f"Marker not received within {timeout_s:.1f}s: {marker!r}. Buffer end: {clean_dump!r}")
 
             try:
                 chunk = child.read_nonblocking(
@@ -512,7 +513,9 @@ class Benchmark:
 
         # Clear screen + cursor-home before marker so Mosh MUST render a new frame
         # containing only the marker, even when cmd produced large scrolling output.
-        cmd_with_marker = f"{cmd}; printf '\\033[2J\\033[H__W1DONE__ {token}\\n'"
+        # Adding 'sleep 0.2' forces Mosh Server to flush the 'ps aux' output state
+        # BEFORE it processes the marker, avoiding frame coalescing issues.
+        cmd_with_marker = f"{cmd}; sleep 0.2; printf '\\033[2J\\033[H__W1DONE__ {token}\\n'"
 
         t0 = time.perf_counter_ns()
         child.sendline(cmd_with_marker)
