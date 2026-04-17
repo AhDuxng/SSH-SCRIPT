@@ -500,6 +500,7 @@ class Benchmark:
         sample_id: int,
         cmd: str,
     ) -> Tuple[str, float]:
+        token = self._token(protocol, trial_id, sample_id)
         timeout_s = float(getattr(self.args, "echo_timeout", self.args.timeout))
 
         # Clear buffer
@@ -509,10 +510,21 @@ class Benchmark:
             except (pexpect.TIMEOUT, pexpect.EOF):
                 break
 
+        # Append unique token to force Mosh to render a new string
+        cmd_with_marker = f"{cmd}; printf '\\n__W1DONE__ {token}\\n'"
+
         t0 = time.perf_counter_ns()
-        child.sendline(cmd)
-        self._wait_marker_via_stream(child, self.args.prompt, timeout_s)
+        child.sendline(cmd_with_marker)
+        
+        # Wait for the unique marker instead of generic prompt
+        self._wait_marker_via_stream(child, f"__W1DONE__ {token}", timeout_s)
         t1 = time.perf_counter_ns()
+        
+        # Optionally wait a bit for prompt to keep state clean, ignore timeout
+        try:
+            self._wait_marker_via_stream(child, self.args.prompt, 1.0)
+        except Exception:
+            pass
 
         return cmd, (t1 - t0) / 1e6
 
