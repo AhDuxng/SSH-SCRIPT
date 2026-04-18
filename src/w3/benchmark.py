@@ -596,10 +596,10 @@ class Benchmark:
     def _wait_exact_line(
         self, child: pexpect.spawn, expected: str, timeout_s: float
     ) -> None:
-        """Wait for a line that equals `expected` exactly (after strip)."""
+        """Wait for a line that contains `expected` (bypasses Mosh redraw concatenations)."""
         self._wait_for_output_line(
             child,
-            predicate=lambda line: line == expected,
+            predicate=lambda line: expected in line,
             timeout_s=timeout_s,
             what=f"exact line {expected!r}",
         )
@@ -608,16 +608,11 @@ class Benchmark:
         self, child: pexpect.spawn, prefix: str, timeout_s: float
     ) -> str:
         """
-        Wait for a line that starts with `prefix`; return that line.
-
-        BUG-1 FIX: The original _wait_marker_via_stream used `ack_marker`
-        (an undefined name from the outer scope of _measure_echo) instead
-        of the `marker_prefix` parameter.  This method uses `prefix`
-        correctly.
+        Wait for a line that contains `prefix`; return that line.
         """
         return self._wait_for_output_line(
             child,
-            predicate=lambda line: line.startswith(prefix),
+            predicate=lambda line: prefix in line,
             timeout_s=timeout_s,
             what=f"line starting with {prefix!r}",
         )
