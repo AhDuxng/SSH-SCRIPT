@@ -469,10 +469,7 @@ class Benchmark:
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                tail_candidate = self._strip_prompt_prefixes(clean_buffer).strip()
-                if tail_candidate and predicate(tail_candidate):
-                    return tail_candidate
-                tail = tail_candidate[-300:]
+                tail = clean_buffer[-300:]
                 raise pexpect.TIMEOUT(
                     f"{what} not received within {timeout_s:.1f}s. clean_tail={tail!r}"
                 )
@@ -483,17 +480,11 @@ class Benchmark:
                     timeout=min(0.5, max(0.05, remaining)),
                 )
             except pexpect.TIMEOUT:
-                tail_candidate = self._strip_prompt_prefixes(clean_buffer).strip()
-                if tail_candidate and predicate(tail_candidate):
-                    return tail_candidate
                 continue
             except pexpect.EOF as exc:
                 raise SessionOpenError(f"EOF while waiting for {what}. {self._buf(child)}") from exc
 
             if not chunk:
-                tail_candidate = self._strip_prompt_prefixes(clean_buffer).strip()
-                if tail_candidate and predicate(tail_candidate):
-                    return tail_candidate
                 continue
 
             clean_buffer += self._strip_ansi_keep_newlines(chunk)
@@ -506,10 +497,6 @@ class Benchmark:
                 candidate = self._strip_prompt_prefixes(line)
                 if candidate and predicate(candidate):
                     return candidate
-
-            tail_candidate = self._strip_prompt_prefixes(clean_buffer).strip()
-            if tail_candidate and predicate(tail_candidate):
-                return tail_candidate
 
     def _wait_ack_via_stream(
         self,
@@ -593,6 +580,11 @@ class Benchmark:
         child.sendline(cmd2)
         self._wait_marker_via_stream(child, act_marker, timeout_s)
         t_act_recv = time.perf_counter_ns()
+
+        try:
+            self._expect_literal(child, self.args.prompt, timeout=min(2.0, timeout_s))
+        except Exception:
+            pass
 
         csr = ControlStepRecord(
             protocol=protocol,
