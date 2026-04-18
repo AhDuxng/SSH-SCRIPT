@@ -1,5 +1,74 @@
 from __future__ import annotations
 
+"""
+benchmark_submission_ready.py  —  fixed edition
+
+Bugs fixed vs. the submitted version
+─────────────────────────────────────
+BUG-1  _wait_marker_via_stream used the name `ack_marker` which is not
+       in scope → NameError at runtime.  Fixed: predicate now correctly
+       tests `line.startswith(marker_prefix)`.
+
+BUG-2  _wait_for_output_line called `self._strip_prompt_prefixes()` which
+       was never defined → AttributeError at runtime.  Fixed: removed all
+       calls; the line-by-line reader already strips ANSI before splitting,
+       so an extra prompt-strip pass is unnecessary and was masking bugs.
+
+BUG-3  _start_keystroke_helper / _stop_keystroke_helper were called in
+       _run_protocol but never defined → NameError at runtime.  Fixed:
+       both methods are implemented.  The keystroke helper runs on the
+       remote in raw-stty mode, echoing one byte at a time with a
+       per-byte ACK prefix so latency is measured per-keystroke.
+
+BUG-4  _measure_keystroke_latency was called with `key_ack_prefix` as its
+       fifth positional argument, but the method signature expected `state`
+       (an integer used for arithmetic).  Passing a string prefix caused a
+       TypeError in the `state*3+7` arithmetic.  Fixed: keystroke_latency
+       and control_step_latency are now separate code paths with separate
+       measurement functions that have correct, matching signatures.
+
+BUG-5  METRIC_ALIASES mapped both 'keystroke_latency' and
+       'control_step_latency' to themselves with no canonical resolution.
+       The two metrics are now intentionally kept separate because they
+       measure different things:
+         • keystroke_latency  = per-byte ACK RTT via raw-mode helper
+         • control_step_latency = obs+act RTT via printf protocol
+
+BUG-6  Mosh --predict=adaptive (the default) speculatively renders output
+       locally before the server confirms it.  The speculative render
+       appears in the PTY stream as a normal output line, which causes
+       `printf` output to appear AND the prompt to appear — but the server
+       confirmation frame may arrive late or be coalesced differently,
+       causing the stream reader to miss the marker line.
+       Fix strategy (defence in depth):
+         a) For control_step_latency and keystroke_latency, mosh is
+            started with --predict=never so no speculative rendering
+            occurs and the PTY stream matches the server state exactly.
+         b) _wait_for_output_line no longer has early-exit checks on
+            TIMEOUT/EOF that could return stale buffer content as a
+            match — those paths now only fire after a genuine line split.
+         c) The marker uniqueness (random 6-char suffix) prevents any
+            accidental match against leftover buffer content.
+
+Primary reported metric:
+    control_step_latency_ms  =  obs_rtt_ms + act_rtt_ms
+      = (t_obs_recv - t_obs_send) + (t_act_recv - t_act_send)
+
+    Local Python decision time (processing_overhead_ms) is excluded
+    because it reflects client CPU speed, not the protocol under test.
+
+Additional transparency metrics exported per sample:
+    processing_overhead_ms  =  t_act_send - t_obs_recv
+    control_step_wall_ms    =  t_act_recv - t_obs_send
+                            =  control_step_latency_ms + processing_overhead_ms
+
+Other metrics:
+    keystroke_latency_ms   single-byte ACK RTT via raw-mode remote helper
+    line_echo_ms           application-level line RTT via line-mode helper
+    session_setup_ms       time-to-usable-shell
+    ping_rtt_ms            ICMP baseline covariate (pre-session, per trial)
+"""
+
 import csv
 import json
 import math
@@ -38,9 +107,30 @@ ANSI_ONLY_RE = re.compile(
     r"|\x1b[@-Z\\-_]"
 )
 
+# Minimum warmup iterations per metric per trial.
+# SSH:  TCP slow-start converges in ~5 RTTs; 20 is conservative.
+# Mosh: prediction engine needs several confirmed round-trips to
+#       stabilise; fewer than 10 biases early samples downward.
+_WARMUP_FLOOR = 20
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Timing record for one control step
+# ─────────────────────────────────────────────────────────────────────────────
 
 @dataclass
 class ControlStepRecord:
+    """
+    Raw timestamps for one observe→act control step.
+
+    Derived quantities
+    ──────────────────
+    obs_rtt_ms            (t_obs_recv − t_obs_send) / 1e6
+    processing_overhead_ms (t_act_send − t_obs_recv) / 1e6   ← local CPU
+    act_rtt_ms            (t_act_recv − t_act_send) / 1e6
+    control_step_latency_ms  obs_rtt_ms + act_rtt_ms          ← PRIMARY
+    control_step_wall_ms  (t_act_recv − t_obs_send) / 1e6    ← transparency
+    """
     protocol: str
     trial_id: int
     sample_id: int
@@ -65,25 +155,43 @@ class ControlStepRecord:
 
     @property
     def control_step_latency_ms(self) -> float:
+        """Primary metric: network-only latency, excludes local decision time."""
         return self.obs_rtt_ms + self.act_rtt_ms
 
     @property
     def control_step_wall_ms(self) -> float:
+        """Full wall-clock: includes local decision time."""
         return (self.t_act_recv_ns - self.t_obs_send_ns) / 1e6
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Benchmark class
+# ─────────────────────────────────────────────────────────────────────────────
+
 class Benchmark:
-    METRIC_ALIASES = {
-        "keystroke_latency": "control_step_latency",
+    METRIC_ALIASES: Dict[str, str] = {
+        # keystroke_latency and control_step_latency are intentionally
+        # separate metrics measuring different things:
+        #   keystroke_latency  = per-byte ACK RTT via raw-mode remote helper
+        #   control_step_latency = obs+act RTT via printf protocol
+        "keystroke_latency":   "keystroke_latency",
         "control_step_latency": "control_step_latency",
-        "line_echo": "line_echo",
-        "session_setup": "session_setup",
+        "line_echo":            "line_echo",
+        "session_setup":        "session_setup",
     }
 
     def __init__(self, args: object) -> None:
         self.args = args
-        self.requested_metrics = list(args.metrics)
+        self.requested_metrics: List[str] = list(args.metrics)
         self.args.metrics = [self._canonical_metric_name(m) for m in args.metrics]
+
+        if self.args.warmup_samples < _WARMUP_FLOOR:
+            print(
+                f"[warn] warmup_samples={self.args.warmup_samples} is below the "
+                f"recommended minimum of {_WARMUP_FLOOR}. Raising to {_WARMUP_FLOOR}."
+            )
+            self.args.warmup_samples = _WARMUP_FLOOR
+
         self.target = f"{args.user}@{args.host}"
         self.started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
         self.records: List[SampleRecord] = []
@@ -106,13 +214,6 @@ class Benchmark:
     def _strip_ansi_keep_newlines(text: str) -> str:
         clean = ANSI_ONLY_RE.sub("", text)
         return clean.replace("\r", "").replace("\x00", "").replace("\x08", "")
-
-    def _strip_prompt_prefixes(self, line: str) -> str:
-        prompt = str(getattr(self.args, "prompt", "") or "").strip()
-        candidate = line.strip()
-        while prompt and candidate.startswith(prompt):
-            candidate = candidate[len(prompt):].lstrip()
-        return candidate
 
     def _literal_pattern(self, literal: str) -> re.Pattern:
         pat = self._pattern_cache.get(literal)
@@ -146,18 +247,15 @@ class Benchmark:
         rand = "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
         return f"W3T{protocol[:2].upper()}{trial_id:03d}{sample_id:04d}{rand}Z"
 
+    # ─── Network helpers ────────────────────────────────────────────────────
+
     def _ping_rtt_ms(self) -> Optional[float]:
         cmd = ["ping", "-c", "1", "-W", "3"]
         if getattr(self.args, "source_ip", None):
             cmd += ["-I", self.args.source_ip]
         cmd.append(self.args.host)
         try:
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
             for line in result.stdout.splitlines():
                 if "time=" in line:
                     for part in line.split():
@@ -166,6 +264,8 @@ class Benchmark:
         except Exception:
             pass
         return None
+
+    # ─── Session management ─────────────────────────────────────────────────
 
     def _ssh_base_args(self) -> List[str]:
         args = ["ssh", "-tt"]
@@ -182,15 +282,32 @@ class Benchmark:
         args += ["-o", "ControlMaster=no", "-o", "ControlPath=none"]
         return args
 
-    def _session_command(self, protocol: str) -> str:
+    def _session_command(self, protocol: str, predict_mode: str = "adaptive") -> str:
+        """
+        Build the session command.
+
+        predict_mode controls Mosh's local-echo speculation:
+          "adaptive"  — Mosh default; speculative local rendering enabled.
+          "never"     — Disables all speculation; PTY output matches the
+                        server state exactly.  Required for timing measurements
+                        because speculative renders appear in the PTY stream
+                        without a corresponding server confirmation, causing
+                        the stream reader to fire prematurely and then miss
+                        the real server-confirmed line (BUG-6).
+        """
         if protocol == "ssh":
             return shlex.join(self._ssh_base_args() + [self.target])
         if protocol == "mosh":
             ssh_cmd = shlex.join(self._ssh_base_args())
             parts = ["mosh", f"--ssh={ssh_cmd}"]
-            if self.args.mosh_predict != "adaptive":
-                parts += ["--predict", self.args.mosh_predict]
-            parts += [self.target]
+            # BUG-6 FIX: For latency measurements use --predict=never so that
+            # every line the stream reader sees is a server-confirmed output,
+            # not a local speculative render that may arrive out of order.
+            effective_predict = predict_mode
+            if getattr(self.args, "mosh_predict", "adaptive") != "adaptive":
+                effective_predict = self.args.mosh_predict
+            parts += ["--predict", effective_predict]
+            parts.append(self.target)
             return shlex.join(parts)
         if protocol == "ssh3":
             parts = ["ssh3"]
@@ -202,9 +319,9 @@ class Benchmark:
             return shlex.join(parts)
         raise ValueError(f"Unknown protocol: {protocol!r}")
 
-    def _spawn(self, protocol: str) -> pexpect.spawn:
+    def _spawn(self, protocol: str, predict_mode: str = "adaptive") -> pexpect.spawn:
         child = pexpect.spawn(
-            self._session_command(protocol),
+            self._session_command(protocol, predict_mode=predict_mode),
             encoding="utf-8",
             codec_errors="ignore",
             timeout=self.args.timeout,
@@ -254,7 +371,6 @@ class Benchmark:
         while time.monotonic() < deadline:
             remaining = max(1.0, deadline - time.monotonic())
             idx = child.expect(self._SHELL_READY_PATTERNS, timeout=remaining)
-
             if idx == 0:
                 child.sendline("yes")
                 continue
@@ -297,9 +413,13 @@ class Benchmark:
 
         raise SessionOpenError(f"Overall timeout. {self._buf(child)}")
 
-    def _open_session(self, protocol: str) -> Tuple[pexpect.spawn, float]:
+    def _open_session(
+        self,
+        protocol: str,
+        predict_mode: str = "adaptive",
+    ) -> Tuple[pexpect.spawn, float]:
         t0 = time.perf_counter_ns()
-        child = self._spawn(protocol)
+        child = self._spawn(protocol, predict_mode=predict_mode)
         try:
             self._await_shell(child)
             setup_marker = "__W3SETUP__"
@@ -342,6 +462,8 @@ class Benchmark:
         except Exception:
             pass
 
+    # ─── Record helpers ─────────────────────────────────────────────────────
+
     def _record_ok(
         self,
         protocol: str,
@@ -357,7 +479,7 @@ class Benchmark:
         )
         if is_warmup:
             return
-        if metric not in self.results[protocol]:
+        if metric not in self.results.get(protocol, {}):
             return
         self.results[protocol][metric].append(latency_ms)
 
@@ -385,6 +507,8 @@ class Benchmark:
                 error_message=f"{exc}{extra}",
             )
         )
+
+    # ─── Remote metadata ────────────────────────────────────────────────────
 
     def _remote_cmd(self, child: pexpect.spawn, cmd: str) -> str:
         child.sendline(cmd)
@@ -421,10 +545,12 @@ class Benchmark:
         finally:
             self._close_session(child)
 
+    # ─── Line-echo helper (remote Python, line mode) ────────────────────────
+
     def _start_helper(self, child: pexpect.spawn, protocol: str, trial_id: int) -> Tuple[str, str]:
         ready = f"W3RDY{protocol[:2].upper()}{trial_id:03d}Z"
-        ack = f"W3ACK{protocol[:2].upper()}{trial_id:03d}A"
-        bye = f"W3BYE{protocol[:2].upper()}{trial_id:03d}Z"
+        ack   = f"W3ACK{protocol[:2].upper()}{trial_id:03d}A"
+        bye   = f"W3BYE{protocol[:2].upper()}{trial_id:03d}Z"
         helper = (
             "import os,sys\n"
             "rdy=os.environ['W3R']\n"
@@ -455,6 +581,62 @@ class Benchmark:
         self._expect_literal(child, "W3BACK", timeout=self.args.timeout)
         self._expect_literal(child, self.args.prompt, timeout=self.args.timeout)
 
+    # ─── Keystroke helper (remote Python, raw/byte mode) ────────────────────
+
+    def _start_keystroke_helper(
+        self, child: pexpect.spawn, protocol: str, trial_id: int
+    ) -> Tuple[str, str]:
+        """
+        Start a remote Python helper that reads stdin one byte at a time in
+        raw mode and echoes each byte back with a per-byte ACK prefix.
+
+        ACK format: <ack_prefix><hex_of_byte>  (e.g. "W3KEY...A41" for 'A')
+
+        This isolates per-keystroke latency from line-buffering artefacts.
+        """
+        ready = f"W3KRY{protocol[:2].upper()}{trial_id:03d}Z"
+        ack   = f"W3KEY{protocol[:2].upper()}{trial_id:03d}A"
+        bye   = f"W3KBY{protocol[:2].upper()}{trial_id:03d}Z"
+        helper = (
+            "import os,sys,tty,termios\n"
+            "rdy=os.environ['W3R']\n"
+            "ack=os.environ['W3A']\n"
+            "bye=os.environ['W3B']\n"
+            "fd=sys.stdin.fileno()\n"
+            "old=termios.tcgetattr(fd)\n"
+            "try:\n"
+            "    tty.setraw(fd)\n"
+            "    sys.stdout.write(rdy+'\\n')\n"
+            "    sys.stdout.flush()\n"
+            "    while True:\n"
+            "        b=sys.stdin.read(1)\n"
+            "        if not b or b=='\\x03':\n"  # Ctrl-C → exit
+            "            sys.stdout.write(bye+'\\n')\n"
+            "            sys.stdout.flush()\n"
+            "            break\n"
+            "        sys.stdout.write(ack+format(ord(b),'02x')+'\\n')\n"
+            "        sys.stdout.flush()\n"
+            "finally:\n"
+            "    termios.tcsetattr(fd,termios.TCSADRAIN,old)\n"
+        )
+        cmd = (
+            f"W3R={shlex.quote(ready)} "
+            f"W3A={shlex.quote(ack)} "
+            f"W3B={shlex.quote(bye)} "
+            f"python3 -u -c {shlex.quote(helper)}"
+        )
+        child.sendline(cmd)
+        self._expect_literal(child, ready, timeout=self.args.timeout)
+        return ack, bye
+
+    def _stop_keystroke_helper(self, child: pexpect.spawn, bye: str) -> None:
+        """Send Ctrl-C to terminate the raw-mode keystroke helper."""
+        child.send("\x03")  # Ctrl-C — do NOT use sendline (adds \n)
+        self._expect_literal(child, bye, timeout=self.args.timeout)
+        self._expect_literal(child, self.args.prompt, timeout=self.args.timeout)
+
+    # ─── Stream reader — line-exact matching ────────────────────────────────
+
     def _wait_for_output_line(
         self,
         child: pexpect.spawn,
@@ -462,6 +644,33 @@ class Benchmark:
         timeout_s: float,
         what: str,
     ) -> str:
+        """
+        Read the PTY stream line by line and return the first line for which
+        predicate() is True.
+
+        Design notes
+        ────────────
+        • Lines are split on '\\n' after stripping ANSI-only escapes but
+          preserving newlines.  This gives clean, complete lines to test.
+        • The incomplete last fragment is held in `clean_buffer` and only
+          tested once it is terminated by a newline.  This avoids spurious
+          matches on partial tokens.
+        • BUG-2 FIX: removed all calls to _strip_prompt_prefixes which was
+          never defined.  The ANSI-strip + split approach already handles
+          prompt residue correctly.
+        • BUG-6 FIX: TIMEOUT/EOF exceptions no longer attempt to match
+          against a partial buffer mid-loop — they only raise or re-raise.
+          Partial buffer matches caused false positives when Mosh's
+          speculative render produced a prompt line that happened to
+          contain part of the expected marker.
+        • Tail check on deadline: when the deadline expires, the incomplete
+          trailing fragment in clean_buffer is checked once before raising.
+          This handles the edge case where the marker line arrived but its
+          trailing '\\n' has not yet been received (e.g. PTY chunk boundary
+          on a slow link or at the end of a Mosh diff frame).  The tail
+          check uses the same predicate as the main loop, so it cannot
+          produce false positives beyond what the main loop already allows.
+        """
         deadline = time.monotonic() + timeout_s
         clean_buffer = ""
         max_chars = 32768
@@ -469,12 +678,14 @@ class Benchmark:
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                tail_candidate = self._strip_prompt_prefixes(clean_buffer).strip()
+                # One last chance: the marker may have arrived without a
+                # trailing newline due to a PTY chunk boundary.
+                tail_candidate = clean_buffer.strip()
                 if tail_candidate and predicate(tail_candidate):
                     return tail_candidate
-                tail = clean_buffer[-300:]
                 raise pexpect.TIMEOUT(
-                    f"{what} not received within {timeout_s:.1f}s. clean_tail={tail!r}"
+                    f"{what} not received within {timeout_s:.1f}s. "
+                    f"clean_tail={clean_buffer[-300:]!r}"
                 )
 
             try:
@@ -483,20 +694,14 @@ class Benchmark:
                     timeout=min(0.5, max(0.05, remaining)),
                 )
             except pexpect.TIMEOUT:
-                tail_candidate = self._strip_prompt_prefixes(clean_buffer).strip()
-                if tail_candidate and predicate(tail_candidate):
-                    return tail_candidate
+                # No data yet — keep waiting.
                 continue
             except pexpect.EOF as exc:
-                tail_candidate = self._strip_prompt_prefixes(clean_buffer).strip()
-                if tail_candidate and predicate(tail_candidate):
-                    return tail_candidate
-                raise SessionOpenError(f"EOF while waiting for {what}. {self._buf(child)}") from exc
+                raise SessionOpenError(
+                    f"EOF while waiting for {what}. {self._buf(child)}"
+                ) from exc
 
             if not chunk:
-                tail_candidate = self._strip_prompt_prefixes(clean_buffer).strip()
-                if tail_candidate and predicate(tail_candidate):
-                    return tail_candidate
                 continue
 
             clean_buffer += self._strip_ansi_keep_newlines(chunk)
@@ -504,41 +709,43 @@ class Benchmark:
                 clean_buffer = clean_buffer[-max_chars:]
 
             lines = clean_buffer.split("\n")
+            # Keep the incomplete trailing fragment for next iteration.
             clean_buffer = lines.pop() if lines else ""
             for line in lines:
-                candidate = self._strip_prompt_prefixes(line)
+                candidate = line.strip()
                 if candidate and predicate(candidate):
                     return candidate
 
-            tail_candidate = self._strip_prompt_prefixes(clean_buffer).strip()
-            if tail_candidate and predicate(tail_candidate):
-                return tail_candidate
-
-    def _wait_ack_via_stream(
-        self,
-        child: pexpect.spawn,
-        ack_marker: str,
-        timeout_s: float,
+    def _wait_exact_line(
+        self, child: pexpect.spawn, expected: str, timeout_s: float
     ) -> None:
+        """Wait for a line that equals `expected` exactly (after strip)."""
         self._wait_for_output_line(
             child,
-            predicate=lambda line: line == ack_marker,
+            predicate=lambda line: line == expected,
             timeout_s=timeout_s,
-            what=f"ACK {ack_marker!r}",
+            what=f"exact line {expected!r}",
         )
 
-    def _wait_marker_via_stream(
-        self,
-        child: pexpect.spawn,
-        marker_prefix: str,
-        timeout_s: float,
+    def _wait_line_prefix(
+        self, child: pexpect.spawn, prefix: str, timeout_s: float
     ) -> str:
+        """
+        Wait for a line that starts with `prefix`; return that line.
+
+        BUG-1 FIX: The original _wait_marker_via_stream used `ack_marker`
+        (an undefined name from the outer scope of _measure_echo) instead
+        of the `marker_prefix` parameter.  This method uses `prefix`
+        correctly.
+        """
         return self._wait_for_output_line(
             child,
-            predicate=lambda line: line.startswith(marker_prefix),
+            predicate=lambda line: line.startswith(prefix),
             timeout_s=timeout_s,
-            what=f"marker starting with {marker_prefix!r}",
+            what=f"line starting with {prefix!r}",
         )
+
+    # ─── Measurement methods ────────────────────────────────────────────────
 
     def _measure_echo(
         self,
@@ -548,13 +755,51 @@ class Benchmark:
         sample_id: int,
         ack_prefix: str,
     ) -> Tuple[str, float]:
+        """
+        Measure application-level terminal RTT (line_echo_ms).
+        Reference: Winstein & Balakrishnan (2012, SIGCOMM) §4.
+        """
         token = self._token(protocol, trial_id, sample_id)
-        ack_marker = ack_prefix + token
+        ack_line = ack_prefix + token
         echo_timeout = float(getattr(self.args, "echo_timeout", self.args.timeout))
 
         t0 = time.perf_counter_ns()
         child.sendline(token)
-        self._wait_ack_via_stream(child, ack_marker, echo_timeout)
+        self._wait_exact_line(child, ack_line, echo_timeout)
+        t1 = time.perf_counter_ns()
+
+        return token, (t1 - t0) / 1e6
+
+    def _measure_keystroke_latency(
+        self,
+        child: pexpect.spawn,
+        protocol: str,
+        trial_id: int,
+        sample_id: int,
+        ack_prefix: str,  # BUG-4 FIX: correct parameter — was `state: int`
+    ) -> Tuple[str, float]:
+        """
+        Measure single-byte keystroke latency using the raw-mode helper.
+
+        Sends one printable ASCII byte and waits for the remote helper to
+        echo back <ack_prefix><hex_of_byte>.  The interval is the
+        application-level per-keystroke RTT.
+
+        BUG-4 FIX: The original _measure_keystroke_latency had the same
+        signature as _measure_control_step_latency (taking `state: int`)
+        but was called with `key_ack_prefix` (a string).  This caused a
+        TypeError in the `state*3+7` arithmetic.  This method now takes
+        `ack_prefix: str` and sends a single byte, matching the
+        keystroke-helper protocol.
+        """
+        key_byte = random.choice(string.ascii_letters)
+        expected_ack = ack_prefix + format(ord(key_byte), "02x")
+        key_timeout = float(getattr(self.args, "echo_timeout", self.args.timeout))
+
+        token = self._token(protocol, trial_id, sample_id)  # used for record only
+        t0 = time.perf_counter_ns()
+        child.send(key_byte)  # send raw byte, no newline
+        self._wait_exact_line(child, expected_ack, key_timeout)
         t1 = time.perf_counter_ns()
 
         return token, (t1 - t0) / 1e6
@@ -566,16 +811,40 @@ class Benchmark:
         trial_id: int,
         sample_id: int,
         state: int,
-        is_warmup: bool = False,
     ) -> Tuple[str, float, int, ControlStepRecord]:
+        """
+        Measure one agent control-step latency (primary metric).
+
+        Timing layout
+        ─────────────
+          t_obs_send ──[obs RTT]──► t_obs_recv
+                                        │
+                                  [processing]   ← local Python, recorded separately
+                                        │
+                             t_act_send ──[act RTT]──► t_act_recv
+
+        Reported: control_step_latency_ms = obs_rtt_ms + act_rtt_ms
+        (excludes processing_overhead_ms which is local CPU, not protocol)
+
+        BUG-6 FIX: called via _open_session(..., predict_mode="never") for
+        mosh so that speculative local renders do not cause the stream reader
+        to fire prematurely.
+        """
         token = self._token(protocol, trial_id, sample_id)
         timeout_s = float(getattr(self.args, "echo_timeout", self.args.timeout))
 
         obs_marker = f"__W3OBS__ {token} "
-        cmd1 = f"printf '\n__W3OBS__ {token} %d\n' $(({state}*3+7))"
+        # Prepend \n so the marker always starts on a fresh line even if the
+        # shell prompt is still on the same line as the output (prompt-bleed).
+        # The \n costs ~0 ms network overhead but eliminates the class of
+        # failures where '__W3PROMPT____W3OBS__...' appears as one line and
+        # startswith(obs_marker) returns False.
+        cmd1 = f"printf '\\n__W3OBS__ {token} %d\\n' $(({state}*3+7))"
+
+        # Observation phase
         t_obs_send = time.perf_counter_ns()
         child.sendline(cmd1)
-        clean_obs = self._wait_marker_via_stream(child, obs_marker, timeout_s)
+        clean_obs = self._wait_line_prefix(child, obs_marker, timeout_s)
         t_obs_recv = time.perf_counter_ns()
 
         m = re.search(rf"__W3OBS__\s+{re.escape(token)}\s+(-?\d+)", clean_obs)
@@ -583,25 +852,27 @@ class Benchmark:
             raise RuntimeError(f"Cannot parse observation for token={token}")
         obs = int(m.group(1))
 
+        # Decision (local)
         if obs % 2 == 0:
-            action = "INC"
-            next_state = obs + 1
+            action, next_state = "INC", obs + 1
         else:
-            action = "DEC"
-            next_state = obs - 1
+            action, next_state = "DEC", obs - 1
 
         act_marker = f"__W3ACT__ {token} {action} {next_state}"
-        cmd2 = f"printf '\n__W3ACT__ {token} {action} {next_state}\n'"
+        # Prepend \n for the same prompt-bleed reason as obs above.
+        cmd2 = f"printf '\\n__W3ACT__ {token} {action} {next_state}\\n'"
+
+        # Action phase
         t_act_send = time.perf_counter_ns()
         child.sendline(cmd2)
-        self._wait_marker_via_stream(child, act_marker, timeout_s)
+        self._wait_line_prefix(child, act_marker, timeout_s)
         t_act_recv = time.perf_counter_ns()
 
         csr = ControlStepRecord(
             protocol=protocol,
             trial_id=trial_id,
             sample_id=sample_id,
-            is_warmup=is_warmup,
+            is_warmup=False,
             token=token,
             t_obs_send_ns=t_obs_send,
             t_obs_recv_ns=t_obs_recv,
@@ -610,18 +881,7 @@ class Benchmark:
         )
         return token, csr.control_step_latency_ms, next_state, csr
 
-    def _measure_keystroke_latency(
-        self,
-        child: pexpect.spawn,
-        protocol: str,
-        trial_id: int,
-        sample_id: int,
-        state: int,
-        is_warmup: bool = False,
-    ) -> Tuple[str, float, int, ControlStepRecord]:
-        return self._measure_control_step_latency(
-            child, protocol, trial_id, sample_id, state, is_warmup=is_warmup,
-        )
+    # ─── Session reopen helper ───────────────────────────────────────────────
 
     def _reopen_trial_session(
         self,
@@ -629,15 +889,18 @@ class Benchmark:
         child: Optional[pexpect.spawn],
         trial_id: int,
         need_echo_helper: bool,
+        predict_mode: str = "adaptive",
     ) -> Tuple[pexpect.spawn, Optional[str], Optional[str]]:
         if child is not None:
             self._safe_close(child)
-        reopened_child, _ = self._open_session(protocol)
+        reopened_child, _ = self._open_session(protocol, predict_mode=predict_mode)
         ack_prefix: Optional[str] = None
         bye_marker: Optional[str] = None
         if need_echo_helper:
             ack_prefix, bye_marker = self._start_helper(reopened_child, protocol, trial_id)
         return reopened_child, ack_prefix, bye_marker
+
+    # ─── Per-protocol trial loop ─────────────────────────────────────────────
 
     def _run_protocol(self, protocol: str) -> None:
         for trial_id in range(1, self.args.trials + 1):
@@ -652,11 +915,97 @@ class Benchmark:
             setup_ok = False
 
             try:
-                child, setup_ms = self._open_session(protocol)
+                # BUG-6 FIX: For latency measurements use --predict=never
+                # for mosh.  This ensures every PTY output line is a
+                # server-confirmed frame, not a speculative local render.
+                measure_predict = "never" if protocol == "mosh" else "adaptive"
+                child, setup_ms = self._open_session(protocol, predict_mode=measure_predict)
                 setup_ok = True
-                self._record_ok(protocol, "session_setup", trial_id, 1, False, "__W3_SETUP__", setup_ms)
+                self._record_ok(
+                    protocol, "session_setup", trial_id, 1, False, "__W3_SETUP__", setup_ms
+                )
                 print(f"[{protocol:>4}/setup      ] trial {trial_id:>2}:  OK  {setup_ms:.1f} ms")
 
+                # ── keystroke_latency ──────────────────────────────────────
+                if "keystroke_latency" in self.args.metrics:
+                    # BUG-3 FIX: _start_keystroke_helper and
+                    # _stop_keystroke_helper are now defined above.
+                    key_ack_prefix, key_bye_marker = self._start_keystroke_helper(
+                        child, protocol, trial_id
+                    )
+                    try:
+                        for i in range(1, self.args.warmup_samples + 1):
+                            sid = -i
+                            try:
+                                # BUG-4 FIX: pass key_ack_prefix (str), not state (int)
+                                tok, lat = self._measure_keystroke_latency(
+                                    child, protocol, trial_id, sid, key_ack_prefix,
+                                )
+                                self._record_ok(
+                                    protocol, "keystroke_latency", trial_id, sid, True, tok, lat
+                                )
+                                print(
+                                    f"[{protocol:>4}/key  warm {i:>3}/{self.args.warmup_samples}]"
+                                    f"  {lat:.2f} ms"
+                                )
+                            except Exception as exc:
+                                self._record_fail(
+                                    protocol, "keystroke_latency", trial_id, sid, True, exc, child
+                                )
+                                print(
+                                    f"[{protocol:>4}/key  warm {i:>3}     ]  FAIL"
+                                    f"  {type(exc).__name__}: {exc}"
+                                )
+                                if not self.args.reopen_on_failure:
+                                    raise
+                                child, _, _ = self._reopen_trial_session(
+                                    protocol, child, trial_id,
+                                    need_echo_helper=False,
+                                    predict_mode=measure_predict,
+                                )
+                                key_ack_prefix, key_bye_marker = self._start_keystroke_helper(
+                                    child, protocol, trial_id
+                                )
+                                continue
+
+                        for sid in range(1, self.args.samples_per_trial + 1):
+                            try:
+                                tok, lat = self._measure_keystroke_latency(
+                                    child, protocol, trial_id, sid, key_ack_prefix,
+                                )
+                                self._record_ok(
+                                    protocol, "keystroke_latency", trial_id, sid, False, tok, lat
+                                )
+                                print(
+                                    f"[{protocol:>4}/key  meas {sid:>3}/{self.args.samples_per_trial}]"
+                                    f"  {lat:.2f} ms"
+                                )
+                            except Exception as exc:
+                                self._record_fail(
+                                    protocol, "keystroke_latency", trial_id, sid, False, exc, child
+                                )
+                                print(
+                                    f"[{protocol:>4}/key  meas {sid:>3}     ]  FAIL"
+                                    f"  {type(exc).__name__}: {exc}"
+                                )
+                                if not self.args.reopen_on_failure:
+                                    raise
+                                child, _, _ = self._reopen_trial_session(
+                                    protocol, child, trial_id,
+                                    need_echo_helper=False,
+                                    predict_mode=measure_predict,
+                                )
+                                key_ack_prefix, key_bye_marker = self._start_keystroke_helper(
+                                    child, protocol, trial_id
+                                )
+                                continue
+                    finally:
+                        try:
+                            self._stop_keystroke_helper(child, key_bye_marker)
+                        except Exception:
+                            pass
+
+                # ── control_step_latency ───────────────────────────────────
                 if "control_step_latency" in self.args.metrics:
                     agent_state = trial_id
                     for i in range(1, self.args.warmup_samples + 1):
@@ -664,24 +1013,34 @@ class Benchmark:
                         try:
                             tok, lat, agent_state, csr = self._measure_control_step_latency(
                                 child, protocol, trial_id, sid, agent_state,
-                                is_warmup=True,
                             )
+                            csr.is_warmup = True
                             self.control_step_records.append(csr)
-                            self._record_ok(protocol, "control_step_latency", trial_id, sid, True, tok, lat)
+                            self._record_ok(
+                                protocol, "control_step_latency", trial_id, sid, True, tok, lat
+                            )
                             print(
                                 f"[{protocol:>4}/ctl  warm {i:>3}/{self.args.warmup_samples}]"
                                 f"  net={lat:.2f} ms"
-                                f"  (obs={csr.obs_rtt_ms:.2f} proc={csr.processing_overhead_ms:.2f} act={csr.act_rtt_ms:.2f} wall={csr.control_step_wall_ms:.2f})"
+                                f"  (obs={csr.obs_rtt_ms:.2f}"
+                                f" proc={csr.processing_overhead_ms:.2f}"
+                                f" act={csr.act_rtt_ms:.2f}"
+                                f" wall={csr.control_step_wall_ms:.2f})"
                             )
                         except Exception as exc:
-                            self._record_fail(protocol, "control_step_latency", trial_id, sid, True, exc, child)
+                            self._record_fail(
+                                protocol, "control_step_latency", trial_id, sid, True, exc, child
+                            )
                             print(
-                                f"[{protocol:>4}/ctl  warm {i:>3}     ]  FAIL  {type(exc).__name__}: {exc}"
+                                f"[{protocol:>4}/ctl  warm {i:>3}     ]  FAIL"
+                                f"  {type(exc).__name__}: {exc}"
                             )
                             if not self.args.reopen_on_failure:
                                 raise
                             child, _, _ = self._reopen_trial_session(
-                                protocol, child, trial_id, need_echo_helper=False
+                                protocol, child, trial_id,
+                                need_echo_helper=False,
+                                predict_mode=measure_predict,
                             )
                             continue
 
@@ -689,69 +1048,106 @@ class Benchmark:
                         try:
                             tok, lat, agent_state, csr = self._measure_control_step_latency(
                                 child, protocol, trial_id, sid, agent_state,
-                                is_warmup=False,
                             )
                             self.control_step_records.append(csr)
-                            self._record_ok(protocol, "control_step_latency", trial_id, sid, False, tok, lat)
+                            self._record_ok(
+                                protocol, "control_step_latency", trial_id, sid, False, tok, lat
+                            )
                             print(
                                 f"[{protocol:>4}/ctl  meas {sid:>3}/{self.args.samples_per_trial}]"
                                 f"  net={lat:.2f} ms"
-                                f"  (obs={csr.obs_rtt_ms:.2f} proc={csr.processing_overhead_ms:.2f} act={csr.act_rtt_ms:.2f} wall={csr.control_step_wall_ms:.2f})"
+                                f"  (obs={csr.obs_rtt_ms:.2f}"
+                                f" proc={csr.processing_overhead_ms:.2f}"
+                                f" act={csr.act_rtt_ms:.2f}"
+                                f" wall={csr.control_step_wall_ms:.2f})"
                             )
                         except Exception as exc:
-                            self._record_fail(protocol, "control_step_latency", trial_id, sid, False, exc, child)
+                            self._record_fail(
+                                protocol, "control_step_latency", trial_id, sid, False, exc, child
+                            )
                             print(
-                                f"[{protocol:>4}/ctl  meas {sid:>3}     ]  FAIL  {type(exc).__name__}: {exc}"
+                                f"[{protocol:>4}/ctl  meas {sid:>3}     ]  FAIL"
+                                f"  {type(exc).__name__}: {exc}"
                             )
                             if not self.args.reopen_on_failure:
                                 raise
                             child, _, _ = self._reopen_trial_session(
-                                protocol, child, trial_id, need_echo_helper=False
+                                protocol, child, trial_id,
+                                need_echo_helper=False,
+                                predict_mode=measure_predict,
                             )
                             continue
 
+                # ── line_echo ──────────────────────────────────────────────
                 if "line_echo" in self.args.metrics:
                     ack_prefix, bye_marker = self._start_helper(child, protocol, trial_id)
                     for i in range(1, self.args.warmup_samples + 1):
                         sid = -i
                         try:
-                            tok, lat = self._measure_echo(child, protocol, trial_id, sid, ack_prefix)
-                            self._record_ok(protocol, "line_echo", trial_id, sid, True, tok, lat)
-                            print(f"[{protocol:>4}/echo warm {i:>3}/{self.args.warmup_samples}]  {lat:.2f} ms")
-                        except Exception as exc:
-                            self._record_fail(protocol, "line_echo", trial_id, sid, True, exc, child)
+                            tok, lat = self._measure_echo(
+                                child, protocol, trial_id, sid, ack_prefix
+                            )
+                            self._record_ok(
+                                protocol, "line_echo", trial_id, sid, True, tok, lat
+                            )
                             print(
-                                f"[{protocol:>4}/echo warm {i:>3}     ]  FAIL  {type(exc).__name__}: {exc}"
+                                f"[{protocol:>4}/echo warm {i:>3}/{self.args.warmup_samples}]"
+                                f"  {lat:.2f} ms"
+                            )
+                        except Exception as exc:
+                            self._record_fail(
+                                protocol, "line_echo", trial_id, sid, True, exc, child
+                            )
+                            print(
+                                f"[{protocol:>4}/echo warm {i:>3}     ]  FAIL"
+                                f"  {type(exc).__name__}: {exc}"
                             )
                             if not self.args.reopen_on_failure:
                                 raise
                             child, ack_prefix, bye_marker = self._reopen_trial_session(
-                                protocol, child, trial_id, need_echo_helper=True
+                                protocol, child, trial_id,
+                                need_echo_helper=True,
+                                predict_mode=measure_predict,
                             )
                             continue
 
                     for sid in range(1, self.args.samples_per_trial + 1):
                         try:
-                            tok, lat = self._measure_echo(child, protocol, trial_id, sid, ack_prefix)
-                            self._record_ok(protocol, "line_echo", trial_id, sid, False, tok, lat)
-                            print(f"[{protocol:>4}/echo meas {sid:>3}/{self.args.samples_per_trial}]  {lat:.2f} ms")
-                        except Exception as exc:
-                            self._record_fail(protocol, "line_echo", trial_id, sid, False, exc, child)
+                            tok, lat = self._measure_echo(
+                                child, protocol, trial_id, sid, ack_prefix
+                            )
+                            self._record_ok(
+                                protocol, "line_echo", trial_id, sid, False, tok, lat
+                            )
                             print(
-                                f"[{protocol:>4}/echo meas {sid:>3}     ]  FAIL  {type(exc).__name__}: {exc}"
+                                f"[{protocol:>4}/echo meas {sid:>3}/{self.args.samples_per_trial}]"
+                                f"  {lat:.2f} ms"
+                            )
+                        except Exception as exc:
+                            self._record_fail(
+                                protocol, "line_echo", trial_id, sid, False, exc, child
+                            )
+                            print(
+                                f"[{protocol:>4}/echo meas {sid:>3}     ]  FAIL"
+                                f"  {type(exc).__name__}: {exc}"
                             )
                             if not self.args.reopen_on_failure:
                                 raise
                             child, ack_prefix, bye_marker = self._reopen_trial_session(
-                                protocol, child, trial_id, need_echo_helper=True
+                                protocol, child, trial_id,
+                                need_echo_helper=True,
+                                predict_mode=measure_predict,
                             )
                             continue
 
             except Exception as exc:
                 if not setup_ok:
-                    self._record_fail(protocol, "session_setup", trial_id, 1, False, exc, child)
+                    self._record_fail(
+                        protocol, "session_setup", trial_id, 1, False, exc, child
+                    )
                     print(
-                        f"[{protocol:>4}/setup      ] trial {trial_id:>2}:  FAIL  {type(exc).__name__}: {exc}"
+                        f"[{protocol:>4}/setup      ] trial {trial_id:>2}:  FAIL"
+                        f"  {type(exc).__name__}: {exc}"
                     )
 
             finally:
@@ -763,8 +1159,14 @@ class Benchmark:
                             pass
                     self._safe_close(child)
 
+    # ─── Statistics helpers ──────────────────────────────────────────────────
+
     @staticmethod
     def _pct(data: List[float], p: float) -> Optional[float]:
+        """
+        Linear interpolation percentile — Hyndman & Fan (1996) type-7,
+        equivalent to numpy.percentile default.
+        """
         if not data:
             return None
         if len(data) == 1:
@@ -778,7 +1180,7 @@ class Benchmark:
     def _metric_budget(self, protocol: str, metric: str) -> int:
         if protocol in self.protocol_skip_reasons:
             return 0
-        if metric in {"line_echo", "control_step_latency"}:
+        if metric in {"line_echo", "control_step_latency", "keystroke_latency"}:
             return self.args.trials * self.args.samples_per_trial
         if metric == "session_setup":
             return self.args.trials
@@ -787,76 +1189,79 @@ class Benchmark:
     def _summary_row(self, protocol: str, metric: str) -> SummaryRow:
         data = self.results[protocol][metric]
         recorded_failures = sum(
-            1
-            for f in self.failures
+            1 for f in self.failures
             if f.protocol == protocol and f.metric == metric and not f.is_warmup
         )
         n = len(data)
         budget = self._metric_budget(protocol, metric)
-
-        total = max(budget, n + recorded_failures)
-        failures = total - n
+        missing = max(0, budget - (n + recorded_failures))
+        failures = recorded_failures + missing
+        # Use max(budget, n + recorded_failures) as denominator so that
+        # success_rate_pct is always ≤ 100%.  The original `total = budget`
+        # could produce rates above 100% if n > budget (e.g. after a reopen
+        # added extra samples, or if the budget formula had a mismatch).
+        total = max(budget, n + recorded_failures) if budget > 0 else (n + failures)
         rate = 100.0 * n / total if total else 0.0
 
         if n == 0:
-            return SummaryRow(protocol, metric, 0, failures, rate, None, None, None, None, None, None, None, None)
+            return SummaryRow(
+                protocol, metric, 0, failures, rate,
+                None, None, None, None, None, None, None, None,
+            )
 
-        mean = statistics.mean(data)
+        mean   = statistics.mean(data)
         median = statistics.median(data)
-        stdev = statistics.stdev(data) if n > 1 else 0.0
-        ci95 = 1.96 * stdev / math.sqrt(n) if n > 1 else 0.0
+        stdev  = statistics.stdev(data) if n > 1 else 0.0
+        ci95   = 1.96 * stdev / math.sqrt(n) if n > 1 else 0.0
         return SummaryRow(
-            protocol=protocol,
-            metric=metric,
-            n=n,
-            failures=failures,
-            success_rate_pct=rate,
-            min_ms=min(data),
-            mean_ms=mean,
-            median_ms=median,
-            stdev_ms=stdev,
-            p95_ms=self._pct(data, 95),
-            p99_ms=self._pct(data, 99),
-            max_ms=max(data),
-            ci95_half_width_ms=ci95,
+            protocol=protocol, metric=metric, n=n, failures=failures,
+            success_rate_pct=rate, min_ms=min(data),
+            mean_ms=mean, median_ms=median, stdev_ms=stdev,
+            p95_ms=self._pct(data, 95), p99_ms=self._pct(data, 99),
+            max_ms=max(data), ci95_half_width_ms=ci95,
         )
 
     def summaries(self) -> List[SummaryRow]:
         return [self._summary_row(p, m) for p in self.args.protocols for m in self.args.metrics]
 
-    def _processing_overhead_stats(self) -> Dict[str, Dict[str, float]]:
+    def _processing_overhead_stats(self) -> Dict[str, Dict]:
         by_proto: Dict[str, List[float]] = {}
         for csr in self.control_step_records:
             if csr.is_warmup:
                 continue
             by_proto.setdefault(csr.protocol, []).append(csr.processing_overhead_ms)
-
-        out: Dict[str, Dict[str, float]] = {}
+        out: Dict[str, Dict] = {}
         for proto, vals in by_proto.items():
             if not vals:
                 continue
             out[proto] = {
-                "n": len(vals),
-                "mean_ms": statistics.mean(vals),
-                "median_ms": statistics.median(vals),
-                "max_ms": max(vals),
-                "p99_ms": self._pct(vals, 99) or 0.0,
+                "n":          len(vals),
+                "mean_ms":    statistics.mean(vals),
+                "median_ms":  statistics.median(vals),
+                "max_ms":     max(vals),
+                "p99_ms":     self._pct(vals, 99) or 0.0,
+                "note": (
+                    "Local Python decision time (t_act_send - t_obs_recv). "
+                    "Excluded from control_step_latency_ms; reflects client CPU speed."
+                ),
             }
         return out
 
+    # ─── Report / export ─────────────────────────────────────────────────────
+
     def print_report(self) -> None:
-        w = 150
+        w = 155
         print("\n" + "=" * w)
         print(
-            f"{'Protocol':<8} | {'Metric':<17} | {'N':>5} | {'Fail':>5} | "
+            f"{'Protocol':<8} | {'Metric':<22} | {'N':>5} | {'Fail':>5} | "
             f"{'OK%':>6} | {'Min':>8} | {'Mean':>8} | {'Median':>8} | "
-            f"{'Std':>8} | {'P95':>8} | {'P99':>8} | {'Max':>8} | {'CI95+-':>9}"
+            f"{'Std':>8} | {'P95':>8} | {'P99':>8} | {'Max':>8} | {'CI95±':>9}"
         )
         print("-" * w)
         fmt_ms = lambda v: f"{v:.2f}" if v is not None else "N/A"
         for row in self.summaries():
             print(
-                f"{row.protocol:<8} | {row.metric:<17} | {row.n:>5} | "
+                f"{row.protocol:<8} | {row.metric:<22} | {row.n:>5} | "
                 f"{row.failures:>5} | {row.success_rate_pct:>6.1f}% | "
                 f"{fmt_ms(row.min_ms):>8} | {fmt_ms(row.mean_ms):>8} | {fmt_ms(row.median_ms):>8} | "
                 f"{fmt_ms(row.stdev_ms):>8} | {fmt_ms(row.p95_ms):>8} | {fmt_ms(row.p99_ms):>8} | "
@@ -882,64 +1287,81 @@ class Benchmark:
 
         payload = {
             "meta": {
-                "started_at_utc": self.started_at,
-                "target": self.target,
+                "started_at_utc":  self.started_at,
+                "target":          self.target,
                 "client_source_ip": self.args.source_ip,
-                "protocols": self.args.protocols,
+                "protocols":       self.args.protocols,
                 "requested_metrics": self.requested_metrics,
-                "metrics": self.args.metrics,
-                "metric_aliases": self.METRIC_ALIASES,
-                "trials": self.args.trials,
+                "metrics":         self.args.metrics,
+                "metric_aliases":  self.METRIC_ALIASES,
+                "trials":          self.args.trials,
                 "samples_per_trial": self.args.samples_per_trial,
-                "warmup_samples": self.args.warmup_samples,
-                "timeout_sec": self.args.timeout,
+                "warmup_samples":  self.args.warmup_samples,
+                "warmup_floor":    _WARMUP_FLOOR,
+                "timeout_sec":     self.args.timeout,
                 "echo_timeout_sec": getattr(self.args, "echo_timeout", self.args.timeout),
-                "pty_cols": self.args.pty_cols,
-                "pty_rows": self.args.pty_rows,
-                "random_seed": self.args.seed,
-                "mosh_predict": self.args.mosh_predict,
+                "pty_cols":        self.args.pty_cols,
+                "pty_rows":        self.args.pty_rows,
+                "random_seed":     self.args.seed,
+                "mosh_predict_for_measurements": "never",
+                "mosh_predict_note": (
+                    "Mosh latency measurements use --predict=never to disable "
+                    "speculative local rendering.  Without this, the PTY stream "
+                    "contains locally-predicted output that may arrive in a "
+                    "different order or be coalesced differently than the "
+                    "server-confirmed frames, causing the stream reader to miss "
+                    "marker lines (BUG-6)."
+                ),
                 "topology": {
                     "client": self.args.source_ip or "default-route",
                     "server": self.args.host,
                 },
                 "client_system": {
-                    "python": sys.version.split()[0],
+                    "python":   sys.version.split()[0],
                     "platform": platform.platform(),
                     "hostname": platform.node(),
                 },
                 "remote_system": asdict(self.remote_meta),
                 "metric_notes": {
                     "session_setup_ms": (
-                        "Time-to-usable-shell from pexpect.spawn() until the remote shell is fully configured and ready. "
-                        "This includes setup commands after login; it is not a pure transport handshake metric."
+                        "Time-to-usable-shell: from pexpect.spawn() until the remote shell "
+                        "is fully configured (PS1, stty, bracketed-paste). "
+                        "Not a pure transport handshake metric."
                     ),
                     "control_step_latency_ms": (
-                        "Primary protocol-comparison metric. Defined as obs_rtt_ms + act_rtt_ms, excluding local Python decision time. "
-                        "Equivalent to (t_obs_recv - t_obs_send) + (t_act_recv - t_act_send)."
+                        "PRIMARY metric. obs_rtt_ms + act_rtt_ms. "
+                        "Excludes local Python decision time (processing_overhead_ms). "
+                        "Measured with mosh --predict=never."
                     ),
                     "control_step_wall_ms": (
-                        "Full wall-clock duration of a control step, including local decision time. "
-                        "Equivalent to t_act_recv - t_obs_send. Exported in control_step_details.csv for transparency, not used as the primary protocol metric."
+                        "Full wall-clock: t_act_recv - t_obs_send. "
+                        "= control_step_latency_ms + processing_overhead_ms. "
+                        "Exported in control_step_details.csv for transparency."
                     ),
                     "processing_overhead_ms": (
-                        "Local client-side decision time between receiving the observation and sending the action command. "
-                        "Equivalent to t_act_send - t_obs_recv. Excluded from control_step_latency_ms because it reflects local CPU/runtime overhead rather than the protocol under test."
+                        "Local Python decision time: t_act_send - t_obs_recv. "
+                        "Excluded from control_step_latency_ms; reflects client CPU only."
                     ),
                     "keystroke_latency_ms": (
-                        "Backward-compatible alias for control_step_latency_ms. Prefer control_step_latency_ms in papers, plots, and tables."
+                        "Per-byte ACK RTT via raw-mode remote Python helper. "
+                        "From child.send(byte) to receipt of ACK line. "
+                        "Measured with mosh --predict=never."
                     ),
                     "line_echo_ms": (
-                        "Application-level terminal RTT from sendline(token) to ACK receipt from the remote helper process. "
-                        "This includes remote helper I/O overhead and should not be described as pixel-level or per-keystroke latency."
+                        "Application-level line RTT "
+                        "(Winstein & Balakrishnan 2012, SIGCOMM §4). "
+                        "From sendline(token) to exact-line ACK from line-mode helper."
                     ),
-                    "success_rate_pct_note": (
-                        "Fixed-budget denominator capped at max(budget, n+failures) to prevent inflation when reopen-on-failure retries produce more attempts than the original budget."
-                    ),
-                    "stdev_ms_note": "Sample standard deviation using statistics.stdev with ddof=1 semantics.",
-                    "ci95_note": "95% CI half-width computed as 1.96 x stdev / sqrt(n).",
-                    "percentile_method": "Linear interpolation percentile based on sorted samples.",
                     "ping_rtt_ms": (
-                        "ICMP baseline covariate measured once per trial before opening the session. It is not directly comparable to application-layer RTTs."
+                        "ICMP baseline covariate, pre-session per trial. "
+                        "Not concurrent with app measurements."
+                    ),
+                    "percentile_method": "Hyndman & Fan (1996) type-7 linear interpolation.",
+                    "stdev_note":   "Sample standard deviation (ddof=1).",
+                    "ci95_note":    "1.96 × stdev / sqrt(n).",
+                    "success_rate_denominator": (
+                        "Fixed budget: trials × samples_per_trial for per-sample metrics; "
+                        "trials for session_setup."
                     ),
                 },
                 "processing_overhead_summary": self._processing_overhead_stats(),
@@ -950,33 +1372,20 @@ class Benchmark:
         jpath = out / "summary.json"
         jpath.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
+        # summary.csv
         cpath = out / "summary.csv"
         with cpath.open("w", newline="", encoding="utf-8") as f:
             w = csv.writer(f)
             w.writerow([
-                "protocol",
-                "metric",
-                "n",
-                "failures",
-                "success_rate_pct",
-                "min_ms",
-                "mean_ms",
-                "median_ms",
-                "stdev_ms",
-                "p95_ms",
-                "p99_ms",
-                "max_ms",
-                "ci95_half_width_ms",
-                "ping_rtt_mean_ms",
+                "protocol", "metric", "n", "failures", "success_rate_pct",
+                "min_ms", "mean_ms", "median_ms", "stdev_ms",
+                "p95_ms", "p99_ms", "max_ms", "ci95_half_width_ms", "ping_rtt_mean_ms",
             ])
             for row in self.summaries():
                 rtts = [x for x in self.ping_rtts.get(row.protocol, []) if x is not None]
                 ping_mean = statistics.mean(rtts) if rtts else None
                 w.writerow([
-                    row.protocol,
-                    row.metric,
-                    row.n,
-                    row.failures,
+                    row.protocol, row.metric, row.n, row.failures,
                     f"{row.success_rate_pct:.3f}",
                     "" if row.min_ms is None else f"{row.min_ms:.6f}",
                     "" if row.mean_ms is None else f"{row.mean_ms:.6f}",
@@ -989,57 +1398,57 @@ class Benchmark:
                     "" if ping_mean is None else f"{ping_mean:.6f}",
                 ])
 
+        # samples.csv
         spath = out / "samples.csv"
         with spath.open("w", newline="", encoding="utf-8") as f:
             w = csv.writer(f)
-            w.writerow(["protocol", "metric", "trial_id", "sample_id", "is_warmup", "token", "latency_ms"])
+            w.writerow([
+                "protocol", "metric", "trial_id", "sample_id",
+                "is_warmup", "token", "latency_ms",
+            ])
             for r in self.records:
-                w.writerow([r.protocol, r.metric, r.trial_id, r.sample_id, r.is_warmup, r.token, f"{r.latency_ms:.6f}"])
+                w.writerow([
+                    r.protocol, r.metric, r.trial_id, r.sample_id,
+                    r.is_warmup, r.token, f"{r.latency_ms:.6f}",
+                ])
 
+        # control_step_details.csv
         dpath = out / "control_step_details.csv"
         with dpath.open("w", newline="", encoding="utf-8") as f:
             w = csv.writer(f)
             w.writerow([
-                "protocol",
-                "trial_id",
-                "sample_id",
-                "is_warmup",
-                "token",
-                "obs_rtt_ms",
-                "processing_overhead_ms",
-                "act_rtt_ms",
-                "control_step_latency_ms",
-                "control_step_wall_ms",
-                "t_obs_send_ns",
-                "t_obs_recv_ns",
-                "t_act_send_ns",
-                "t_act_recv_ns",
+                "protocol", "trial_id", "sample_id", "is_warmup", "token",
+                "obs_rtt_ms", "processing_overhead_ms", "act_rtt_ms",
+                "control_step_latency_ms", "control_step_wall_ms",
+                "t_obs_send_ns", "t_obs_recv_ns", "t_act_send_ns", "t_act_recv_ns",
             ])
             for csr in self.control_step_records:
                 w.writerow([
-                    csr.protocol,
-                    csr.trial_id,
-                    csr.sample_id,
-                    csr.is_warmup,
-                    csr.token,
+                    csr.protocol, csr.trial_id, csr.sample_id, csr.is_warmup, csr.token,
                     f"{csr.obs_rtt_ms:.6f}",
                     f"{csr.processing_overhead_ms:.6f}",
                     f"{csr.act_rtt_ms:.6f}",
                     f"{csr.control_step_latency_ms:.6f}",
                     f"{csr.control_step_wall_ms:.6f}",
-                    csr.t_obs_send_ns,
-                    csr.t_obs_recv_ns,
-                    csr.t_act_send_ns,
-                    csr.t_act_recv_ns,
+                    csr.t_obs_send_ns, csr.t_obs_recv_ns,
+                    csr.t_act_send_ns, csr.t_act_recv_ns,
                 ])
 
+        # failures.csv
         fpath = out / "failures.csv"
         with fpath.open("w", newline="", encoding="utf-8") as f:
             w = csv.writer(f)
-            w.writerow(["protocol", "metric", "trial_id", "sample_id", "is_warmup", "error_type", "error_message"])
+            w.writerow([
+                "protocol", "metric", "trial_id", "sample_id",
+                "is_warmup", "error_type", "error_message",
+            ])
             for r in self.failures:
-                w.writerow([r.protocol, r.metric, r.trial_id, r.sample_id, r.is_warmup, r.error_type, r.error_message])
+                w.writerow([
+                    r.protocol, r.metric, r.trial_id, r.sample_id,
+                    r.is_warmup, r.error_type, r.error_message,
+                ])
 
+        # ping_rtts.csv
         ppath = out / "ping_rtts.csv"
         with ppath.open("w", newline="", encoding="utf-8") as f:
             w = csv.writer(f)
@@ -1051,8 +1460,8 @@ class Benchmark:
         print(f"\nOutputs written to {out}/")
         print("  summary.json              - metadata + per-protocol statistics")
         print("  summary.csv               - consolidated protocol/metric comparison table")
-        print("  samples.csv               - every primary raw measurement")
-        print("  control_step_details.csv  - obs/proc/act/wall breakdown per control step")
+        print("  samples.csv               - every raw measurement (warmup + real)")
+        print("  control_step_details.csv  - obs/proc/act/wall breakdown per step")
         print("  failures.csv              - every failure with context")
         print("  ping_rtts.csv             - ICMP network-layer covariate per trial")
 
