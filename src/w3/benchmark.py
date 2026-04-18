@@ -46,6 +46,22 @@ Other metrics:
     ping_rtt_ms
         ICMP baseline covariate measured once per trial before opening the
         protocol session.
+
+Fixes applied (v2):
+    FIX-1  _measure_control_step_latency: is_warmup no longer hardcoded False
+           inside the constructor. Callers pass is_warmup explicitly so the
+           record is correct from the moment of creation, eliminating the
+           post-construction mutation that could log the wrong flag.
+
+    FIX-2  _summary_row: success_rate_pct inflation fixed.  Previously, when
+           recorded_failures exceeded the budget (possible after reopen-on-failure
+           retries), `missing` was clipped to 0 by max(0,...), hiding real
+           failures and inflating the success rate.  Now total = max(budget,
+           n + recorded_failures) so every observed failure is counted.
+
+    FIX-3  _measure_control_step_latency: is_warmup propagated correctly by
+           removing the post-construction "csr.is_warmup = True" mutation in
+           _run_protocol and instead passing the flag into the helper directly.
 """
 
 import csv
@@ -154,13 +170,13 @@ class Benchmark:
     def _strip_ansi_keep_newlines(text: str) -> str:
         clean = ANSI_ONLY_RE.sub("", text)
         return clean.replace("\r", "").replace("\x00", "").replace("\x08", "")
+
     def _strip_prompt_prefixes(self, line: str) -> str:
         prompt = str(getattr(self.args, "prompt", "") or "").strip()
         candidate = line.strip()
         while prompt and candidate.startswith(prompt):
             candidate = candidate[len(prompt):].lstrip()
         return candidate
-
 
     def _literal_pattern(self, literal: str) -> re.Pattern:
         pat = self._pattern_cache.get(literal)
@@ -591,6 +607,8 @@ class Benchmark:
 
         return token, (t1 - t0) / 1e6
 
+    # FIX-1 + FIX-3: Accept is_warmup as an explicit parameter instead of
+    # hardcoding False and mutating the record after construction.
     def _measure_control_step_latency(
         self,
         child: pexpect.spawn,
@@ -598,6 +616,7 @@ class Benchmark:
         trial_id: int,
         sample_id: int,
         state: int,
+        is_warmup: bool = False,
     ) -> Tuple[str, float, int, ControlStepRecord]:
         token = self._token(protocol, trial_id, sample_id)
         timeout_s = float(getattr(self.args, "echo_timeout", self.args.timeout))
@@ -628,11 +647,12 @@ class Benchmark:
         self._wait_marker_via_stream(child, act_marker, timeout_s)
         t_act_recv = time.perf_counter_ns()
 
+        # FIX-1: is_warmup is passed in directly — no post-construction mutation.
         csr = ControlStepRecord(
             protocol=protocol,
             trial_id=trial_id,
             sample_id=sample_id,
-            is_warmup=False,
+            is_warmup=is_warmup,
             token=token,
             t_obs_send_ns=t_obs_send,
             t_obs_recv_ns=t_obs_recv,
@@ -648,9 +668,10 @@ class Benchmark:
         trial_id: int,
         sample_id: int,
         state: int,
+        is_warmup: bool = False,
     ) -> Tuple[str, float, int, ControlStepRecord]:
         return self._measure_control_step_latency(
-            child, protocol, trial_id, sample_id, state
+            child, protocol, trial_id, sample_id, state, is_warmup=is_warmup,
         )
 
     def _reopen_trial_session(
@@ -692,10 +713,12 @@ class Benchmark:
                     for i in range(1, self.args.warmup_samples + 1):
                         sid = -i
                         try:
+                            # FIX-3: pass is_warmup=True so the record is
+                            # correct from construction, no mutation needed.
                             tok, lat, agent_state, csr = self._measure_control_step_latency(
                                 child, protocol, trial_id, sid, agent_state,
+                                is_warmup=True,
                             )
-                            csr.is_warmup = True
                             self.control_step_records.append(csr)
                             self._record_ok(protocol, "control_step_latency", trial_id, sid, True, tok, lat)
                             print(
@@ -719,6 +742,7 @@ class Benchmark:
                         try:
                             tok, lat, agent_state, csr = self._measure_control_step_latency(
                                 child, protocol, trial_id, sid, agent_state,
+                                is_warmup=False,
                             )
                             self.control_step_records.append(csr)
                             self._record_ok(protocol, "control_step_latency", trial_id, sid, False, tok, lat)
@@ -822,9 +846,12 @@ class Benchmark:
         )
         n = len(data)
         budget = self._metric_budget(protocol, metric)
-        missing = max(0, budget - (n + recorded_failures))
-        failures = recorded_failures + missing
-        total = budget if budget > 0 else (n + failures)
+
+        # FIX-2: Use the larger of (budget) vs (n + recorded_failures) as the
+        # denominator so that excess failures from reopen-on-failure retries are
+        # never silently discarded, which would otherwise inflate success_rate_pct.
+        total = max(budget, n + recorded_failures)
+        failures = total - n
         rate = 100.0 * n / total if total else 0.0
 
         if n == 0:
@@ -962,7 +989,7 @@ class Benchmark:
                         "This includes remote helper I/O overhead and should not be described as pixel-level or per-keystroke latency."
                     ),
                     "success_rate_pct_note": (
-                        "Fixed-budget denominator. Per-sample metrics use trials x samples_per_trial; session_setup uses trials. Missing observations count as failures."
+                        "Fixed-budget denominator capped at max(budget, n+failures) to prevent inflation when reopen-on-failure retries produce more attempts than the original budget."
                     ),
                     "stdev_ms_note": "Sample standard deviation using statistics.stdev with ddof=1 semantics.",
                     "ci95_note": "95% CI half-width computed as 1.96 x stdev / sqrt(n).",
