@@ -1,74 +1,5 @@
 from __future__ import annotations
 
-"""
-benchmark_submission_ready.py  —  fixed edition
-
-Bugs fixed vs. the submitted version
-─────────────────────────────────────
-BUG-1  _wait_marker_via_stream used the name `ack_marker` which is not
-       in scope → NameError at runtime.  Fixed: predicate now correctly
-       tests `line.startswith(marker_prefix)`.
-
-BUG-2  _wait_for_output_line called `self._strip_prompt_prefixes()` which
-       was never defined → AttributeError at runtime.  Fixed: removed all
-       calls; the line-by-line reader already strips ANSI before splitting,
-       so an extra prompt-strip pass is unnecessary and was masking bugs.
-
-BUG-3  _start_keystroke_helper / _stop_keystroke_helper were called in
-       _run_protocol but never defined → NameError at runtime.  Fixed:
-       both methods are implemented.  The keystroke helper runs on the
-       remote in raw-stty mode, echoing one byte at a time with a
-       per-byte ACK prefix so latency is measured per-keystroke.
-
-BUG-4  _measure_keystroke_latency was called with `key_ack_prefix` as its
-       fifth positional argument, but the method signature expected `state`
-       (an integer used for arithmetic).  Passing a string prefix caused a
-       TypeError in the `state*3+7` arithmetic.  Fixed: keystroke_latency
-       and control_step_latency are now separate code paths with separate
-       measurement functions that have correct, matching signatures.
-
-BUG-5  METRIC_ALIASES mapped both 'keystroke_latency' and
-       'control_step_latency' to themselves with no canonical resolution.
-       The two metrics are now intentionally kept separate because they
-       measure different things:
-         • keystroke_latency  = per-byte ACK RTT via raw-mode helper
-         • control_step_latency = obs+act RTT via printf protocol
-
-BUG-6  Mosh --predict=adaptive (the default) speculatively renders output
-       locally before the server confirms it.  The speculative render
-       appears in the PTY stream as a normal output line, which causes
-       `printf` output to appear AND the prompt to appear — but the server
-       confirmation frame may arrive late or be coalesced differently,
-       causing the stream reader to miss the marker line.
-       Fix strategy (defence in depth):
-         a) For control_step_latency and keystroke_latency, mosh is
-            started with --predict=never so no speculative rendering
-            occurs and the PTY stream matches the server state exactly.
-         b) _wait_for_output_line no longer has early-exit checks on
-            TIMEOUT/EOF that could return stale buffer content as a
-            match — those paths now only fire after a genuine line split.
-         c) The marker uniqueness (random 6-char suffix) prevents any
-            accidental match against leftover buffer content.
-
-Primary reported metric:
-    control_step_latency_ms  =  obs_rtt_ms + act_rtt_ms
-      = (t_obs_recv - t_obs_send) + (t_act_recv - t_act_send)
-
-    Local Python decision time (processing_overhead_ms) is excluded
-    because it reflects client CPU speed, not the protocol under test.
-
-Additional transparency metrics exported per sample:
-    processing_overhead_ms  =  t_act_send - t_obs_recv
-    control_step_wall_ms    =  t_act_recv - t_obs_send
-                            =  control_step_latency_ms + processing_overhead_ms
-
-Other metrics:
-    keystroke_latency_ms   single-byte ACK RTT via raw-mode remote helper
-    line_echo_ms           application-level line RTT via line-mode helper
-    session_setup_ms       time-to-usable-shell
-    ping_rtt_ms            ICMP baseline covariate (pre-session, per trial)
-"""
-
 import csv
 import json
 import math
@@ -107,30 +38,13 @@ ANSI_ONLY_RE = re.compile(
     r"|\x1b[@-Z\\-_]"
 )
 
-# Minimum warmup iterations per metric per trial.
-# SSH:  TCP slow-start converges in ~5 RTTs; 20 is conservative.
-# Mosh: prediction engine needs several confirmed round-trips to
-#       stabilise; fewer than 10 biases early samples downward.
-_WARMUP_FLOOR = 20
+_WARMUP_FLOOR = 10
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Timing record for one control step
-# ─────────────────────────────────────────────────────────────────────────────
+
 
 @dataclass
 class ControlStepRecord:
-    """
-    Raw timestamps for one observe→act control step.
-
-    Derived quantities
-    ──────────────────
-    obs_rtt_ms            (t_obs_recv − t_obs_send) / 1e6
-    processing_overhead_ms (t_act_send − t_obs_recv) / 1e6   ← local CPU
-    act_rtt_ms            (t_act_recv − t_act_send) / 1e6
-    control_step_latency_ms  obs_rtt_ms + act_rtt_ms          ← PRIMARY
-    control_step_wall_ms  (t_act_recv − t_obs_send) / 1e6    ← transparency
-    """
     protocol: str
     trial_id: int
     sample_id: int
@@ -163,17 +77,8 @@ class ControlStepRecord:
         """Full wall-clock: includes local decision time."""
         return (self.t_act_recv_ns - self.t_obs_send_ns) / 1e6
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Benchmark class
-# ─────────────────────────────────────────────────────────────────────────────
-
 class Benchmark:
     METRIC_ALIASES: Dict[str, str] = {
-        # keystroke_latency and control_step_latency are intentionally
-        # separate metrics measuring different things:
-        #   keystroke_latency  = per-byte ACK RTT via raw-mode remote helper
-        #   control_step_latency = obs+act RTT via printf protocol
         "keystroke_latency":   "keystroke_latency",
         "control_step_latency": "control_step_latency",
         "line_echo":            "line_echo",
@@ -247,8 +152,6 @@ class Benchmark:
         rand = "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
         return f"W3T{protocol[:2].upper()}{trial_id:03d}{sample_id:04d}{rand}Z"
 
-    # ─── Network helpers ────────────────────────────────────────────────────
-
     def _ping_rtt_ms(self) -> Optional[float]:
         cmd = ["ping", "-c", "1", "-W", "3"]
         if getattr(self.args, "source_ip", None):
@@ -264,8 +167,6 @@ class Benchmark:
         except Exception:
             pass
         return None
-
-    # ─── Session management ─────────────────────────────────────────────────
 
     def _ssh_base_args(self) -> List[str]:
         args = ["ssh", "-tt"]
@@ -300,9 +201,6 @@ class Benchmark:
         if protocol == "mosh":
             ssh_cmd = shlex.join(self._ssh_base_args())
             parts = ["mosh", f"--ssh={ssh_cmd}"]
-            # BUG-6 FIX: For latency measurements use --predict=never so that
-            # every line the stream reader sees is a server-confirmed output,
-            # not a local speculative render that may arrive out of order.
             effective_predict = predict_mode
             if getattr(self.args, "mosh_predict", "adaptive") != "adaptive":
                 effective_predict = self.args.mosh_predict
@@ -462,8 +360,6 @@ class Benchmark:
         except Exception:
             pass
 
-    # ─── Record helpers ─────────────────────────────────────────────────────
-
     def _record_ok(
         self,
         protocol: str,
@@ -508,8 +404,6 @@ class Benchmark:
             )
         )
 
-    # ─── Remote metadata ────────────────────────────────────────────────────
-
     def _remote_cmd(self, child: pexpect.spawn, cmd: str) -> str:
         child.sendline(cmd)
         self._expect_literal(child, self.args.prompt, timeout=12)
@@ -545,7 +439,6 @@ class Benchmark:
         finally:
             self._close_session(child)
 
-    # ─── Line-echo helper (remote Python, line mode) ────────────────────────
 
     def _start_helper(self, child: pexpect.spawn, protocol: str, trial_id: int) -> Tuple[str, str]:
         ready = f"W3RDY{protocol[:2].upper()}{trial_id:03d}Z"
@@ -581,7 +474,6 @@ class Benchmark:
         self._expect_literal(child, "W3BACK", timeout=self.args.timeout)
         self._expect_literal(child, self.args.prompt, timeout=self.args.timeout)
 
-    # ─── Keystroke helper (remote Python, raw/byte mode) ────────────────────
 
     def _start_keystroke_helper(
         self, child: pexpect.spawn, protocol: str, trial_id: int
@@ -590,9 +482,23 @@ class Benchmark:
         Start a remote Python helper that reads stdin one byte at a time in
         raw mode and echoes each byte back with a per-byte ACK prefix.
 
-        ACK format: <ack_prefix><hex_of_byte>  (e.g. "W3KEY...A41" for 'A')
+        ACK format: <ack_prefix><hex_of_byte>  (e.g. "W3KEY...A61" for 'a')
 
-        This isolates per-keystroke latency from line-buffering artefacts.
+        Implementation notes — why os.read/os.write instead of sys.stdin/stdout
+        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─
+        After tty.setraw(), the PTY slave fd is in raw mode with VMIN=1,
+        VTIME=0 so the OS delivers each byte immediately.  However,
+        sys.stdin and sys.stdout are TextIOWrapper objects with an ~8 KB
+        internal buffer.  sys.stdin.read(1) may block waiting for that
+        buffer to fill even though the byte is already at the fd level.
+
+        os.read(fd, 1) and os.write(fd, bytes) bypass Python buffering
+        entirely.  This was the root cause of the 20 s timeouts: the ACK
+        was stuck in TextIOWrapper's buffer and never reached the PTY master.
+
+        CR+LF (\\r\\n) is used as the line terminator because in raw mode
+        OPOST is disabled, so '\\n' is NOT expanded to CR+LF by the PTY.
+        pexpect's stream reader strips '\\r', so received lines are clean.
         """
         ready = f"W3KRY{protocol[:2].upper()}{trial_id:03d}Z"
         ack   = f"W3KEY{protocol[:2].upper()}{trial_id:03d}A"
@@ -602,22 +508,20 @@ class Benchmark:
             "rdy=os.environ['W3R']\n"
             "ack=os.environ['W3A']\n"
             "bye=os.environ['W3B']\n"
-            "fd=sys.stdin.fileno()\n"
-            "old=termios.tcgetattr(fd)\n"
+            "fi=sys.stdin.fileno()\n"
+            "fo=sys.stdout.fileno()\n"
+            "old=termios.tcgetattr(fi)\n"
             "try:\n"
-            "    tty.setraw(fd)\n"
-            "    sys.stdout.write(rdy+'\\n')\n"
-            "    sys.stdout.flush()\n"
+            "    tty.setraw(fi)\n"
+            "    os.write(fo,(rdy+'\\r\\n').encode())\n"
             "    while True:\n"
-            "        b=sys.stdin.read(1)\n"
-            "        if not b or b=='\\x03':\n"  # Ctrl-C → exit
-            "            sys.stdout.write(bye+'\\n')\n"
-            "            sys.stdout.flush()\n"
+            "        b=os.read(fi,1)\n"
+            "        if not b or b==b'\\x03':\n"
+            "            os.write(fo,(bye+'\\r\\n').encode())\n"
             "            break\n"
-            "        sys.stdout.write(ack+format(ord(b),'02x')+'\\n')\n"
-            "        sys.stdout.flush()\n"
+            "        os.write(fo,(ack+format(b[0],'02x')+'\\r\\n').encode())\n"
             "finally:\n"
-            "    termios.tcsetattr(fd,termios.TCSADRAIN,old)\n"
+            "    termios.tcsetattr(fi,termios.TCSADRAIN,old)\n"
         )
         cmd = (
             f"W3R={shlex.quote(ready)} "
@@ -631,11 +535,9 @@ class Benchmark:
 
     def _stop_keystroke_helper(self, child: pexpect.spawn, bye: str) -> None:
         """Send Ctrl-C to terminate the raw-mode keystroke helper."""
-        child.send("\x03")  # Ctrl-C — do NOT use sendline (adds \n)
+        child.send("\x03") 
         self._expect_literal(child, bye, timeout=self.args.timeout)
         self._expect_literal(child, self.args.prompt, timeout=self.args.timeout)
-
-    # ─── Stream reader — line-exact matching ────────────────────────────────
 
     def _wait_for_output_line(
         self,
@@ -644,33 +546,6 @@ class Benchmark:
         timeout_s: float,
         what: str,
     ) -> str:
-        """
-        Read the PTY stream line by line and return the first line for which
-        predicate() is True.
-
-        Design notes
-        ────────────
-        • Lines are split on '\\n' after stripping ANSI-only escapes but
-          preserving newlines.  This gives clean, complete lines to test.
-        • The incomplete last fragment is held in `clean_buffer` and only
-          tested once it is terminated by a newline.  This avoids spurious
-          matches on partial tokens.
-        • BUG-2 FIX: removed all calls to _strip_prompt_prefixes which was
-          never defined.  The ANSI-strip + split approach already handles
-          prompt residue correctly.
-        • BUG-6 FIX: TIMEOUT/EOF exceptions no longer attempt to match
-          against a partial buffer mid-loop — they only raise or re-raise.
-          Partial buffer matches caused false positives when Mosh's
-          speculative render produced a prompt line that happened to
-          contain part of the expected marker.
-        • Tail check on deadline: when the deadline expires, the incomplete
-          trailing fragment in clean_buffer is checked once before raising.
-          This handles the edge case where the marker line arrived but its
-          trailing '\\n' has not yet been received (e.g. PTY chunk boundary
-          on a slow link or at the end of a Mosh diff frame).  The tail
-          check uses the same predicate as the main loop, so it cannot
-          produce false positives beyond what the main loop already allows.
-        """
         deadline = time.monotonic() + timeout_s
         clean_buffer = ""
         max_chars = 32768
@@ -678,8 +553,6 @@ class Benchmark:
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                # One last chance: the marker may have arrived without a
-                # trailing newline due to a PTY chunk boundary.
                 tail_candidate = clean_buffer.strip()
                 if tail_candidate and predicate(tail_candidate):
                     return tail_candidate
@@ -694,7 +567,6 @@ class Benchmark:
                     timeout=min(0.5, max(0.05, remaining)),
                 )
             except pexpect.TIMEOUT:
-                # No data yet — keep waiting.
                 continue
             except pexpect.EOF as exc:
                 raise SessionOpenError(
@@ -709,7 +581,6 @@ class Benchmark:
                 clean_buffer = clean_buffer[-max_chars:]
 
             lines = clean_buffer.split("\n")
-            # Keep the incomplete trailing fragment for next iteration.
             clean_buffer = lines.pop() if lines else ""
             for line in lines:
                 candidate = line.strip()
@@ -745,8 +616,6 @@ class Benchmark:
             what=f"line starting with {prefix!r}",
         )
 
-    # ─── Measurement methods ────────────────────────────────────────────────
-
     def _measure_echo(
         self,
         child: pexpect.spawn,
@@ -755,10 +624,7 @@ class Benchmark:
         sample_id: int,
         ack_prefix: str,
     ) -> Tuple[str, float]:
-        """
-        Measure application-level terminal RTT (line_echo_ms).
-        Reference: Winstein & Balakrishnan (2012, SIGCOMM) §4.
-        """
+        
         token = self._token(protocol, trial_id, sample_id)
         ack_line = ack_prefix + token
         echo_timeout = float(getattr(self.args, "echo_timeout", self.args.timeout))
@@ -776,29 +642,16 @@ class Benchmark:
         protocol: str,
         trial_id: int,
         sample_id: int,
-        ack_prefix: str,  # BUG-4 FIX: correct parameter — was `state: int`
+        ack_prefix: str,  
     ) -> Tuple[str, float]:
-        """
-        Measure single-byte keystroke latency using the raw-mode helper.
-
-        Sends one printable ASCII byte and waits for the remote helper to
-        echo back <ack_prefix><hex_of_byte>.  The interval is the
-        application-level per-keystroke RTT.
-
-        BUG-4 FIX: The original _measure_keystroke_latency had the same
-        signature as _measure_control_step_latency (taking `state: int`)
-        but was called with `key_ack_prefix` (a string).  This caused a
-        TypeError in the `state*3+7` arithmetic.  This method now takes
-        `ack_prefix: str` and sends a single byte, matching the
-        keystroke-helper protocol.
-        """
+        
         key_byte = random.choice(string.ascii_letters)
         expected_ack = ack_prefix + format(ord(key_byte), "02x")
         key_timeout = float(getattr(self.args, "echo_timeout", self.args.timeout))
 
-        token = self._token(protocol, trial_id, sample_id)  # used for record only
+        token = self._token(protocol, trial_id, sample_id)  
         t0 = time.perf_counter_ns()
-        child.send(key_byte)  # send raw byte, no newline
+        child.send(key_byte)  
         self._wait_exact_line(child, expected_ack, key_timeout)
         t1 = time.perf_counter_ns()
 
@@ -812,36 +665,12 @@ class Benchmark:
         sample_id: int,
         state: int,
     ) -> Tuple[str, float, int, ControlStepRecord]:
-        """
-        Measure one agent control-step latency (primary metric).
-
-        Timing layout
-        ─────────────
-          t_obs_send ──[obs RTT]──► t_obs_recv
-                                        │
-                                  [processing]   ← local Python, recorded separately
-                                        │
-                             t_act_send ──[act RTT]──► t_act_recv
-
-        Reported: control_step_latency_ms = obs_rtt_ms + act_rtt_ms
-        (excludes processing_overhead_ms which is local CPU, not protocol)
-
-        BUG-6 FIX: called via _open_session(..., predict_mode="never") for
-        mosh so that speculative local renders do not cause the stream reader
-        to fire prematurely.
-        """
         token = self._token(protocol, trial_id, sample_id)
         timeout_s = float(getattr(self.args, "echo_timeout", self.args.timeout))
 
         obs_marker = f"__W3OBS__ {token} "
-        # Prepend \n so the marker always starts on a fresh line even if the
-        # shell prompt is still on the same line as the output (prompt-bleed).
-        # The \n costs ~0 ms network overhead but eliminates the class of
-        # failures where '__W3PROMPT____W3OBS__...' appears as one line and
-        # startswith(obs_marker) returns False.
         cmd1 = f"printf '\\n__W3OBS__ {token} %d\\n' $(({state}*3+7))"
 
-        # Observation phase
         t_obs_send = time.perf_counter_ns()
         child.sendline(cmd1)
         clean_obs = self._wait_line_prefix(child, obs_marker, timeout_s)
@@ -852,17 +681,14 @@ class Benchmark:
             raise RuntimeError(f"Cannot parse observation for token={token}")
         obs = int(m.group(1))
 
-        # Decision (local)
         if obs % 2 == 0:
             action, next_state = "INC", obs + 1
         else:
             action, next_state = "DEC", obs - 1
 
         act_marker = f"__W3ACT__ {token} {action} {next_state}"
-        # Prepend \n for the same prompt-bleed reason as obs above.
         cmd2 = f"printf '\\n__W3ACT__ {token} {action} {next_state}\\n'"
 
-        # Action phase
         t_act_send = time.perf_counter_ns()
         child.sendline(cmd2)
         self._wait_line_prefix(child, act_marker, timeout_s)
@@ -881,8 +707,6 @@ class Benchmark:
         )
         return token, csr.control_step_latency_ms, next_state, csr
 
-    # ─── Session reopen helper ───────────────────────────────────────────────
-
     def _reopen_trial_session(
         self,
         protocol: str,
@@ -900,8 +724,6 @@ class Benchmark:
             ack_prefix, bye_marker = self._start_helper(reopened_child, protocol, trial_id)
         return reopened_child, ack_prefix, bye_marker
 
-    # ─── Per-protocol trial loop ─────────────────────────────────────────────
-
     def _run_protocol(self, protocol: str) -> None:
         for trial_id in range(1, self.args.trials + 1):
             rtt = self._ping_rtt_ms()
@@ -915,21 +737,28 @@ class Benchmark:
             setup_ok = False
 
             try:
-                # BUG-6 FIX: For latency measurements use --predict=never
-                # for mosh.  This ensures every PTY output line is a
-                # server-confirmed frame, not a speculative local render.
-                measure_predict = "never" if protocol == "mosh" else "adaptive"
-                child, setup_ms = self._open_session(protocol, predict_mode=measure_predict)
+                needs_adaptive = "keystroke_latency" in self.args.metrics
+                needs_never = any(
+                    m in self.args.metrics
+                    for m in ("control_step_latency", "line_echo")
+                )
+                if protocol == "mosh" and needs_adaptive:
+                    initial_predict = "adaptive"
+                elif protocol == "mosh":
+                    initial_predict = "never"
+                else:
+                    initial_predict = "adaptive"
+
+                child, setup_ms = self._open_session(protocol, predict_mode=initial_predict)
+                current_predict = initial_predict
                 setup_ok = True
                 self._record_ok(
                     protocol, "session_setup", trial_id, 1, False, "__W3_SETUP__", setup_ms
                 )
                 print(f"[{protocol:>4}/setup      ] trial {trial_id:>2}:  OK  {setup_ms:.1f} ms")
 
-                # ── keystroke_latency ──────────────────────────────────────
+                
                 if "keystroke_latency" in self.args.metrics:
-                    # BUG-3 FIX: _start_keystroke_helper and
-                    # _stop_keystroke_helper are now defined above.
                     key_ack_prefix, key_bye_marker = self._start_keystroke_helper(
                         child, protocol, trial_id
                     )
@@ -937,7 +766,6 @@ class Benchmark:
                         for i in range(1, self.args.warmup_samples + 1):
                             sid = -i
                             try:
-                                # BUG-4 FIX: pass key_ack_prefix (str), not state (int)
                                 tok, lat = self._measure_keystroke_latency(
                                     child, protocol, trial_id, sid, key_ack_prefix,
                                 )
@@ -961,7 +789,7 @@ class Benchmark:
                                 child, _, _ = self._reopen_trial_session(
                                     protocol, child, trial_id,
                                     need_echo_helper=False,
-                                    predict_mode=measure_predict,
+                                    predict_mode="adaptive",
                                 )
                                 key_ack_prefix, key_bye_marker = self._start_keystroke_helper(
                                     child, protocol, trial_id
@@ -993,7 +821,7 @@ class Benchmark:
                                 child, _, _ = self._reopen_trial_session(
                                     protocol, child, trial_id,
                                     need_echo_helper=False,
-                                    predict_mode=measure_predict,
+                                    predict_mode="adaptive",
                                 )
                                 key_ack_prefix, key_bye_marker = self._start_keystroke_helper(
                                     child, protocol, trial_id
@@ -1005,7 +833,17 @@ class Benchmark:
                         except Exception:
                             pass
 
-                # ── control_step_latency ───────────────────────────────────
+                if (
+                    protocol == "mosh"
+                    and current_predict == "adaptive"
+                    and needs_never
+                    and needs_adaptive  
+                ):
+                    self._safe_close(child)
+                    child, _ = self._open_session(protocol, predict_mode="never")
+                    current_predict = "never"
+                    print(f"[{protocol:>4}] switched to predict=never for line-based metrics")
+
                 if "control_step_latency" in self.args.metrics:
                     agent_state = trial_id
                     for i in range(1, self.args.warmup_samples + 1):
@@ -1040,7 +878,7 @@ class Benchmark:
                             child, _, _ = self._reopen_trial_session(
                                 protocol, child, trial_id,
                                 need_echo_helper=False,
-                                predict_mode=measure_predict,
+                                predict_mode=current_predict,
                             )
                             continue
 
@@ -1074,7 +912,7 @@ class Benchmark:
                             child, _, _ = self._reopen_trial_session(
                                 protocol, child, trial_id,
                                 need_echo_helper=False,
-                                predict_mode=measure_predict,
+                                predict_mode=current_predict,
                             )
                             continue
 
@@ -1107,7 +945,7 @@ class Benchmark:
                             child, ack_prefix, bye_marker = self._reopen_trial_session(
                                 protocol, child, trial_id,
                                 need_echo_helper=True,
-                                predict_mode=measure_predict,
+                                predict_mode=current_predict,
                             )
                             continue
 
@@ -1136,7 +974,7 @@ class Benchmark:
                             child, ack_prefix, bye_marker = self._reopen_trial_session(
                                 protocol, child, trial_id,
                                 need_echo_helper=True,
-                                predict_mode=measure_predict,
+                                predict_mode=current_predict,
                             )
                             continue
 
