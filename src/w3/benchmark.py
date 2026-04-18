@@ -623,6 +623,7 @@ class Benchmark:
 
         act_marker = f"__W3ACT__ {token} {action} {next_state}"
         cmd2 = f"printf '\n__W3ACT__ {token} {action} {next_state}\n'"
+        t_act_send = time.perf_counter_ns()
         child.sendline(cmd2)
         self._wait_marker_via_stream(child, act_marker, timeout_s)
         t_act_recv = time.perf_counter_ns()
