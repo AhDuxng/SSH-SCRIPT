@@ -469,7 +469,10 @@ class Benchmark:
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                tail = clean_buffer[-300:]
+                tail_candidate = self._strip_prompt_prefixes(clean_buffer).strip()
+                if tail_candidate and predicate(tail_candidate):
+                    return tail_candidate
+                tail = tail_candidate[-300:]
                 raise pexpect.TIMEOUT(
                     f"{what} not received within {timeout_s:.1f}s. clean_tail={tail!r}"
                 )
@@ -480,11 +483,17 @@ class Benchmark:
                     timeout=min(0.5, max(0.05, remaining)),
                 )
             except pexpect.TIMEOUT:
+                tail_candidate = self._strip_prompt_prefixes(clean_buffer).strip()
+                if tail_candidate and predicate(tail_candidate):
+                    return tail_candidate
                 continue
             except pexpect.EOF as exc:
                 raise SessionOpenError(f"EOF while waiting for {what}. {self._buf(child)}") from exc
 
             if not chunk:
+                tail_candidate = self._strip_prompt_prefixes(clean_buffer).strip()
+                if tail_candidate and predicate(tail_candidate):
+                    return tail_candidate
                 continue
 
             clean_buffer += self._strip_ansi_keep_newlines(chunk)
@@ -497,10 +506,10 @@ class Benchmark:
                 candidate = self._strip_prompt_prefixes(line)
                 if candidate and predicate(candidate):
                     return candidate
-            
-            candidate_buf = self._strip_prompt_prefixes(clean_buffer)
-            if candidate_buf and predicate(candidate_buf):
-                return candidate_buf
+
+            tail_candidate = self._strip_prompt_prefixes(clean_buffer).strip()
+            if tail_candidate and predicate(tail_candidate):
+                return tail_candidate
 
     def _wait_ack_via_stream(
         self,
@@ -559,8 +568,7 @@ class Benchmark:
         token = self._token(protocol, trial_id, sample_id)
         timeout_s = float(getattr(self.args, "echo_timeout", self.args.timeout))
 
-        expected_obs = state * 3 + 7
-        obs_marker = f"__W3OBS__ {token} {expected_obs}"
+        obs_marker = f"__W3OBS__ {token} "
         cmd1 = f"printf '\n__W3OBS__ {token} %d\n' $(({state}*3+7))"
         t_obs_send = time.perf_counter_ns()
         child.sendline(cmd1)
