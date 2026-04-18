@@ -582,7 +582,7 @@ class Benchmark:
         t_act_recv = time.perf_counter_ns()
 
         try:
-            self._expect_literal(child, self.args.prompt, timeout=min(2.0, timeout_s))
+            self._expect_literal(child, self.args.prompt, timeout=min(0.1, timeout_s))
         except Exception:
             pass
 
