@@ -154,6 +154,13 @@ class Benchmark:
     def _strip_ansi_keep_newlines(text: str) -> str:
         clean = ANSI_ONLY_RE.sub("", text)
         return clean.replace("\r", "").replace("\x00", "").replace("\x08", "")
+    def _strip_prompt_prefixes(self, line: str) -> str:
+        prompt = str(getattr(self.args, "prompt", "") or "").strip()
+        candidate = line.strip()
+        while prompt and candidate.startswith(prompt):
+            candidate = candidate[len(prompt):].lstrip()
+        return candidate
+
 
     def _literal_pattern(self, literal: str) -> re.Pattern:
         pat = self._pattern_cache.get(literal)
@@ -535,7 +542,7 @@ class Benchmark:
             lines = clean_buffer.split("\n")
             clean_buffer = lines.pop() if lines else ""
             for line in lines:
-                candidate = line.strip()
+                candidate = self._strip_prompt_prefixes(line)
                 if candidate and predicate(candidate):
                     return candidate
 
@@ -547,7 +554,7 @@ class Benchmark:
     ) -> None:
         self._wait_for_output_line(
             child,
-            predicate=lambda line: line.strip() == ack_marker,
+            predicate=lambda line: line == ack_marker,
             timeout_s=timeout_s,
             what=f"ACK {ack_marker!r}",
         )
@@ -560,7 +567,7 @@ class Benchmark:
     ) -> str:
         return self._wait_for_output_line(
             child,
-            predicate=lambda line: line.strip().startswith(marker_prefix),
+            predicate=lambda line: line.startswith(marker_prefix),
             timeout_s=timeout_s,
             what=f"marker starting with {marker_prefix!r}",
         )
@@ -596,7 +603,7 @@ class Benchmark:
         timeout_s = float(getattr(self.args, "echo_timeout", self.args.timeout))
 
         obs_marker = f"__W3OBS__ {token} "
-        cmd1 = f"printf '__W3OBS__ {token} %d\\n' $(({state}*3+7))"
+        cmd1 = f"printf '\n__W3OBS__ {token} %d\n' $(({state}*3+7))"
         t_obs_send = time.perf_counter_ns()
         child.sendline(cmd1)
         clean_obs = self._wait_marker_via_stream(child, obs_marker, timeout_s)
@@ -615,8 +622,7 @@ class Benchmark:
             next_state = obs - 1
 
         act_marker = f"__W3ACT__ {token} {action} {next_state}"
-        cmd2 = f"printf '__W3ACT__ {token} {action} {next_state}\\n'"
-        t_act_send = time.perf_counter_ns()
+        cmd2 = f"printf '\n__W3ACT__ {token} {action} {next_state}\n'"
         child.sendline(cmd2)
         self._wait_marker_via_stream(child, act_marker, timeout_s)
         t_act_recv = time.perf_counter_ns()
