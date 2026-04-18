@@ -586,6 +586,10 @@ class Benchmark:
                 candidate = line.strip()
                 if candidate and predicate(candidate):
                     return candidate
+            
+            tail_candidate = clean_buffer.strip()
+            if tail_candidate and predicate(tail_candidate):
+                return tail_candidate
 
     def _wait_exact_line(
         self, child: pexpect.spawn, expected: str, timeout_s: float
@@ -668,7 +672,8 @@ class Benchmark:
         token = self._token(protocol, trial_id, sample_id)
         timeout_s = float(getattr(self.args, "echo_timeout", self.args.timeout))
 
-        obs_marker = f"__W3OBS__ {token} "
+        expected_obs = state * 3 + 7
+        obs_marker = f"__W3OBS__ {token} {expected_obs}"
         cmd1 = f"printf '\\n__W3OBS__ {token} %d\\n' $(({state}*3+7))"
 
         t_obs_send = time.perf_counter_ns()
@@ -737,17 +742,7 @@ class Benchmark:
             setup_ok = False
 
             try:
-                needs_adaptive = "keystroke_latency" in self.args.metrics
-                needs_never = any(
-                    m in self.args.metrics
-                    for m in ("control_step_latency", "line_echo")
-                )
-                if protocol == "mosh" and needs_adaptive:
-                    initial_predict = "adaptive"
-                elif protocol == "mosh":
-                    initial_predict = "never"
-                else:
-                    initial_predict = "adaptive"
+                initial_predict = "never" if protocol == "mosh" else "adaptive"
 
                 child, setup_ms = self._open_session(protocol, predict_mode=initial_predict)
                 current_predict = initial_predict
@@ -832,17 +827,6 @@ class Benchmark:
                             self._stop_keystroke_helper(child, key_bye_marker)
                         except Exception:
                             pass
-
-                if (
-                    protocol == "mosh"
-                    and current_predict == "adaptive"
-                    and needs_never
-                    and needs_adaptive  
-                ):
-                    self._safe_close(child)
-                    child, _ = self._open_session(protocol, predict_mode="never")
-                    current_predict = "never"
-                    print(f"[{protocol:>4}] switched to predict=never for line-based metrics")
 
                 if "control_step_latency" in self.args.metrics:
                     agent_state = trial_id
