@@ -110,6 +110,7 @@ class Benchmark:
             for protocol in args.protocols
         }
         self._pattern_cache: Dict[str, re.Pattern] = {}
+        self._stream_state: Dict[int, Dict[str, object]] = {}
 
     @classmethod
     def _canonical_metric_name(cls, metric: str) -> str:
@@ -233,6 +234,7 @@ class Benchmark:
             log_path = Path(self.args.output_dir) / f"pexpect_{protocol}.log"
             log_path.parent.mkdir(parents=True, exist_ok=True)
             child.logfile_read = open(log_path, "a", encoding="utf-8")
+        self._reset_stream_reader(child)
         return child
 
     _SHELL_READY_PATTERNS = [
@@ -347,6 +349,7 @@ class Benchmark:
         except Exception:
             child.close(force=True)
         finally:
+            self._stream_state.pop(id(child), None)
             lf = getattr(child, "logfile_read", None)
             if lf:
                 try:
@@ -441,6 +444,7 @@ class Benchmark:
 
 
     def _start_helper(self, child: pexpect.spawn, protocol: str, trial_id: int) -> Tuple[str, str]:
+        self._reset_stream_reader(child)
         ready = f"W3RDY{protocol[:2].upper()}{trial_id:03d}Z"
         ack   = f"W3ACK{protocol[:2].upper()}{trial_id:03d}A"
         bye   = f"W3BYE{protocol[:2].upper()}{trial_id:03d}Z"
@@ -470,14 +474,15 @@ class Benchmark:
     def _stop_helper(self, child: pexpect.spawn, bye: str) -> None:
         child.sendline("W3EXIT")
         self._expect_literal(child, bye, timeout=self.args.timeout)
-        child.sendline("printf 'W3BACK\\n'")
+        child.sendline("printf 'W3BACK\n'")
         self._expect_literal(child, "W3BACK", timeout=self.args.timeout)
         self._expect_literal(child, self.args.prompt, timeout=self.args.timeout)
-
+        self._reset_stream_reader(child)
 
     def _start_keystroke_helper(
         self, child: pexpect.spawn, protocol: str, trial_id: int
     ) -> Tuple[str, str]:
+        self._reset_stream_reader(child)
         """
         Start a remote Python helper that reads stdin one byte at a time in
         raw mode and echoes each byte back with a per-byte ACK prefix.
@@ -537,9 +542,68 @@ class Benchmark:
 
     def _stop_keystroke_helper(self, child: pexpect.spawn, bye: str) -> None:
         """Send Ctrl-C to terminate the raw-mode keystroke helper."""
-        child.send("\x03") 
+        child.send("\x03")
         self._expect_literal(child, bye, timeout=self.args.timeout)
         self._expect_literal(child, self.args.prompt, timeout=self.args.timeout)
+        self._reset_stream_reader(child)
+
+    _STREAM_MAX_CHARS = 32768
+
+    def _reset_stream_reader(self, child: pexpect.spawn) -> None:
+        self._stream_state[id(child)] = {"partial": "", "pending": []}
+
+    def _stream_reader_state(self, child: pexpect.spawn) -> Dict[str, object]:
+        state = self._stream_state.get(id(child))
+        if state is None:
+            self._reset_stream_reader(child)
+            state = self._stream_state[id(child)]
+        return state
+
+    def _stream_tail(self, child: pexpect.spawn, limit: int = 300) -> str:
+        state = self._stream_reader_state(child)
+        pending = state["pending"]  
+        partial = state["partial"]  
+
+        tail_parts: List[str] = []
+        if pending:
+            tail_parts.extend(pending[-3:])
+        if partial:
+            tail_parts.append(str(partial))
+        tail = "\n".join(str(x) for x in tail_parts if str(x))
+        return tail[-limit:]
+
+    def _enqueue_stream_chunk(self, child: pexpect.spawn, chunk: str) -> None:
+        state = self._stream_reader_state(child)
+        pending = state["pending"]  
+        partial = str(state["partial"]) + self._strip_ansi_keep_newlines(chunk)
+
+        if len(partial) > self._STREAM_MAX_CHARS:
+            partial = partial[-self._STREAM_MAX_CHARS:]
+
+        pieces = partial.split("\n")
+        state["partial"] = pieces.pop() if pieces else ""
+
+        for piece in pieces:
+            candidate = piece.strip()
+            if candidate:
+                pending.append(candidate)
+
+        if len(pending) > 4096:
+            del pending[:-4096]
+
+    def _pop_matching_stream_line(
+        self,
+        child: pexpect.spawn,
+        predicate: Callable[[str], bool],
+    ) -> Optional[str]:
+        state = self._stream_reader_state(child)
+        pending = state["pending"]  
+
+        while pending:
+            candidate = pending.pop(0)
+            if predicate(candidate):
+                return candidate
+        return None
 
     def _wait_for_output_line(
         self,
@@ -549,18 +613,20 @@ class Benchmark:
         what: str,
     ) -> str:
         deadline = time.monotonic() + timeout_s
-        clean_buffer = ""
-        max_chars = 32768
 
         while True:
+            matched = self._pop_matching_stream_line(child, predicate)
+            if matched is not None:
+                return matched
+
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                tail_candidate = clean_buffer.strip()
+                tail_candidate = self._stream_tail(child)
                 if tail_candidate and predicate(tail_candidate):
                     return tail_candidate
                 raise pexpect.TIMEOUT(
                     f"{what} not received within {timeout_s:.1f}s. "
-                    f"clean_tail={clean_buffer[-300:]!r}"
+                    f"clean_tail={tail_candidate!r}"
                 )
 
             try:
@@ -578,20 +644,7 @@ class Benchmark:
             if not chunk:
                 continue
 
-            clean_buffer += self._strip_ansi_keep_newlines(chunk)
-            if len(clean_buffer) > max_chars:
-                clean_buffer = clean_buffer[-max_chars:]
-
-            lines = clean_buffer.split("\n")
-            clean_buffer = lines.pop() if lines else ""
-            for line in lines:
-                candidate = line.strip()
-                if candidate and predicate(candidate):
-                    return candidate
-            
-            tail_candidate = clean_buffer.strip()
-            if tail_candidate and predicate(tail_candidate):
-                return tail_candidate
+            self._enqueue_stream_chunk(child, chunk)
 
     def _wait_exact_line(
         self, child: pexpect.spawn, expected: str, timeout_s: float
@@ -646,16 +699,21 @@ class Benchmark:
         ack_prefix: str,
         expected_seq: int,
     ) -> Tuple[str, float]:
-        
+
         key_byte = random.choice(string.ascii_letters)
         expected_ack = ack_prefix + f"{expected_seq:04d}:" + format(ord(key_byte), "02x")
         key_timeout = float(getattr(self.args, "echo_timeout", self.args.timeout))
 
-        token = self._token(protocol, trial_id, sample_id)  
+        token = self._token(protocol, trial_id, sample_id)
         t0 = time.perf_counter_ns()
-        child.send(key_byte)  
-        self._wait_exact_line(child, expected_ack, key_timeout)
+        child.send(key_byte)
+        ack_line = self._wait_line_prefix(child, ack_prefix, key_timeout)
         t1 = time.perf_counter_ns()
+
+        if expected_ack not in ack_line:
+            raise RuntimeError(
+                f"Keystroke ACK desync: expected {expected_ack!r}, got {ack_line!r}"
+            )
 
         return token, (t1 - t0) / 1e6
 
@@ -901,7 +959,6 @@ class Benchmark:
                             )
                             continue
 
-                # ── line_echo ──────────────────────────────────────────────
                 if "line_echo" in self.args.metrics:
                     ack_prefix, bye_marker = self._start_helper(child, protocol, trial_id)
                     for i in range(1, self.args.warmup_samples + 1):
@@ -982,8 +1039,6 @@ class Benchmark:
                             pass
                     self._safe_close(child)
 
-    # ─── Statistics helpers ──────────────────────────────────────────────────
-
     @staticmethod
     def _pct(data: List[float], p: float) -> Optional[float]:
         """
@@ -1019,10 +1074,6 @@ class Benchmark:
         budget = self._metric_budget(protocol, metric)
         missing = max(0, budget - (n + recorded_failures))
         failures = recorded_failures + missing
-        # Use max(budget, n + recorded_failures) as denominator so that
-        # success_rate_pct is always ≤ 100%.  The original `total = budget`
-        # could produce rates above 100% if n > budget (e.g. after a reopen
-        # added extra samples, or if the budget formula had a mismatch).
         total = max(budget, n + recorded_failures) if budget > 0 else (n + failures)
         rate = 100.0 * n / total if total else 0.0
 
@@ -1069,8 +1120,6 @@ class Benchmark:
                 ),
             }
         return out
-
-    # ─── Report / export ─────────────────────────────────────────────────────
 
     def print_report(self) -> None:
         w = 155
