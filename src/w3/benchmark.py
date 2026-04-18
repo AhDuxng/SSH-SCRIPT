@@ -551,6 +551,8 @@ class Benchmark:
         deadline = time.monotonic() + timeout_s
         clean_buffer = ""
         max_chars = 32768
+        last_data_t = time.monotonic()   
+        NUDGE_INTERVAL = 3.0             
 
         while True:
             remaining = deadline - time.monotonic()
@@ -569,6 +571,13 @@ class Benchmark:
                     timeout=min(0.5, max(0.05, remaining)),
                 )
             except pexpect.TIMEOUT:
+                silent_for = time.monotonic() - last_data_t
+                if silent_for >= NUDGE_INTERVAL and remaining > 1.0:
+                    try:
+                        child.send("\x1b")  
+                    except Exception:
+                        pass
+                    last_data_t = time.monotonic()
                 continue
             except pexpect.EOF as exc:
                 raise SessionOpenError(
@@ -578,6 +587,7 @@ class Benchmark:
             if not chunk:
                 continue
 
+            last_data_t = time.monotonic()
             clean_buffer += self._strip_ansi_keep_newlines(chunk)
             if len(clean_buffer) > max_chars:
                 clean_buffer = clean_buffer[-max_chars:]
