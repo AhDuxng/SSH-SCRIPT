@@ -514,12 +514,14 @@ class Benchmark:
             "try:\n"
             "    tty.setraw(fi)\n"
             "    os.write(fo,(rdy+'\\r\\n').encode())\n"
+            "    c=1\n"
             "    while True:\n"
             "        b=os.read(fi,1)\n"
             "        if not b or b==b'\\x03':\n"
             "            os.write(fo,(bye+'\\r\\n').encode())\n"
             "            break\n"
-            "        os.write(fo,(ack+format(b[0],'02x')+'\\r\\n').encode())\n"
+            "        os.write(fo,(ack+f'{c:04d}:'+format(b[0],'02x')+'\\r\\n').encode())\n"
+            "        c+=1\n"
             "finally:\n"
             "    termios.tcsetattr(fi,termios.TCSADRAIN,old)\n"
         )
@@ -646,11 +648,12 @@ class Benchmark:
         protocol: str,
         trial_id: int,
         sample_id: int,
-        ack_prefix: str,  
+        ack_prefix: str,
+        expected_seq: int,
     ) -> Tuple[str, float]:
         
         key_byte = random.choice(string.ascii_letters)
-        expected_ack = ack_prefix + format(ord(key_byte), "02x")
+        expected_ack = ack_prefix + f"{expected_seq:04d}:" + format(ord(key_byte), "02x")
         key_timeout = float(getattr(self.args, "echo_timeout", self.args.timeout))
 
         token = self._token(protocol, trial_id, sample_id)  
@@ -757,13 +760,15 @@ class Benchmark:
                     key_ack_prefix, key_bye_marker = self._start_keystroke_helper(
                         child, protocol, trial_id
                     )
+                    helper_seq = 1
                     try:
                         for i in range(1, self.args.warmup_samples + 1):
                             sid = -i
                             try:
                                 tok, lat = self._measure_keystroke_latency(
-                                    child, protocol, trial_id, sid, key_ack_prefix,
+                                    child, protocol, trial_id, sid, key_ack_prefix, helper_seq,
                                 )
+                                helper_seq += 1
                                 self._record_ok(
                                     protocol, "keystroke_latency", trial_id, sid, True, tok, lat
                                 )
@@ -784,18 +789,20 @@ class Benchmark:
                                 child, _, _ = self._reopen_trial_session(
                                     protocol, child, trial_id,
                                     need_echo_helper=False,
-                                    predict_mode="adaptive",
+                                    predict_mode=current_predict,
                                 )
                                 key_ack_prefix, key_bye_marker = self._start_keystroke_helper(
                                     child, protocol, trial_id
                                 )
+                                helper_seq = 1
                                 continue
 
                         for sid in range(1, self.args.samples_per_trial + 1):
                             try:
                                 tok, lat = self._measure_keystroke_latency(
-                                    child, protocol, trial_id, sid, key_ack_prefix,
+                                    child, protocol, trial_id, sid, key_ack_prefix, helper_seq,
                                 )
+                                helper_seq += 1
                                 self._record_ok(
                                     protocol, "keystroke_latency", trial_id, sid, False, tok, lat
                                 )
@@ -816,11 +823,12 @@ class Benchmark:
                                 child, _, _ = self._reopen_trial_session(
                                     protocol, child, trial_id,
                                     need_echo_helper=False,
-                                    predict_mode="adaptive",
+                                    predict_mode=current_predict,
                                 )
                                 key_ack_prefix, key_bye_marker = self._start_keystroke_helper(
                                     child, protocol, trial_id
                                 )
+                                helper_seq = 1
                                 continue
                     finally:
                         try:
