@@ -291,10 +291,6 @@ class Benchmark:
     ) -> None:
         if is_warmup:
             return
-        # Guard: only write to results if metric was requested.
-        # Without this guard, calling _record_ok("session_setup", ...) when
-        # "session_setup" is not in args.metrics raises KeyError because
-        # self.results[protocol] is keyed only by args.metrics.
         if metric not in self.results[protocol]:
             return
         self.results[protocol][metric].append(latency_ms)
@@ -312,10 +308,6 @@ class Benchmark:
         exc: Exception,
         child: Optional[pexpect.spawn] = None,
     ) -> None:
-        # Guard: only record failures for metrics that were actually requested.
-        # Session setup failure is always recorded regardless (diagnostics),
-        # but per-sample failures for metrics outside args.metrics are silently
-        # dropped to keep failures.csv coherent.
         if metric != "session_setup" and metric not in self.results.get(protocol, {}):
             return
         extra = f" | {self._buf(child)}" if child is not None else ""
@@ -442,6 +434,12 @@ class Benchmark:
         marker: str,
         timeout_s: float,
     ) -> str:
+        """Wait until a line containing `marker` appears; return that line only.
+
+        FIX-3: Previously returned the entire accumulated buffer, which allowed
+        callers to regex-match stale tokens from earlier samples still present
+        in the buffer. Now scans line-by-line and returns only the matching line.
+        """
         deadline = time.monotonic() + timeout_s
         raw_parts: List[str] = []
         max_chars = 32768
@@ -450,7 +448,10 @@ class Benchmark:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 clean_dump = self._strip_ansi("".join(raw_parts))[-500:]
-                raise pexpect.TIMEOUT(f"Marker not received within {timeout_s:.1f}s: {marker!r}. Buffer end: {clean_dump!r}")
+                raise pexpect.TIMEOUT(
+                    f"Marker not received within {timeout_s:.1f}s: {marker!r}. "
+                    f"Buffer end: {clean_dump!r}"
+                )
 
             try:
                 chunk = child.read_nonblocking(
@@ -470,9 +471,11 @@ class Benchmark:
             if total > max_chars:
                 raw_parts = ["".join(raw_parts)[-max_chars:]]
 
+            # FIX-3: scan line-by-line to return only the matching line.
             clean = self._strip_ansi("".join(raw_parts))
-            if marker in clean:
-                return clean
+            for line in clean.splitlines():
+                if marker in line:
+                    return line
 
     def _measure_echo(
         self,
@@ -510,11 +513,8 @@ class Benchmark:
             except (pexpect.TIMEOUT, pexpect.EOF):
                 break
 
-        # Send pull request; token ensures Mosh renders a new frame each sample
         t0 = time.perf_counter_ns()
         child.sendline(f"W2PULL {token}")
-
-        # Wait for the block end marker
         self._wait_marker_via_stream(child, f"__W2_END__ {token}", timeout_s)
         t1 = time.perf_counter_ns()
 
@@ -539,8 +539,6 @@ class Benchmark:
                 print(f"[{protocol:>4}/setup      ] trial {trial_id:>2}:  OK  {setup_ms:.1f} ms")
 
                 if "screen_update_latency" in self.args.metrics:
-                    # Start an interactive helper script that listens for W2PULL and outputs a block.
-                    # Use shlex.quote() to safely embed multi-line Python source (same pattern as W3).
                     script = (
                         "import sys\n"
                         "pay = 'X' * 2000\n"
@@ -562,7 +560,6 @@ class Benchmark:
                     self._wait_marker_via_stream(child, "W2READY", self.args.timeout)
 
                     total_iterations = self.args.warmup_samples + self.args.samples_per_trial
-                    # Warmup and Measurement phase combined
                     for i in range(1, total_iterations + 1):
                         is_warmup = (i <= self.args.warmup_samples)
                         sid = -i if is_warmup else i - self.args.warmup_samples
@@ -578,17 +575,15 @@ class Benchmark:
                                 raise
                             break
 
-                    # Teardown the helper script gracefully
                     try:
                         child.sendline("W2EXIT")
                         self._wait_marker_via_stream(child, "W2BYE", 2.0)
-                        self._wait_marker_via_stream(child, self.args.prompt, self.args.timeout)
+                        self._expect_literal(child, self.args.prompt, timeout=self.args.timeout)
                     except Exception:
                         pass
 
                 if "line_echo" in self.args.metrics:
                     ack_prefix, bye_marker = self._start_helper(child, protocol, trial_id)
-                    # Warmup phase: negative sample_ids to avoid collision with real IDs.
                     for i in range(1, self.args.warmup_samples + 1):
                         sid = -i
                         try:
@@ -604,7 +599,6 @@ class Benchmark:
                                 raise
                             break
 
-                    # Measurement phase: sample_ids 1..samples_per_trial.
                     for sid in range(1, self.args.samples_per_trial + 1):
                         try:
                             tok, lat = self._measure_echo(child, protocol, trial_id, sid, ack_prefix)
@@ -665,9 +659,9 @@ class Benchmark:
         )
         n = len(data)
         budget = self._metric_budget(protocol, metric)
-        missing = max(0, budget - (n + recorded_failures))
-        failures = recorded_failures + missing
-        total = budget if budget > 0 else (n + failures)
+
+        total = max(budget, n + recorded_failures)
+        failures = total - n
         rate = 100.0 * n / total if total else 0.0
 
         if n == 0:
@@ -706,10 +700,11 @@ class Benchmark:
         )
         print("-" * w)
         fmt_ms = lambda v: f"{v:.2f}" if v is not None else "N/A"
+        fmt_pct = lambda v: f"{v:.1f}%" if v is not None else "SKIP"
         for row in self.summaries():
             print(
                 f"{row.protocol:<8} | {row.metric:<17} | {row.n:>5} | "
-                f"{row.failures:>5} | {row.success_rate_pct:>6.1f}% | "
+                f"{row.failures:>5} | {fmt_pct(row.success_rate_pct):>7} | "
                 f"{fmt_ms(row.min_ms):>8} | {fmt_ms(row.mean_ms):>8} | {fmt_ms(row.median_ms):>8} | "
                 f"{fmt_ms(row.stdev_ms):>8} | {fmt_ms(row.p95_ms):>8} | {fmt_ms(row.p99_ms):>8} | "
                 f"{fmt_ms(row.max_ms):>8} | {fmt_ms(row.ci95_half_width_ms):>8}"
@@ -762,8 +757,9 @@ class Benchmark:
                         "Application-level terminal RTT from sendline(token) to ACK receipt."
                     ),
                     "success_rate_pct_note": (
-                        "Fixed-budget denominator. Per-sample metrics (keystroke_latency/line_echo) use trials x samples_per_trial; "
-                        "session_setup uses trials. Missing observations are counted as non-success."
+                        "Denominator is max(budget, n + recorded_failures) to avoid inflation "
+                        "when reopen-on-failure retries exceed the original budget. "
+                        "Missing observations count as non-success."
                     ),
                     "stdev_ms_note": "Sample standard deviation (statistics.stdev, ddof=1).",
                     "ping_rtt_ms": (
@@ -781,20 +777,9 @@ class Benchmark:
         with cpath.open("w", newline="", encoding="utf-8") as f:
             w = csv.writer(f)
             w.writerow([
-                "protocol",
-                "metric",
-                "n",
-                "failures",
-                "success_rate_pct",
-                "min_ms",
-                "mean_ms",
-                "median_ms",
-                "stdev_ms",
-                "p95_ms",
-                "p99_ms",
-                "max_ms",
-                "ci95_half_width_ms",
-                "ping_rtt_mean_ms",
+                "protocol", "metric", "n", "failures", "success_rate_pct",
+                "min_ms", "mean_ms", "median_ms", "stdev_ms",
+                "p95_ms", "p99_ms", "max_ms", "ci95_half_width_ms", "ping_rtt_mean_ms",
             ])
             for row in self.summaries():
                 rtts = [x for x in self.ping_rtts.get(row.protocol, []) if x is not None]
@@ -804,7 +789,7 @@ class Benchmark:
                     row.metric,
                     row.n,
                     row.failures,
-                    f"{row.success_rate_pct:.3f}",
+                    "" if row.success_rate_pct is None else f"{row.success_rate_pct:.3f}",
                     "" if row.min_ms is None else f"{row.min_ms:.6f}",
                     "" if row.mean_ms is None else f"{row.mean_ms:.6f}",
                     "" if row.median_ms is None else f"{row.median_ms:.6f}",

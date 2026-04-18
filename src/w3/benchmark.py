@@ -1,69 +1,5 @@
 from __future__ import annotations
 
-"""
-benchmark_submission_ready.py
-
-Submission-ready SSH/Mosh/SSH3 benchmark with paper-safe metric definitions.
-
-Primary reported metric:
-    control_step_latency_ms
-        Protocol-mediated latency of one observe->act step, excluding local
-        Python decision time. Formally:
-
-            control_step_latency_ms = obs_rtt_ms + act_rtt_ms
-
-        where:
-            obs_rtt_ms = t_obs_recv - t_obs_send
-            act_rtt_ms = t_act_recv - t_act_send
-
-        This is the fairest protocol-comparison metric because it excludes
-        client CPU time that is unrelated to SSH/Mosh/SSH3.
-
-Additional exported transparency metrics:
-    processing_overhead_ms
-        Local Python decision time between receiving the observation and
-        sending the action command:
-
-            processing_overhead_ms = t_act_send - t_obs_recv
-
-    control_step_wall_ms
-        Full wall-clock duration of the step:
-
-            control_step_wall_ms = t_act_recv - t_obs_send
-
-        Therefore:
-            control_step_wall_ms = control_step_latency_ms + processing_overhead_ms
-
-Other metrics:
-    line_echo_ms
-        Application-level terminal RTT from sendline(token) to ACK receipt from
-        the remote Python helper.
-
-    session_setup_ms
-        Time-to-usable-shell from pexpect.spawn() until the remote shell is
-        configured and ready for measurements.
-
-    ping_rtt_ms
-        ICMP baseline covariate measured once per trial before opening the
-        protocol session.
-
-Fixes applied (v2):
-    FIX-1  _measure_control_step_latency: is_warmup no longer hardcoded False
-           inside the constructor. Callers pass is_warmup explicitly so the
-           record is correct from the moment of creation, eliminating the
-           post-construction mutation that could log the wrong flag.
-
-    FIX-2  _summary_row: success_rate_pct inflation fixed.  Previously, when
-           recorded_failures exceeded the budget (possible after reopen-on-failure
-           retries), `missing` was clipped to 0 by max(0,...), hiding real
-           failures and inflating the success rate.  Now total = max(budget,
-           n + recorded_failures) so every observed failure is counted.
-
-    FIX-3  _measure_control_step_latency: is_warmup propagated correctly by
-           removing the post-construction "csr.is_warmup = True" mutation in
-           _run_protocol and instead passing the flag into the helper directly.
-"""
-
 import csv
 import json
 import math
@@ -561,6 +497,10 @@ class Benchmark:
                 candidate = self._strip_prompt_prefixes(line)
                 if candidate and predicate(candidate):
                     return candidate
+            
+            candidate_buf = self._strip_prompt_prefixes(clean_buffer)
+            if candidate_buf and predicate(candidate_buf):
+                return candidate_buf
 
     def _wait_ack_via_stream(
         self,
@@ -607,8 +547,6 @@ class Benchmark:
 
         return token, (t1 - t0) / 1e6
 
-    # FIX-1 + FIX-3: Accept is_warmup as an explicit parameter instead of
-    # hardcoding False and mutating the record after construction.
     def _measure_control_step_latency(
         self,
         child: pexpect.spawn,
@@ -621,7 +559,8 @@ class Benchmark:
         token = self._token(protocol, trial_id, sample_id)
         timeout_s = float(getattr(self.args, "echo_timeout", self.args.timeout))
 
-        obs_marker = f"__W3OBS__ {token} "
+        expected_obs = state * 3 + 7
+        obs_marker = f"__W3OBS__ {token} {expected_obs}"
         cmd1 = f"printf '\n__W3OBS__ {token} %d\n' $(({state}*3+7))"
         t_obs_send = time.perf_counter_ns()
         child.sendline(cmd1)
@@ -647,7 +586,6 @@ class Benchmark:
         self._wait_marker_via_stream(child, act_marker, timeout_s)
         t_act_recv = time.perf_counter_ns()
 
-        # FIX-1: is_warmup is passed in directly — no post-construction mutation.
         csr = ControlStepRecord(
             protocol=protocol,
             trial_id=trial_id,
@@ -713,8 +651,6 @@ class Benchmark:
                     for i in range(1, self.args.warmup_samples + 1):
                         sid = -i
                         try:
-                            # FIX-3: pass is_warmup=True so the record is
-                            # correct from construction, no mutation needed.
                             tok, lat, agent_state, csr = self._measure_control_step_latency(
                                 child, protocol, trial_id, sid, agent_state,
                                 is_warmup=True,
@@ -847,9 +783,6 @@ class Benchmark:
         n = len(data)
         budget = self._metric_budget(protocol, metric)
 
-        # FIX-2: Use the larger of (budget) vs (n + recorded_failures) as the
-        # denominator so that excess failures from reopen-on-failure retries are
-        # never silently discarded, which would otherwise inflate success_rate_pct.
         total = max(budget, n + recorded_failures)
         failures = total - n
         rate = 100.0 * n / total if total else 0.0

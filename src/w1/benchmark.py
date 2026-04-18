@@ -54,7 +54,8 @@ class Benchmark:
             for protocol in args.protocols
         }
         self._pattern_cache: Dict[str, re.Pattern] = {}
-        self._shuffle_rng = random.Random(args.seed)
+
+        self._rng = random.Random(args.seed)
 
     def _literal_pattern(self, literal: str) -> re.Pattern:
         pat = self._pattern_cache.get(literal)
@@ -85,7 +86,8 @@ class Benchmark:
         return f"raw={raw!r} clean={clean!r}"
 
     def _token(self, protocol: str, trial_id: int, sample_id: int) -> str:
-        rand = "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
+        # FIX-2: use self._rng instead of the global random module.
+        rand = "".join(self._rng.choices(string.ascii_uppercase + string.digits, k=6))
         return f"W3T{protocol[:2].upper()}{trial_id:03d}{sample_id:04d}{rand}Z"
 
     def _ping_rtt_ms(self) -> Optional[float]:
@@ -294,14 +296,15 @@ class Benchmark:
         token: str,
         latency_ms: float,
     ) -> None:
+        
+        self.records.append(
+            SampleRecord(protocol, metric, trial_id, sample_id, is_warmup, token, latency_ms)
+        )
         if is_warmup:
             return
         if metric not in self.results[protocol]:
             return
         self.results[protocol][metric].append(latency_ms)
-        self.records.append(
-            SampleRecord(protocol, metric, trial_id, sample_id, is_warmup, token, latency_ms)
-        )
 
     def _record_fail(
         self,
@@ -448,6 +451,12 @@ class Benchmark:
         marker: str,
         timeout_s: float,
     ) -> str:
+        """Wait until a line containing `marker` appears and return that line only.
+
+        FIX-4: Previously returned the entire accumulated buffer, which could
+        cause callers to regex-match against stale tokens from earlier samples.
+        Now returns only the specific line that contains the marker.
+        """
         deadline = time.monotonic() + timeout_s
         raw_parts: List[str] = []
         max_chars = 32768
@@ -480,8 +489,14 @@ class Benchmark:
                 raw_parts = ["".join(raw_parts)[-max_chars:]]
 
             clean = self._strip_ansi("".join(raw_parts))
-            if marker in clean:
-                return clean
+            # FIX-4: search line-by-line so we return only the matching line,
+            # not the entire buffer (avoids stale-token false-positives).
+            for line in clean.splitlines():
+                if marker in line:
+                    return line
+
+        # unreachable — timeout branch raises above
+        raise AssertionError("unreachable")
 
     def _measure_echo(
         self,
@@ -663,17 +678,17 @@ class Benchmark:
         )
         n = len(data)
         budget = self._metric_budget(protocol, metric)
+
         if protocol in self.protocol_skip_reasons:
             return SummaryRow(
                 protocol, metric, 0, 0,
-                success_rate_pct=None,  
+                success_rate_pct=None,
                 min_ms=None, mean_ms=None, median_ms=None, stdev_ms=None,
                 p95_ms=None, p99_ms=None, max_ms=None, ci95_half_width_ms=None,
             )
 
-        missing = max(0, budget - (n + recorded_failures))
-        failures = recorded_failures + missing
-        total = budget if budget > 0 else (n + failures)
+        total = max(budget, n + recorded_failures)
+        failures = total - n
         rate = 100.0 * n / total if total else 0.0
 
         if n == 0:
@@ -765,15 +780,16 @@ class Benchmark:
                     "command_latency_ms": (
                         "Terminal round-trip latency for a marker printf after the command has completed. "
                         "The actual command runs BEFORE the timing window starts; sleep(0.2) for Mosh "
-                        "frame flush also happens outside the window. Only the marker RTT is measured."
+                        "frame flush also happens outside the window. Only the marker RTT is measured. "
+                        "Note: the 200 ms sleep adds ~0.2 s of wall-clock overhead per sample."
                     ),
                     "line_echo_ms": (
                         "Application-level terminal RTT from sendline(token) to ACK receipt."
                     ),
                     "success_rate_pct_note": (
-                        "Fixed-budget denominator. Per-sample metrics (keystroke_latency/line_echo) use "
-                        "trials x samples_per_trial; session_setup uses trials. Missing observations are "
-                        "counted as non-success. NULL = protocol was skipped entirely."
+                        "Denominator is max(budget, n + recorded_failures) to avoid inflation "
+                        "when reopen-on-failure retries exceed the original budget. "
+                        "NULL = protocol was skipped entirely."
                     ),
                     "stdev_ms_note": "Sample standard deviation (statistics.stdev, ddof=1).",
                     "ci95_half_width_ms_note": (
@@ -782,6 +798,10 @@ class Benchmark:
                     "ping_rtt_ms": (
                         "ICMP baseline covariate with optional source binding; not directly comparable "
                         "to line_echo_ms."
+                    ),
+                    "samples_csv_warmup_note": (
+                        "samples.csv includes warmup rows (is_warmup=True) for audit purposes. "
+                        "These rows are excluded from all summary statistics."
                     ),
                 },
                 "skipped_protocols": self.protocol_skip_reasons,
@@ -855,15 +875,14 @@ class Benchmark:
         print(f"\nOutputs written to {out}/")
         print("  summary.json  - metadata + per-protocol statistics")
         print("  summary.csv   - consolidated protocol/metric comparison table")
-        print("  samples.csv   - every raw measurement")
+        print("  samples.csv   - every raw measurement (including warmup rows)")
         print("  failures.csv  - every failure with context")
         print("  ping_rtts.csv - ICMP network-layer covariate per trial")
 
     def run(self) -> None:
-        random.seed(self.args.seed)
         protocols = list(self.args.protocols)
         if self.args.shuffle_protocols:
-            self._shuffle_rng.shuffle(protocols)
+            self._rng.shuffle(protocols)
 
         if self.args.preflight:
             approved = []
