@@ -15,7 +15,7 @@ import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Pattern, Tuple
 
 try:
     import pexpect
@@ -111,6 +111,7 @@ class Benchmark:
         }
         self._pattern_cache: Dict[str, re.Pattern] = {}
         self._stream_state: Dict[int, Dict[str, object]] = {}
+        self._key_ack_regex_cache: Dict[str, Pattern[str]] = {}
 
     @classmethod
     def _canonical_metric_name(cls, metric: str) -> str:
@@ -508,11 +509,13 @@ class Benchmark:
         ready = f"W3KRY{protocol[:2].upper()}{trial_id:03d}Z"
         ack   = f"W3KEY{protocol[:2].upper()}{trial_id:03d}A"
         bye   = f"W3KBY{protocol[:2].upper()}{trial_id:03d}Z"
+        frame = f"__W3KFRAME__{ack}"
         helper = (
             "import os,sys,tty,termios\n"
             "rdy=os.environ['W3R']\n"
             "ack=os.environ['W3A']\n"
             "bye=os.environ['W3B']\n"
+            "frm=os.environ['W3F']\n"
             "fi=sys.stdin.fileno()\n"
             "fo=sys.stdout.fileno()\n"
             "old=termios.tcgetattr(fi)\n"
@@ -525,7 +528,7 @@ class Benchmark:
             "        if not b or b==b'\\x03':\n"
             "            os.write(fo,(bye+'\\r\\n').encode())\n"
             "            break\n"
-            "        os.write(fo,(ack+f'{c:04d}:'+format(b[0],'02x')+'\\r\\n').encode())\n"
+            "        os.write(fo,(frm+f'{c:04d}:'+format(b[0],'02x')+';').encode())\n"
             "        c+=1\n"
             "finally:\n"
             "    termios.tcsetattr(fi,termios.TCSADRAIN,old)\n"
@@ -534,10 +537,12 @@ class Benchmark:
             f"W3R={shlex.quote(ready)} "
             f"W3A={shlex.quote(ack)} "
             f"W3B={shlex.quote(bye)} "
+            f"W3F={shlex.quote(frame)} "
             f"python3 -u -c {shlex.quote(helper)}"
         )
         child.sendline(cmd)
         self._expect_literal(child, ready, timeout=self.args.timeout)
+        self._arm_keystroke_parser(child, ack)
         return ack, bye
 
     def _stop_keystroke_helper(self, child: pexpect.spawn, bye: str) -> None:
@@ -548,9 +553,65 @@ class Benchmark:
         self._reset_stream_reader(child)
 
     _STREAM_MAX_CHARS = 32768
+    _KEY_ACK_BUF_MAX = 8192
 
     def _reset_stream_reader(self, child: pexpect.spawn) -> None:
-        self._stream_state[id(child)] = {"partial": "", "pending": []}
+        self._stream_state[id(child)] = {
+            "partial": "",
+            "pending": [],
+            "key_ack_buf": "",
+            "key_ack_pending": [],
+            "key_ack_re": None,
+        }
+
+    def _key_ack_regex(self, ack_prefix: str) -> Pattern[str]:
+        pat = self._key_ack_regex_cache.get(ack_prefix)
+        if pat is None:
+            pat = re.compile(
+                rf"__W3KFRAME__{re.escape(ack_prefix)}(\d{{4}}):([0-9a-f]{{2}});"
+            )
+            self._key_ack_regex_cache[ack_prefix] = pat
+        return pat
+
+    def _arm_keystroke_parser(self, child: pexpect.spawn, ack_prefix: str) -> None:
+        state = self._stream_reader_state(child)
+        state["key_ack_buf"] = ""
+        state["key_ack_pending"] = []
+        state["key_ack_re"] = self._key_ack_regex(ack_prefix)
+
+    def _extract_keystroke_frames(self, child: pexpect.spawn, clean_chunk: str) -> None:
+        state = self._stream_reader_state(child)
+        key_re = state.get("key_ack_re")
+        if key_re is None:
+            return
+
+        buf = str(state.get("key_ack_buf", "")) + clean_chunk
+        pending = state["key_ack_pending"]
+        last_end = 0
+        for m in key_re.finditer(buf):
+            pending.append((int(m.group(1)), m.group(2), m.group(0)))
+            last_end = m.end()
+
+        if last_end:
+            buf = buf[last_end:]
+        if len(buf) > self._KEY_ACK_BUF_MAX:
+            buf = buf[-self._KEY_ACK_BUF_MAX:]
+        state["key_ack_buf"] = buf
+
+    def _pop_next_keystroke_ack(
+        self,
+        child: pexpect.spawn,
+        expected_seq: int,
+    ) -> Optional[Tuple[int, str, str]]:
+        state = self._stream_reader_state(child)
+        pending = state["key_ack_pending"]
+
+        while pending:
+            seq, hx, raw = pending.pop(0)
+            if seq < expected_seq:
+                continue
+            return int(seq), str(hx), str(raw)
+        return None
 
     def _stream_reader_state(self, child: pexpect.spawn) -> Dict[str, object]:
         state = self._stream_state.get(id(child))
@@ -575,7 +636,10 @@ class Benchmark:
     def _enqueue_stream_chunk(self, child: pexpect.spawn, chunk: str) -> None:
         state = self._stream_reader_state(child)
         pending = state["pending"]  
-        partial = str(state["partial"]) + self._strip_ansi_keep_newlines(chunk)
+        clean_chunk = self._strip_ansi_keep_newlines(chunk)
+        partial = str(state["partial"]) + clean_chunk
+
+        self._extract_keystroke_frames(child, clean_chunk)
 
         if len(partial) > self._STREAM_MAX_CHARS:
             partial = partial[-self._STREAM_MAX_CHARS:]
@@ -670,6 +734,44 @@ class Benchmark:
             what=f"line starting with {prefix!r}",
         )
 
+    def _wait_keystroke_ack(
+        self,
+        child: pexpect.spawn,
+        expected_seq: int,
+        timeout_s: float,
+    ) -> Tuple[int, str, str]:
+        deadline = time.monotonic() + timeout_s
+
+        while True:
+            matched = self._pop_next_keystroke_ack(child, expected_seq)
+            if matched is not None:
+                return matched
+
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                tail_candidate = self._stream_tail(child)
+                raise pexpect.TIMEOUT(
+                    f"keystroke ACK seq>={expected_seq} not received within {timeout_s:.1f}s. "
+                    f"clean_tail={tail_candidate!r}"
+                )
+
+            try:
+                chunk = child.read_nonblocking(
+                    size=4096,
+                    timeout=min(0.5, max(0.05, remaining)),
+                )
+            except pexpect.TIMEOUT:
+                continue
+            except pexpect.EOF as exc:
+                raise SessionOpenError(
+                    f"EOF while waiting for keystroke ACK. {self._buf(child)}"
+                ) from exc
+
+            if not chunk:
+                continue
+
+            self._enqueue_stream_chunk(child, chunk)
+
     def _measure_echo(
         self,
         child: pexpect.spawn,
@@ -698,24 +800,24 @@ class Benchmark:
         sample_id: int,
         ack_prefix: str,
         expected_seq: int,
-    ) -> Tuple[str, float]:
+    ) -> Tuple[str, float, int]:
 
         key_byte = random.choice(string.ascii_letters)
-        expected_ack = ack_prefix + f"{expected_seq:04d}:" + format(ord(key_byte), "02x")
+        sent_hex = format(ord(key_byte), "02x")
         key_timeout = float(getattr(self.args, "echo_timeout", self.args.timeout))
 
         token = self._token(protocol, trial_id, sample_id)
         t0 = time.perf_counter_ns()
         child.send(key_byte)
-        ack_line = self._wait_line_prefix(child, ack_prefix, key_timeout)
+        seq, ack_hex, ack_raw = self._wait_keystroke_ack(child, expected_seq, key_timeout)
         t1 = time.perf_counter_ns()
 
-        if expected_ack not in ack_line:
+        if ack_hex != sent_hex and seq == expected_seq:
             raise RuntimeError(
-                f"Keystroke ACK desync: expected {expected_ack!r}, got {ack_line!r}"
+                f"Keystroke ACK byte mismatch at seq {seq}: sent {sent_hex!r}, got {ack_hex!r} via {ack_raw!r}"
             )
 
-        return token, (t1 - t0) / 1e6
+        return token, (t1 - t0) / 1e6, seq + 1
 
     def _measure_control_step_latency(
         self,
@@ -818,10 +920,9 @@ class Benchmark:
                         for i in range(1, self.args.warmup_samples + 1):
                             sid = -i
                             try:
-                                tok, lat = self._measure_keystroke_latency(
+                                tok, lat, helper_seq = self._measure_keystroke_latency(
                                     child, protocol, trial_id, sid, key_ack_prefix, helper_seq,
                                 )
-                                helper_seq += 1
                                 self._record_ok(
                                     protocol, "keystroke_latency", trial_id, sid, True, tok, lat
                                 )
@@ -851,10 +952,9 @@ class Benchmark:
 
                         for sid in range(1, self.args.samples_per_trial + 1):
                             try:
-                                tok, lat = self._measure_keystroke_latency(
+                                tok, lat, helper_seq = self._measure_keystroke_latency(
                                     child, protocol, trial_id, sid, key_ack_prefix, helper_seq,
                                 )
-                                helper_seq += 1
                                 self._record_ok(
                                     protocol, "keystroke_latency", trial_id, sid, False, tok, lat
                                 )
@@ -1216,7 +1316,8 @@ class Benchmark:
                     ),
                     "keystroke_latency_ms": (
                         "Per-byte ACK RTT via raw-mode remote Python helper. "
-                        "From child.send(byte) to receipt of ACK line. "
+                        "From child.send(byte) to receipt of a framed ACK record. "
+                        "Framed ACK parsing tolerates chunk coalescing and resyncs on seq jumps. "
                         "Measured with mosh --predict=never."
                     ),
                     "line_echo_ms": (
