@@ -551,8 +551,6 @@ class Benchmark:
         deadline = time.monotonic() + timeout_s
         clean_buffer = ""
         max_chars = 32768
-        last_data_t = time.monotonic()   
-        NUDGE_INTERVAL = 3.0             
 
         while True:
             remaining = deadline - time.monotonic()
@@ -571,13 +569,6 @@ class Benchmark:
                     timeout=min(0.5, max(0.05, remaining)),
                 )
             except pexpect.TIMEOUT:
-                silent_for = time.monotonic() - last_data_t
-                if silent_for >= NUDGE_INTERVAL and remaining > 1.0:
-                    try:
-                        child.send("\x1b")  
-                    except Exception:
-                        pass
-                    last_data_t = time.monotonic()
                 continue
             except pexpect.EOF as exc:
                 raise SessionOpenError(
@@ -587,7 +578,6 @@ class Benchmark:
             if not chunk:
                 continue
 
-            last_data_t = time.monotonic()
             clean_buffer += self._strip_ansi_keep_newlines(chunk)
             if len(clean_buffer) > max_chars:
                 clean_buffer = clean_buffer[-max_chars:]
@@ -791,11 +781,10 @@ class Benchmark:
                                 )
                                 if not self.args.reopen_on_failure:
                                     raise
-                                child, _, _ = self._reopen_trial_session(
-                                    protocol, child, trial_id,
-                                    need_echo_helper=False,
-                                    predict_mode=current_predict,
-                                )
+                                try:
+                                    self._stop_keystroke_helper(child, key_bye_marker)
+                                except Exception:
+                                    pass
                                 key_ack_prefix, key_bye_marker = self._start_keystroke_helper(
                                     child, protocol, trial_id
                                 )
@@ -825,11 +814,10 @@ class Benchmark:
                                 )
                                 if not self.args.reopen_on_failure:
                                     raise
-                                child, _, _ = self._reopen_trial_session(
-                                    protocol, child, trial_id,
-                                    need_echo_helper=False,
-                                    predict_mode=current_predict,
-                                )
+                                try:
+                                    self._stop_keystroke_helper(child, key_bye_marker)
+                                except Exception:
+                                    pass
                                 key_ack_prefix, key_bye_marker = self._start_keystroke_helper(
                                     child, protocol, trial_id
                                 )
