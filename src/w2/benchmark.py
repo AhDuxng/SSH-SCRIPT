@@ -544,6 +544,7 @@ class Benchmark:
                     script = (
                         "import sys\n"
                         "pay = 'X' * 2000\n"
+                        "row = 1\n"
                         "print('W2READY', flush=True)\n"
                         "for line in sys.stdin:\n"
                         "    line = line.strip()\n"
@@ -551,7 +552,8 @@ class Benchmark:
                         "        tok = line.split()[1]\n"
                         "        print(f'__W2_START__ {tok}')\n"
                         "        print(pay)\n"
-                        "        sys.stdout.write(f'\\033[2J\\033[H__W2_END__ {tok}\\n'); sys.stdout.flush()\n"
+                        "        row = (row % 40) + 1\n"
+                        "        sys.stdout.write(f'\\033[2J\\033[{row};1H__W2_END__ {tok}\\n'); sys.stdout.flush()\n"
                         "    elif line == 'W2EXIT':\n"
                         "        print('W2BYE', flush=True)\n"
                         "        break\n"

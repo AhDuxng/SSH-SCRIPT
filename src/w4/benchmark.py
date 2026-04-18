@@ -515,7 +515,10 @@ class Benchmark:
         # containing only the marker, even when cmd produced large scrolling output.
         # Adding 'sleep 0.2' forces Mosh Server to flush the large output state
         # BEFORE it processes the marker, avoiding frame coalescing issues.
-        cmd_with_marker = f"{cmd}; sleep 0.2; printf '\\033[2J\\033[H__W4DONE__ {token}\\n'"
+        # We use a dynamic row (based on sample_id) to defeat Mosh's line-by-line diffing.
+        # If the marker is on a different line each time, Mosh MUST render the full string.
+        row = (abs(sample_id) % 40) + 1
+        cmd_with_marker = f"{cmd}; sleep 0.2; printf '\\033[2J\\033[{row};1H__W4DONE__ {token}\\n'"
 
         t0 = time.perf_counter_ns()
         child.sendline(cmd_with_marker)
