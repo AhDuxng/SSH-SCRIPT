@@ -547,7 +547,7 @@ class Benchmark:
     ) -> None:
         self._wait_for_output_line(
             child,
-            predicate=lambda line: line == ack_marker,
+            predicate=lambda line: line.strip() == ack_marker,
             timeout_s=timeout_s,
             what=f"ACK {ack_marker!r}",
         )
@@ -560,7 +560,7 @@ class Benchmark:
     ) -> str:
         return self._wait_for_output_line(
             child,
-            predicate=lambda line: line.startswith(marker_prefix),
+            predicate=lambda line: line.strip().startswith(marker_prefix),
             timeout_s=timeout_s,
             what=f"marker starting with {marker_prefix!r}",
         )
