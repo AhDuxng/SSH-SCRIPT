@@ -45,11 +45,16 @@ class Benchmark:
         self.protocol_skip_reasons: Dict[str, str] = {}
         self.ping_rtts: Dict[str, List[Optional[float]]] = {p: [] for p in args.protocols}
         self.remote_meta = RemoteMeta()
+
+        _all_tracked = list(args.metrics) + (
+            ["session_setup"] if "session_setup" not in args.metrics else []
+        )
         self.results: Dict[str, Dict[str, List[float]]] = {
-            protocol: {metric: [] for metric in args.metrics}
+            protocol: {metric: [] for metric in _all_tracked}
             for protocol in args.protocols
         }
         self._pattern_cache: Dict[str, re.Pattern] = {}
+        self._shuffle_rng = random.Random(args.seed)
 
     def _literal_pattern(self, literal: str) -> re.Pattern:
         pat = self._pattern_cache.get(literal)
@@ -291,10 +296,6 @@ class Benchmark:
     ) -> None:
         if is_warmup:
             return
-        # Guard: only write to results if metric was requested.
-        # Without this guard, calling _record_ok("session_setup", ...) when
-        # "session_setup" is not in args.metrics raises KeyError because
-        # self.results[protocol] is keyed only by args.metrics.
         if metric not in self.results[protocol]:
             return
         self.results[protocol][metric].append(latency_ms)
@@ -312,10 +313,6 @@ class Benchmark:
         exc: Exception,
         child: Optional[pexpect.spawn] = None,
     ) -> None:
-        # Guard: only record failures for metrics that were actually requested.
-        # Session setup failure is always recorded regardless (diagnostics),
-        # but per-sample failures for metrics outside args.metrics are silently
-        # dropped to keep failures.csv coherent.
         if metric != "session_setup" and metric not in self.results.get(protocol, {}):
             return
         extra = f" | {self._buf(child)}" if child is not None else ""
@@ -400,6 +397,15 @@ class Benchmark:
         self._expect_literal(child, "W3BACK", timeout=self.args.timeout)
         self._expect_literal(child, self.args.prompt, timeout=self.args.timeout)
 
+    @staticmethod
+    def _drain_buffer(child: pexpect.spawn) -> None:
+        """Xóa dữ liệu thừa trong read buffer để tránh match nhầm ACK/marker cũ."""
+        while True:
+            try:
+                child.read_nonblocking(size=4096, timeout=0.01)
+            except (pexpect.TIMEOUT, pexpect.EOF):
+                break
+
     def _wait_ack_via_stream(
         self,
         child: pexpect.spawn,
@@ -450,7 +456,10 @@ class Benchmark:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 clean_dump = self._strip_ansi("".join(raw_parts))[-500:]
-                raise pexpect.TIMEOUT(f"Marker not received within {timeout_s:.1f}s: {marker!r}. Buffer end: {clean_dump!r}")
+                raise pexpect.TIMEOUT(
+                    f"Marker not received within {timeout_s:.1f}s: {marker!r}. "
+                    f"Buffer end: {clean_dump!r}"
+                )
 
             try:
                 chunk = child.read_nonblocking(
@@ -482,6 +491,8 @@ class Benchmark:
         sample_id: int,
         ack_prefix: str,
     ) -> Tuple[str, float]:
+        self._drain_buffer(child)
+
         token = self._token(protocol, trial_id, sample_id)
         ack_marker = ack_prefix + token
         echo_timeout = float(getattr(self.args, "echo_timeout", self.args.timeout))
@@ -501,29 +512,20 @@ class Benchmark:
         sample_id: int,
         cmd: str,
     ) -> Tuple[str, float]:
-        token = self._token(protocol, trial_id, sample_id)
         timeout_s = float(getattr(self.args, "echo_timeout", self.args.timeout))
 
-        # Clear buffer
-        while True:
-            try:
-                child.read_nonblocking(size=4096, timeout=0.01)
-            except (pexpect.TIMEOUT, pexpect.EOF):
-                break
+        child.sendline(cmd)
+        self._expect_literal(child, self.args.prompt, timeout=12)
 
-        # Clear screen + cursor-home before marker so Mosh MUST render a new frame
-        # containing only the marker, even when cmd produced large scrolling output.
-        # Adding 'sleep 0.2' forces Mosh Server to flush the 'ps aux' output state
-        # BEFORE it processes the marker, avoiding frame coalescing issues.
-        # We use a dynamic row (based on sample_id) to defeat Mosh's line-by-line diffing.
-        # If the marker is on a different line each time, Mosh MUST render the full string.
+        time.sleep(0.2)
+        self._drain_buffer(child)
+
+        token = self._token(protocol, trial_id, sample_id)
         row = (abs(sample_id) % 40) + 1
-        cmd_with_marker = f"{cmd}; sleep 0.2; printf '\\033[2J\\033[{row};1H__W1DONE__ {token}\\n'"
+        marker_cmd = f"printf '\\033[2J\\033[{row};1H__W1DONE__ {token}\\n'"
 
         t0 = time.perf_counter_ns()
-        child.sendline(cmd_with_marker)
-        
-        # Wait for the unique marker instead of generic prompt
+        child.sendline(marker_cmd)
         self._wait_marker_via_stream(child, f"__W1DONE__ {token}", timeout_s)
         t1 = time.perf_counter_ns()
 
@@ -549,9 +551,8 @@ class Benchmark:
 
                 if "command_latency" in self.args.metrics:
                     from constants import W1_COMMANDS
-                    # Warmup phase: run warmup_samples iterations, excluded from stats.
                     for i in range(1, self.args.warmup_samples + 1):
-                        sid = -i  # negative -> clearly warmup
+                        sid = -i
                         cmd = W1_COMMANDS[i % len(W1_COMMANDS)]
                         try:
                             tok, lat = self._measure_command_latency(
@@ -568,7 +569,6 @@ class Benchmark:
                                 raise
                             break
 
-                    # Measurement phase
                     for sid in range(1, self.args.samples_per_trial + 1):
                         cmd = W1_COMMANDS[sid % len(W1_COMMANDS)]
                         try:
@@ -588,7 +588,6 @@ class Benchmark:
 
                 if "line_echo" in self.args.metrics:
                     ack_prefix, bye_marker = self._start_helper(child, protocol, trial_id)
-                    # Warmup phase: negative sample_ids to avoid collision with real IDs.
                     for i in range(1, self.args.warmup_samples + 1):
                         sid = -i
                         try:
@@ -604,7 +603,6 @@ class Benchmark:
                                 raise
                             break
 
-                    # Measurement phase: sample_ids 1..samples_per_trial.
                     for sid in range(1, self.args.samples_per_trial + 1):
                         try:
                             tok, lat = self._measure_echo(child, protocol, trial_id, sid, ack_prefix)
@@ -657,7 +655,7 @@ class Benchmark:
         return 0
 
     def _summary_row(self, protocol: str, metric: str) -> SummaryRow:
-        data = self.results[protocol][metric]
+        data = self.results[protocol].get(metric, [])
         recorded_failures = sum(
             1
             for f in self.failures
@@ -665,6 +663,14 @@ class Benchmark:
         )
         n = len(data)
         budget = self._metric_budget(protocol, metric)
+        if protocol in self.protocol_skip_reasons:
+            return SummaryRow(
+                protocol, metric, 0, 0,
+                success_rate_pct=None,  
+                min_ms=None, mean_ms=None, median_ms=None, stdev_ms=None,
+                p95_ms=None, p99_ms=None, max_ms=None, ci95_half_width_ms=None,
+            )
+
         missing = max(0, budget - (n + recorded_failures))
         failures = recorded_failures + missing
         total = budget if budget > 0 else (n + failures)
@@ -676,7 +682,8 @@ class Benchmark:
         mean = statistics.mean(data)
         median = statistics.median(data)
         stdev = statistics.stdev(data) if n > 1 else 0.0
-        ci95 = 1.96 * stdev / math.sqrt(n) if n > 1 else 0.0
+        ci95: Optional[float] = (1.96 * stdev / math.sqrt(n)) if n > 1 else None
+
         return SummaryRow(
             protocol=protocol,
             metric=metric,
@@ -706,10 +713,11 @@ class Benchmark:
         )
         print("-" * w)
         fmt_ms = lambda v: f"{v:.2f}" if v is not None else "N/A"
+        fmt_pct = lambda v: f"{v:.1f}%" if v is not None else "SKIP"
         for row in self.summaries():
             print(
                 f"{row.protocol:<8} | {row.metric:<17} | {row.n:>5} | "
-                f"{row.failures:>5} | {row.success_rate_pct:>6.1f}% | "
+                f"{row.failures:>5} | {fmt_pct(row.success_rate_pct):>7} | "
                 f"{fmt_ms(row.min_ms):>8} | {fmt_ms(row.mean_ms):>8} | {fmt_ms(row.median_ms):>8} | "
                 f"{fmt_ms(row.stdev_ms):>8} | {fmt_ms(row.p95_ms):>8} | {fmt_ms(row.p99_ms):>8} | "
                 f"{fmt_ms(row.max_ms):>8} | {fmt_ms(row.ci95_half_width_ms):>8}"
@@ -755,19 +763,25 @@ class Benchmark:
                         "Time-to-usable-shell from pexpect.spawn() to a configured, ready shell."
                     ),
                     "command_latency_ms": (
-                        "Agent control-loop latency for running small shell commands: time from sending the command "
-                        "to receiving the prompt after command completion."
+                        "Terminal round-trip latency for a marker printf after the command has completed. "
+                        "The actual command runs BEFORE the timing window starts; sleep(0.2) for Mosh "
+                        "frame flush also happens outside the window. Only the marker RTT is measured."
                     ),
                     "line_echo_ms": (
                         "Application-level terminal RTT from sendline(token) to ACK receipt."
                     ),
                     "success_rate_pct_note": (
-                        "Fixed-budget denominator. Per-sample metrics (keystroke_latency/line_echo) use trials x samples_per_trial; "
-                        "session_setup uses trials. Missing observations are counted as non-success."
+                        "Fixed-budget denominator. Per-sample metrics (keystroke_latency/line_echo) use "
+                        "trials x samples_per_trial; session_setup uses trials. Missing observations are "
+                        "counted as non-success. NULL = protocol was skipped entirely."
                     ),
                     "stdev_ms_note": "Sample standard deviation (statistics.stdev, ddof=1).",
+                    "ci95_half_width_ms_note": (
+                        "NULL when n=1 (cannot compute meaningful CI from a single observation)."
+                    ),
                     "ping_rtt_ms": (
-                        "ICMP baseline covariate with optional source binding; not directly comparable to line_echo_ms."
+                        "ICMP baseline covariate with optional source binding; not directly comparable "
+                        "to line_echo_ms."
                     ),
                 },
                 "skipped_protocols": self.protocol_skip_reasons,
@@ -804,7 +818,7 @@ class Benchmark:
                     row.metric,
                     row.n,
                     row.failures,
-                    f"{row.success_rate_pct:.3f}",
+                    "" if row.success_rate_pct is None else f"{row.success_rate_pct:.3f}",
                     "" if row.min_ms is None else f"{row.min_ms:.6f}",
                     "" if row.mean_ms is None else f"{row.mean_ms:.6f}",
                     "" if row.median_ms is None else f"{row.median_ms:.6f}",
@@ -849,7 +863,7 @@ class Benchmark:
         random.seed(self.args.seed)
         protocols = list(self.args.protocols)
         if self.args.shuffle_protocols:
-            random.shuffle(protocols)
+            self._shuffle_rng.shuffle(protocols)
 
         if self.args.preflight:
             approved = []
