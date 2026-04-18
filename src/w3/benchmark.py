@@ -1,5 +1,53 @@
 from __future__ import annotations
 
+"""
+benchmark_submission_ready.py
+
+Submission-ready SSH/Mosh/SSH3 benchmark with paper-safe metric definitions.
+
+Primary reported metric:
+    control_step_latency_ms
+        Protocol-mediated latency of one observe->act step, excluding local
+        Python decision time. Formally:
+
+            control_step_latency_ms = obs_rtt_ms + act_rtt_ms
+
+        where:
+            obs_rtt_ms = t_obs_recv - t_obs_send
+            act_rtt_ms = t_act_recv - t_act_send
+
+        This is the fairest protocol-comparison metric because it excludes
+        client CPU time that is unrelated to SSH/Mosh/SSH3.
+
+Additional exported transparency metrics:
+    processing_overhead_ms
+        Local Python decision time between receiving the observation and
+        sending the action command:
+
+            processing_overhead_ms = t_act_send - t_obs_recv
+
+    control_step_wall_ms
+        Full wall-clock duration of the step:
+
+            control_step_wall_ms = t_act_recv - t_obs_send
+
+        Therefore:
+            control_step_wall_ms = control_step_latency_ms + processing_overhead_ms
+
+Other metrics:
+    line_echo_ms
+        Application-level terminal RTT from sendline(token) to ACK receipt from
+        the remote Python helper.
+
+    session_setup_ms
+        Time-to-usable-shell from pexpect.spawn() until the remote shell is
+        configured and ready for measurements.
+
+    ping_rtt_ms
+        ICMP baseline covariate measured once per trial before opening the
+        protocol session.
+"""
+
 import csv
 import json
 import math
@@ -12,16 +60,16 @@ import string
 import subprocess
 import sys
 import time
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 try:
     import pexpect
 except ImportError as exc:
     raise SystemExit(
-        "Missing dependency: pexpect.  Install with: pip install pexpect"
+        "Missing dependency: pexpect. Install with: pip install pexpect"
     ) from exc
 
 from constants import ANSI_NOISE
@@ -33,14 +81,61 @@ ANSI_STRIP_RE = re.compile(
     r"|\x1b[@-Z\\-_]"
     r"|[\r\n\x00\x08]"
 )
+ANSI_ONLY_RE = re.compile(
+    r"\x1b\[[0-?]*[ -/]*[@-~]"
+    r"|\x1b[@-Z\\-_]"
+)
+
+
+@dataclass
+class ControlStepRecord:
+    protocol: str
+    trial_id: int
+    sample_id: int
+    is_warmup: bool
+    token: str
+    t_obs_send_ns: int
+    t_obs_recv_ns: int
+    t_act_send_ns: int
+    t_act_recv_ns: int
+
+    @property
+    def obs_rtt_ms(self) -> float:
+        return (self.t_obs_recv_ns - self.t_obs_send_ns) / 1e6
+
+    @property
+    def processing_overhead_ms(self) -> float:
+        return (self.t_act_send_ns - self.t_obs_recv_ns) / 1e6
+
+    @property
+    def act_rtt_ms(self) -> float:
+        return (self.t_act_recv_ns - self.t_act_send_ns) / 1e6
+
+    @property
+    def control_step_latency_ms(self) -> float:
+        return self.obs_rtt_ms + self.act_rtt_ms
+
+    @property
+    def control_step_wall_ms(self) -> float:
+        return (self.t_act_recv_ns - self.t_obs_send_ns) / 1e6
 
 
 class Benchmark:
+    METRIC_ALIASES = {
+        "keystroke_latency": "control_step_latency",
+        "control_step_latency": "control_step_latency",
+        "line_echo": "line_echo",
+        "session_setup": "session_setup",
+    }
+
     def __init__(self, args: object) -> None:
         self.args = args
+        self.requested_metrics = list(args.metrics)
+        self.args.metrics = [self._canonical_metric_name(m) for m in args.metrics]
         self.target = f"{args.user}@{args.host}"
         self.started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
         self.records: List[SampleRecord] = []
+        self.control_step_records: List[ControlStepRecord] = []
         self.failures: List[FailureRecord] = []
         self.protocol_skip_reasons: Dict[str, str] = {}
         self.ping_rtts: Dict[str, List[Optional[float]]] = {p: [] for p in args.protocols}
@@ -50,6 +145,15 @@ class Benchmark:
             for protocol in args.protocols
         }
         self._pattern_cache: Dict[str, re.Pattern] = {}
+
+    @classmethod
+    def _canonical_metric_name(cls, metric: str) -> str:
+        return cls.METRIC_ALIASES.get(metric, metric)
+
+    @staticmethod
+    def _strip_ansi_keep_newlines(text: str) -> str:
+        clean = ANSI_ONLY_RE.sub("", text)
+        return clean.replace("\r", "").replace("\x00", "").replace("\x08", "")
 
     def _literal_pattern(self, literal: str) -> re.Pattern:
         pat = self._pattern_cache.get(literal)
@@ -289,18 +393,14 @@ class Benchmark:
         token: str,
         latency_ms: float,
     ) -> None:
-        if is_warmup:
-            return
-        # Guard: only write to results if metric was requested.
-        # Without this guard, calling _record_ok("session_setup", ...) when
-        # "session_setup" is not in args.metrics raises KeyError because
-        # self.results[protocol] is keyed only by args.metrics.
-        if metric not in self.results[protocol]:
-            return
-        self.results[protocol][metric].append(latency_ms)
         self.records.append(
             SampleRecord(protocol, metric, trial_id, sample_id, is_warmup, token, latency_ms)
         )
+        if is_warmup:
+            return
+        if metric not in self.results[protocol]:
+            return
+        self.results[protocol][metric].append(latency_ms)
 
     def _record_fail(
         self,
@@ -312,10 +412,6 @@ class Benchmark:
         exc: Exception,
         child: Optional[pexpect.spawn] = None,
     ) -> None:
-        # Guard: only record failures for metrics that were actually requested.
-        # Session setup failure is always recorded regardless (diagnostics),
-        # but per-sample failures for metrics outside args.metrics are silently
-        # dropped to keep failures.csv coherent.
         if metric != "session_setup" and metric not in self.results.get(protocol, {}):
             return
         extra = f" | {self._buf(child)}" if child is not None else ""
@@ -400,78 +496,74 @@ class Benchmark:
         self._expect_literal(child, "W3BACK", timeout=self.args.timeout)
         self._expect_literal(child, self.args.prompt, timeout=self.args.timeout)
 
+    def _wait_for_output_line(
+        self,
+        child: pexpect.spawn,
+        predicate: Callable[[str], bool],
+        timeout_s: float,
+        what: str,
+    ) -> str:
+        deadline = time.monotonic() + timeout_s
+        clean_buffer = ""
+        max_chars = 32768
+
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                tail = clean_buffer[-300:]
+                raise pexpect.TIMEOUT(
+                    f"{what} not received within {timeout_s:.1f}s. clean_tail={tail!r}"
+                )
+
+            try:
+                chunk = child.read_nonblocking(
+                    size=4096,
+                    timeout=min(0.5, max(0.05, remaining)),
+                )
+            except pexpect.TIMEOUT:
+                continue
+            except pexpect.EOF as exc:
+                raise SessionOpenError(f"EOF while waiting for {what}. {self._buf(child)}") from exc
+
+            if not chunk:
+                continue
+
+            clean_buffer += self._strip_ansi_keep_newlines(chunk)
+            if len(clean_buffer) > max_chars:
+                clean_buffer = clean_buffer[-max_chars:]
+
+            lines = clean_buffer.split("\n")
+            clean_buffer = lines.pop() if lines else ""
+            for line in lines:
+                candidate = line.strip()
+                if candidate and predicate(candidate):
+                    return candidate
+
     def _wait_ack_via_stream(
         self,
         child: pexpect.spawn,
         ack_marker: str,
         timeout_s: float,
     ) -> None:
-        deadline = time.monotonic() + timeout_s
-        raw_parts: List[str] = []
-        max_chars = 32768
-
-        while True:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                raise pexpect.TIMEOUT(f"ACK not received within {timeout_s:.1f}s: {ack_marker!r}")
-
-            try:
-                chunk = child.read_nonblocking(
-                    size=4096,
-                    timeout=min(0.5, max(0.05, remaining)),
-                )
-            except pexpect.TIMEOUT:
-                continue
-            except pexpect.EOF as exc:
-                raise SessionOpenError(f"EOF while waiting for ACK. {self._buf(child)}") from exc
-
-            if not chunk:
-                continue
-
-            raw_parts.append(chunk)
-            total = sum(len(x) for x in raw_parts)
-            if total > max_chars:
-                raw_parts = ["".join(raw_parts)[-max_chars:]]
-
-            if ack_marker in self._strip_ansi("".join(raw_parts)):
-                return
+        self._wait_for_output_line(
+            child,
+            predicate=lambda line: line == ack_marker,
+            timeout_s=timeout_s,
+            what=f"ACK {ack_marker!r}",
+        )
 
     def _wait_marker_via_stream(
         self,
         child: pexpect.spawn,
-        marker: str,
+        marker_prefix: str,
         timeout_s: float,
     ) -> str:
-        deadline = time.monotonic() + timeout_s
-        raw_parts: List[str] = []
-        max_chars = 32768
-
-        while True:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                raise pexpect.TIMEOUT(f"Marker not received within {timeout_s:.1f}s: {marker!r}")
-
-            try:
-                chunk = child.read_nonblocking(
-                    size=4096,
-                    timeout=min(0.5, max(0.05, remaining)),
-                )
-            except pexpect.TIMEOUT:
-                continue
-            except pexpect.EOF as exc:
-                raise SessionOpenError(f"EOF while waiting for marker. {self._buf(child)}") from exc
-
-            if not chunk:
-                continue
-
-            raw_parts.append(chunk)
-            total = sum(len(x) for x in raw_parts)
-            if total > max_chars:
-                raw_parts = ["".join(raw_parts)[-max_chars:]]
-
-            clean = self._strip_ansi("".join(raw_parts))
-            if marker in clean:
-                return clean
+        return self._wait_for_output_line(
+            child,
+            predicate=lambda line: line.startswith(marker_prefix),
+            timeout_s=timeout_s,
+            what=f"marker starting with {marker_prefix!r}",
+        )
 
     def _measure_echo(
         self,
@@ -492,23 +584,23 @@ class Benchmark:
 
         return token, (t1 - t0) / 1e6
 
-    def _measure_keystroke_latency(
+    def _measure_control_step_latency(
         self,
         child: pexpect.spawn,
         protocol: str,
         trial_id: int,
         sample_id: int,
         state: int,
-    ) -> Tuple[str, float, int]:
+    ) -> Tuple[str, float, int, ControlStepRecord]:
         token = self._token(protocol, trial_id, sample_id)
         timeout_s = float(getattr(self.args, "echo_timeout", self.args.timeout))
 
         obs_marker = f"__W3OBS__ {token} "
         cmd1 = f"printf '__W3OBS__ {token} %d\\n' $(({state}*3+7))"
-        t0 = time.perf_counter_ns()
+        t_obs_send = time.perf_counter_ns()
         child.sendline(cmd1)
         clean_obs = self._wait_marker_via_stream(child, obs_marker, timeout_s)
-        t1 = time.perf_counter_ns()
+        t_obs_recv = time.perf_counter_ns()
 
         m = re.search(rf"__W3OBS__\s+{re.escape(token)}\s+(-?\d+)", clean_obs)
         if not m:
@@ -524,14 +616,51 @@ class Benchmark:
 
         act_marker = f"__W3ACT__ {token} {action} {next_state}"
         cmd2 = f"printf '__W3ACT__ {token} {action} {next_state}\\n'"
-        t2 = time.perf_counter_ns()
+        t_act_send = time.perf_counter_ns()
         child.sendline(cmd2)
         self._wait_marker_via_stream(child, act_marker, timeout_s)
-        t3 = time.perf_counter_ns()
+        t_act_recv = time.perf_counter_ns()
 
-        lat1_ms = (t1 - t0) / 1e6
-        lat2_ms = (t3 - t2) / 1e6
-        return token, (lat1_ms + lat2_ms) / 2.0, next_state
+        csr = ControlStepRecord(
+            protocol=protocol,
+            trial_id=trial_id,
+            sample_id=sample_id,
+            is_warmup=False,
+            token=token,
+            t_obs_send_ns=t_obs_send,
+            t_obs_recv_ns=t_obs_recv,
+            t_act_send_ns=t_act_send,
+            t_act_recv_ns=t_act_recv,
+        )
+        return token, csr.control_step_latency_ms, next_state, csr
+
+    def _measure_keystroke_latency(
+        self,
+        child: pexpect.spawn,
+        protocol: str,
+        trial_id: int,
+        sample_id: int,
+        state: int,
+    ) -> Tuple[str, float, int, ControlStepRecord]:
+        return self._measure_control_step_latency(
+            child, protocol, trial_id, sample_id, state
+        )
+
+    def _reopen_trial_session(
+        self,
+        protocol: str,
+        child: Optional[pexpect.spawn],
+        trial_id: int,
+        need_echo_helper: bool,
+    ) -> Tuple[pexpect.spawn, Optional[str], Optional[str]]:
+        if child is not None:
+            self._safe_close(child)
+        reopened_child, _ = self._open_session(protocol)
+        ack_prefix: Optional[str] = None
+        bye_marker: Optional[str] = None
+        if need_echo_helper:
+            ack_prefix, bye_marker = self._start_helper(reopened_child, protocol, trial_id)
+        return reopened_child, ack_prefix, bye_marker
 
     def _run_protocol(self, protocol: str) -> None:
         for trial_id in range(1, self.args.trials + 1):
@@ -551,49 +680,60 @@ class Benchmark:
                 self._record_ok(protocol, "session_setup", trial_id, 1, False, "__W3_SETUP__", setup_ms)
                 print(f"[{protocol:>4}/setup      ] trial {trial_id:>2}:  OK  {setup_ms:.1f} ms")
 
-                if "keystroke_latency" in self.args.metrics:
-                    # Warmup phase: run warmup_samples iterations, excluded from stats.
-                    # sid for warmup uses negative range (-warmup_samples..-1) so that
-                    # sample_id values never collide with real measurement IDs (1..N)
-                    # in samples.csv, making CSV auditing unambiguous.
+                if "control_step_latency" in self.args.metrics:
                     agent_state = trial_id
                     for i in range(1, self.args.warmup_samples + 1):
-                        sid = -i  # negative → clearly warmup, never overlaps real IDs
+                        sid = -i
                         try:
-                            tok, lat, agent_state = self._measure_keystroke_latency(
+                            tok, lat, agent_state, csr = self._measure_control_step_latency(
                                 child, protocol, trial_id, sid, agent_state,
                             )
-                            self._record_ok(protocol, "keystroke_latency", trial_id, sid, True, tok, lat)
-                            print(f"[{protocol:>4}/key  warm {i:>3}/{self.args.warmup_samples}]  {lat:.2f} ms")
-                        except Exception as exc:
-                            self._record_fail(protocol, "keystroke_latency", trial_id, sid, True, exc, child)
+                            csr.is_warmup = True
+                            self.control_step_records.append(csr)
+                            self._record_ok(protocol, "control_step_latency", trial_id, sid, True, tok, lat)
                             print(
-                                f"[{protocol:>4}/key  warm {i:>3}     ]  FAIL  {type(exc).__name__}: {exc}"
+                                f"[{protocol:>4}/ctl  warm {i:>3}/{self.args.warmup_samples}]"
+                                f"  net={lat:.2f} ms"
+                                f"  (obs={csr.obs_rtt_ms:.2f} proc={csr.processing_overhead_ms:.2f} act={csr.act_rtt_ms:.2f} wall={csr.control_step_wall_ms:.2f})"
+                            )
+                        except Exception as exc:
+                            self._record_fail(protocol, "control_step_latency", trial_id, sid, True, exc, child)
+                            print(
+                                f"[{protocol:>4}/ctl  warm {i:>3}     ]  FAIL  {type(exc).__name__}: {exc}"
                             )
                             if not self.args.reopen_on_failure:
                                 raise
-                            break
+                            child, _, _ = self._reopen_trial_session(
+                                protocol, child, trial_id, need_echo_helper=False
+                            )
+                            continue
 
-                    # Measurement phase: sample_ids 1..samples_per_trial, included in stats.
                     for sid in range(1, self.args.samples_per_trial + 1):
                         try:
-                            tok, lat, agent_state = self._measure_keystroke_latency(
+                            tok, lat, agent_state, csr = self._measure_control_step_latency(
                                 child, protocol, trial_id, sid, agent_state,
                             )
-                            self._record_ok(protocol, "keystroke_latency", trial_id, sid, False, tok, lat)
-                            print(f"[{protocol:>4}/key  meas {sid:>3}/{self.args.samples_per_trial}]  {lat:.2f} ms")
-                        except Exception as exc:
-                            self._record_fail(protocol, "keystroke_latency", trial_id, sid, False, exc, child)
+                            self.control_step_records.append(csr)
+                            self._record_ok(protocol, "control_step_latency", trial_id, sid, False, tok, lat)
                             print(
-                                f"[{protocol:>4}/key  meas {sid:>3}     ]  FAIL  {type(exc).__name__}: {exc}"
+                                f"[{protocol:>4}/ctl  meas {sid:>3}/{self.args.samples_per_trial}]"
+                                f"  net={lat:.2f} ms"
+                                f"  (obs={csr.obs_rtt_ms:.2f} proc={csr.processing_overhead_ms:.2f} act={csr.act_rtt_ms:.2f} wall={csr.control_step_wall_ms:.2f})"
+                            )
+                        except Exception as exc:
+                            self._record_fail(protocol, "control_step_latency", trial_id, sid, False, exc, child)
+                            print(
+                                f"[{protocol:>4}/ctl  meas {sid:>3}     ]  FAIL  {type(exc).__name__}: {exc}"
                             )
                             if not self.args.reopen_on_failure:
                                 raise
-                            break
+                            child, _, _ = self._reopen_trial_session(
+                                protocol, child, trial_id, need_echo_helper=False
+                            )
+                            continue
 
                 if "line_echo" in self.args.metrics:
                     ack_prefix, bye_marker = self._start_helper(child, protocol, trial_id)
-                    # Warmup phase: negative sample_ids to avoid collision with real IDs.
                     for i in range(1, self.args.warmup_samples + 1):
                         sid = -i
                         try:
@@ -607,9 +747,11 @@ class Benchmark:
                             )
                             if not self.args.reopen_on_failure:
                                 raise
-                            break
+                            child, ack_prefix, bye_marker = self._reopen_trial_session(
+                                protocol, child, trial_id, need_echo_helper=True
+                            )
+                            continue
 
-                    # Measurement phase: sample_ids 1..samples_per_trial.
                     for sid in range(1, self.args.samples_per_trial + 1):
                         try:
                             tok, lat = self._measure_echo(child, protocol, trial_id, sid, ack_prefix)
@@ -622,7 +764,10 @@ class Benchmark:
                             )
                             if not self.args.reopen_on_failure:
                                 raise
-                            break
+                            child, ack_prefix, bye_marker = self._reopen_trial_session(
+                                protocol, child, trial_id, need_echo_helper=True
+                            )
+                            continue
 
             except Exception as exc:
                 if not setup_ok:
@@ -655,7 +800,7 @@ class Benchmark:
     def _metric_budget(self, protocol: str, metric: str) -> int:
         if protocol in self.protocol_skip_reasons:
             return 0
-        if metric in {"line_echo", "keystroke_latency"}:
+        if metric in {"line_echo", "control_step_latency"}:
             return self.args.trials * self.args.samples_per_trial
         if metric == "session_setup":
             return self.args.trials
@@ -701,13 +846,33 @@ class Benchmark:
     def summaries(self) -> List[SummaryRow]:
         return [self._summary_row(p, m) for p in self.args.protocols for m in self.args.metrics]
 
+    def _processing_overhead_stats(self) -> Dict[str, Dict[str, float]]:
+        by_proto: Dict[str, List[float]] = {}
+        for csr in self.control_step_records:
+            if csr.is_warmup:
+                continue
+            by_proto.setdefault(csr.protocol, []).append(csr.processing_overhead_ms)
+
+        out: Dict[str, Dict[str, float]] = {}
+        for proto, vals in by_proto.items():
+            if not vals:
+                continue
+            out[proto] = {
+                "n": len(vals),
+                "mean_ms": statistics.mean(vals),
+                "median_ms": statistics.median(vals),
+                "max_ms": max(vals),
+                "p99_ms": self._pct(vals, 99) or 0.0,
+            }
+        return out
+
     def print_report(self) -> None:
         w = 150
         print("\n" + "=" * w)
         print(
             f"{'Protocol':<8} | {'Metric':<17} | {'N':>5} | {'Fail':>5} | "
             f"{'OK%':>6} | {'Min':>8} | {'Mean':>8} | {'Median':>8} | "
-            f"{'Std':>8} | {'P95':>8} | {'P99':>8} | {'Max':>8} | {'CI95±':>9}"
+            f"{'Std':>8} | {'P95':>8} | {'P99':>8} | {'Max':>8} | {'CI95+-':>9}"
         )
         print("-" * w)
         fmt_ms = lambda v: f"{v:.2f}" if v is not None else "N/A"
@@ -720,6 +885,14 @@ class Benchmark:
                 f"{fmt_ms(row.max_ms):>8} | {fmt_ms(row.ci95_half_width_ms):>8}"
             )
         print("=" * w)
+        proc = self._processing_overhead_stats()
+        if proc:
+            print("\nProcessing overhead (excluded from control_step_latency_ms):")
+            for proto, s in proc.items():
+                print(
+                    f"  {proto}: mean={s['mean_ms']:.3f} ms  median={s['median_ms']:.3f} ms"
+                    f"  p99={s['p99_ms']:.3f} ms  max={s['max_ms']:.3f} ms  (n={int(s['n'])})"
+                )
         if self.protocol_skip_reasons:
             print("\nSkipped protocols:")
             for p, reason in self.protocol_skip_reasons.items():
@@ -735,7 +908,9 @@ class Benchmark:
                 "target": self.target,
                 "client_source_ip": self.args.source_ip,
                 "protocols": self.args.protocols,
+                "requested_metrics": self.requested_metrics,
                 "metrics": self.args.metrics,
+                "metric_aliases": self.METRIC_ALIASES,
                 "trials": self.args.trials,
                 "samples_per_trial": self.args.samples_per_trial,
                 "warmup_samples": self.args.warmup_samples,
@@ -757,24 +932,39 @@ class Benchmark:
                 "remote_system": asdict(self.remote_meta),
                 "metric_notes": {
                     "session_setup_ms": (
-                        "Time-to-usable-shell from pexpect.spawn() to a configured, ready shell."
+                        "Time-to-usable-shell from pexpect.spawn() until the remote shell is fully configured and ready. "
+                        "This includes setup commands after login; it is not a pure transport handshake metric."
+                    ),
+                    "control_step_latency_ms": (
+                        "Primary protocol-comparison metric. Defined as obs_rtt_ms + act_rtt_ms, excluding local Python decision time. "
+                        "Equivalent to (t_obs_recv - t_obs_send) + (t_act_recv - t_act_send)."
+                    ),
+                    "control_step_wall_ms": (
+                        "Full wall-clock duration of a control step, including local decision time. "
+                        "Equivalent to t_act_recv - t_obs_send. Exported in control_step_details.csv for transparency, not used as the primary protocol metric."
+                    ),
+                    "processing_overhead_ms": (
+                        "Local client-side decision time between receiving the observation and sending the action command. "
+                        "Equivalent to t_act_send - t_obs_recv. Excluded from control_step_latency_ms because it reflects local CPU/runtime overhead rather than the protocol under test."
                     ),
                     "keystroke_latency_ms": (
-                        "Agent control-loop keystroke latency: send command, receive output, analyze output, send next command. "
-                        "Reported value is mean of the two command round-trips in one loop step."
+                        "Backward-compatible alias for control_step_latency_ms. Prefer control_step_latency_ms in papers, plots, and tables."
                     ),
                     "line_echo_ms": (
-                        "Application-level terminal RTT from sendline(token) to ACK receipt."
+                        "Application-level terminal RTT from sendline(token) to ACK receipt from the remote helper process. "
+                        "This includes remote helper I/O overhead and should not be described as pixel-level or per-keystroke latency."
                     ),
                     "success_rate_pct_note": (
-                        "Fixed-budget denominator. Per-sample metrics (keystroke_latency/line_echo) use trials x samples_per_trial; "
-                        "session_setup uses trials. Missing observations are counted as non-success."
+                        "Fixed-budget denominator. Per-sample metrics use trials x samples_per_trial; session_setup uses trials. Missing observations count as failures."
                     ),
-                    "stdev_ms_note": "Sample standard deviation (statistics.stdev, ddof=1).",
+                    "stdev_ms_note": "Sample standard deviation using statistics.stdev with ddof=1 semantics.",
+                    "ci95_note": "95% CI half-width computed as 1.96 x stdev / sqrt(n).",
+                    "percentile_method": "Linear interpolation percentile based on sorted samples.",
                     "ping_rtt_ms": (
-                        "ICMP baseline covariate with optional source binding; not directly comparable to line_echo_ms."
+                        "ICMP baseline covariate measured once per trial before opening the session. It is not directly comparable to application-layer RTTs."
                     ),
                 },
+                "processing_overhead_summary": self._processing_overhead_stats(),
                 "skipped_protocols": self.protocol_skip_reasons,
             },
             "summary": [asdict(r) for r in self.summaries()],
@@ -828,6 +1018,43 @@ class Benchmark:
             for r in self.records:
                 w.writerow([r.protocol, r.metric, r.trial_id, r.sample_id, r.is_warmup, r.token, f"{r.latency_ms:.6f}"])
 
+        dpath = out / "control_step_details.csv"
+        with dpath.open("w", newline="", encoding="utf-8") as f:
+            w = csv.writer(f)
+            w.writerow([
+                "protocol",
+                "trial_id",
+                "sample_id",
+                "is_warmup",
+                "token",
+                "obs_rtt_ms",
+                "processing_overhead_ms",
+                "act_rtt_ms",
+                "control_step_latency_ms",
+                "control_step_wall_ms",
+                "t_obs_send_ns",
+                "t_obs_recv_ns",
+                "t_act_send_ns",
+                "t_act_recv_ns",
+            ])
+            for csr in self.control_step_records:
+                w.writerow([
+                    csr.protocol,
+                    csr.trial_id,
+                    csr.sample_id,
+                    csr.is_warmup,
+                    csr.token,
+                    f"{csr.obs_rtt_ms:.6f}",
+                    f"{csr.processing_overhead_ms:.6f}",
+                    f"{csr.act_rtt_ms:.6f}",
+                    f"{csr.control_step_latency_ms:.6f}",
+                    f"{csr.control_step_wall_ms:.6f}",
+                    csr.t_obs_send_ns,
+                    csr.t_obs_recv_ns,
+                    csr.t_act_send_ns,
+                    csr.t_act_recv_ns,
+                ])
+
         fpath = out / "failures.csv"
         with fpath.open("w", newline="", encoding="utf-8") as f:
             w = csv.writer(f)
@@ -844,11 +1071,12 @@ class Benchmark:
                     w.writerow([proto, i, f"{rtt:.3f}" if rtt is not None else ""])
 
         print(f"\nOutputs written to {out}/")
-        print("  summary.json  - metadata + per-protocol statistics")
-        print("  summary.csv   - consolidated protocol/metric comparison table")
-        print("  samples.csv   - every raw measurement")
-        print("  failures.csv  - every failure with context")
-        print("  ping_rtts.csv - ICMP network-layer covariate per trial")
+        print("  summary.json              - metadata + per-protocol statistics")
+        print("  summary.csv               - consolidated protocol/metric comparison table")
+        print("  samples.csv               - every primary raw measurement")
+        print("  control_step_details.csv  - obs/proc/act/wall breakdown per control step")
+        print("  failures.csv              - every failure with context")
+        print("  ping_rtts.csv             - ICMP network-layer covariate per trial")
 
     def run(self) -> None:
         random.seed(self.args.seed)
