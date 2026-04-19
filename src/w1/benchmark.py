@@ -466,22 +466,19 @@ class Benchmark:
         cmd: str,
     ) -> Tuple[str, float]:
         timeout_s = float(getattr(self.args, "echo_timeout", self.args.timeout))
+
+        # Mosh can visually coalesce or redraw command-output text markers in the
+        # PTY stream even when the foreground command has completed correctly.
+        # For interactive-shell command completion, the most reliable completion
+        # signal is the unique shell prompt returning.
         self._drain_buffer(child)
-
         token = self._token(protocol, trial_id, sample_id)
-        marker = f"__W1DONE__{token}__END__"
-
-        # Send the workload command and the completion marker as one shell line.
-        # This measures actual command completion latency and avoids the older
-        # flaky design that emitted a separate clear-screen printf afterward.
-        compound_cmd = f"{cmd}; printf '\\r\\n{marker}\\r\\n'"
 
         t0 = time.perf_counter_ns()
-        child.sendline(compound_cmd)
-        self._wait_clean_substring(child, marker, timeout_s, "marker")
+        child.sendline(cmd)
+        self._expect_literal(child, self.args.prompt, timeout=timeout_s)
         t1 = time.perf_counter_ns()
         return token, (t1 - t0) / 1e6
-
     def _run_protocol(self, protocol: str) -> None:
         for trial_id in range(1, self.args.trials + 1):
             rtt = self._ping_rtt_ms()
@@ -698,10 +695,10 @@ class Benchmark:
                         "Time-to-usable-shell from pexpect.spawn() to a configured, ready shell."
                     ),
                     "command_latency_ms": (
-                        "Time from sending a shell command until a plain-text completion marker, "
-                        "appended on the same shell line, is observed in the PTY stream. This "
-                        "captures command completion latency plus terminal transport/flush time "
-                        "without relying on cursor-move or screen-clear control sequences."
+                        "Time from sending a foreground shell command until the configured unique "
+                        "shell prompt returns. This avoids fragile text-marker matching under Mosh "
+                        "redraw/coalescing while preserving the intended command-completion metric "
+                        "for interactive shell workloads."
                     ),
                     "line_echo_ms": (
                         "Application-level terminal RTT from sendline(token) to ACK receipt."
