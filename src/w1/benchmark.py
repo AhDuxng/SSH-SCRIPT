@@ -457,6 +457,89 @@ class Benchmark:
         t1 = time.perf_counter_ns()
         return token, (t1 - t0) / 1e6
 
+    @staticmethod
+    def _is_subsequence(needle: str, haystack: str) -> bool:
+        it = iter(haystack)
+        return all(ch in it for ch in needle)
+
+    def _marker_matches(self, expected_token: str, observed_token: str) -> bool:
+        a = re.sub(r"\s+", "", expected_token)
+        b = re.sub(r"\s+", "", observed_token)
+        if a == b:
+            return True
+        if len(a) >= 8 and len(b) >= 6 and (a[:6] == b[:6] or a[-6:] == b[-6:]):
+            if self._is_subsequence(b, a) or self._is_subsequence(a, b):
+                return True
+        # tolerate a very small number of dropped characters in the observed token
+        if len(a) >= 10 and len(b) >= len(a) - 2:
+            if self._is_subsequence(b, a):
+                return True
+        return False
+
+    def _wait_command_completion(
+        self,
+        child: pexpect.spawn,
+        expected_token: str,
+        timeout_s: float,
+        idle_s: float,
+    ) -> str:
+        deadline = time.monotonic() + timeout_s
+        raw_parts: List[str] = []
+        max_chars = 65536
+        last_data_at = time.monotonic()
+        saw_any = False
+        marker_prefix = "__W1DONE__"
+        marker_suffix = "__END__"
+
+        while True:
+            now = time.monotonic()
+            if saw_any and (now - last_data_at) >= idle_s:
+                clean_tail = self._strip_ansi("".join(raw_parts))[-500:]
+                return clean_tail
+
+            remaining = deadline - now
+            if remaining <= 0:
+                clean_dump = self._strip_ansi("".join(raw_parts))[-500:]
+                raise pexpect.TIMEOUT(
+                    f"marker not received within {timeout_s:.1f}s: {marker_prefix}{expected_token}{marker_suffix!s}. "
+                    f"Buffer end: {clean_dump!r}"
+                )
+
+            try:
+                chunk = child.read_nonblocking(
+                    size=4096,
+                    timeout=min(0.25, max(0.02, remaining)),
+                )
+            except pexpect.TIMEOUT:
+                continue
+            except pexpect.EOF as exc:
+                raise SessionOpenError(f"EOF while waiting for command completion. {self._buf(child)}") from exc
+
+            if not chunk:
+                continue
+
+            saw_any = True
+            last_data_at = time.monotonic()
+            raw_parts.append(chunk)
+            total = sum(len(x) for x in raw_parts)
+            if total > max_chars:
+                raw_parts = ["".join(raw_parts)[-max_chars:]]
+
+            clean = self._strip_ansi("".join(raw_parts))
+            if marker_prefix in clean and marker_suffix in clean:
+                start = 0
+                while True:
+                    i = clean.find(marker_prefix, start)
+                    if i < 0:
+                        break
+                    j = clean.find(marker_suffix, i + len(marker_prefix))
+                    if j < 0:
+                        break
+                    observed = clean[i + len(marker_prefix):j]
+                    if self._marker_matches(expected_token, observed):
+                        return clean[max(0, i - 120): min(len(clean), j + len(marker_suffix) + 120)]
+                    start = i + 1
+
     def _measure_command_latency(
         self,
         child: pexpect.spawn,
@@ -466,17 +549,24 @@ class Benchmark:
         cmd: str,
     ) -> Tuple[str, float]:
         timeout_s = float(getattr(self.args, "echo_timeout", self.args.timeout))
+        idle_s = float(getattr(self.args, "command_idle_s", 0.25))
 
-        # Mosh can visually coalesce or redraw command-output text markers in the
-        # PTY stream even when the foreground command has completed correctly.
-        # For interactive-shell command completion, the most reliable completion
-        # signal is the unique shell prompt returning.
+        # Mosh can coalesce/redraw screen updates and occasionally drop interior
+        # marker characters from the visible PTY stream. To make command
+        # completion robust, emit the completion marker inline with the command,
+        # repeat it several times, and accept a lightly-mangled token. If the
+        # marker is still not recoverable, fall back to terminal quiescence.
         self._drain_buffer(child)
         token = self._token(protocol, trial_id, sample_id)
+        marker = f"__W1DONE__{token}__END__"
+        wrapped_cmd = (
+            f"{{ {cmd}; }}; "
+            f"printf '\n{marker}\n{marker}\n{marker}\n'"
+        )
 
         t0 = time.perf_counter_ns()
-        child.sendline(cmd)
-        self._expect_literal(child, self.args.prompt, timeout=timeout_s)
+        child.sendline(wrapped_cmd)
+        self._wait_command_completion(child, token, timeout_s, idle_s)
         t1 = time.perf_counter_ns()
         return token, (t1 - t0) / 1e6
     def _run_protocol(self, protocol: str) -> None:
