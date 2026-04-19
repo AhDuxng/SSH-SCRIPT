@@ -723,13 +723,38 @@ class Benchmark:
     def _wait_exact_line(
         self, child: pexpect.spawn, expected: str, timeout_s: float
     ) -> None:
-        """Wait for a line that contains `expected` (bypasses Mosh redraw concatenations)."""
-        self._wait_for_output_line(
-            child,
-            predicate=lambda line: expected in line,
-            timeout_s=timeout_s,
-            what=f"exact line {expected!r}",
-        )
+        deadline = time.monotonic() + timeout_s
+        while True:
+            state = self._stream_reader_state(child)
+            matched = self._pop_matching_stream_line(child, lambda line: expected in line)
+            if matched is not None:
+                return
+            if expected in str(state.get("partial", "")):
+                return
+            
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                tail = self._stream_tail(child)
+                raise pexpect.TIMEOUT(
+                    f"exact line {expected!r} not received within {timeout_s:.1f}s. "
+                    f"clean_tail={tail!r}"
+                )
+
+            try:
+                chunk = child.read_nonblocking(
+                    size=4096,
+                    timeout=min(0.5, max(0.05, remaining)),
+                )
+            except pexpect.TIMEOUT:
+                continue
+            except pexpect.EOF as exc:
+                raise SessionOpenError(
+                    f"EOF while waiting for {expected!r}. {self._buf(child)}"
+                ) from exc
+
+            if not chunk:
+                continue
+            self._enqueue_stream_chunk(child, chunk)
 
     def _wait_line_prefix(
         self, child: pexpect.spawn, prefix: str, timeout_s: float
