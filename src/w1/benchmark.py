@@ -21,10 +21,10 @@ try:
     import pexpect
 except ImportError as exc:
     raise SystemExit(
-        "Missing dependency: pexpect.  Install with: pip install pexpect"
+        "Missing dependency: pexpect. Install with: pip install pexpect"
     ) from exc
 
-from constants import ANSI_NOISE
+from constants import ANSI_NOISE, W1_COMMANDS
 from exceptions import PreflightError, SessionOpenError
 from models import FailureRecord, RemoteMeta, SampleRecord, SummaryRow
 
@@ -45,16 +45,14 @@ class Benchmark:
         self.protocol_skip_reasons: Dict[str, str] = {}
         self.ping_rtts: Dict[str, List[Optional[float]]] = {p: [] for p in args.protocols}
         self.remote_meta = RemoteMeta()
-
-        _all_tracked = list(args.metrics) + (
-            ["session_setup"] if "session_setup" not in args.metrics else []
-        )
+        tracked = list(args.metrics)
+        if "session_setup" not in tracked:
+            tracked.append("session_setup")
         self.results: Dict[str, Dict[str, List[float]]] = {
-            protocol: {metric: [] for metric in _all_tracked}
+            protocol: {metric: [] for metric in tracked}
             for protocol in args.protocols
         }
         self._pattern_cache: Dict[str, re.Pattern] = {}
-
         self._rng = random.Random(args.seed)
 
     def _literal_pattern(self, literal: str) -> re.Pattern:
@@ -86,9 +84,9 @@ class Benchmark:
         return f"raw={raw!r} clean={clean!r}"
 
     def _token(self, protocol: str, trial_id: int, sample_id: int) -> str:
-        # FIX-2: use self._rng instead of the global random module.
         rand = "".join(self._rng.choices(string.ascii_uppercase + string.digits, k=6))
-        return f"W3T{protocol[:2].upper()}{trial_id:03d}{sample_id:04d}{rand}Z"
+        sid_tag = f"N{abs(sample_id):03d}" if sample_id < 0 else f"P{sample_id:04d}"
+        return f"W1T{protocol[:2].upper()}{trial_id:03d}{sid_tag}{rand}Z"
 
     def _ping_rtt_ms(self) -> Optional[float]:
         cmd = ["ping", "-c", "1", "-W", "3"]
@@ -96,12 +94,7 @@ class Benchmark:
             cmd += ["-I", self.args.source_ip]
         cmd.append(self.args.host)
         try:
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
             for line in result.stdout.splitlines():
                 if "time=" in line:
                     for part in line.split():
@@ -198,7 +191,6 @@ class Benchmark:
         while time.monotonic() < deadline:
             remaining = max(1.0, deadline - time.monotonic())
             idx = child.expect(self._SHELL_READY_PATTERNS, timeout=remaining)
-
             if idx == 0:
                 child.sendline("yes")
                 continue
@@ -218,10 +210,10 @@ class Benchmark:
             if idx == 14:
                 raise SessionOpenError(f"Timeout waiting for shell. {self._buf(child)}")
 
-            child.sendline("printf '__W3PROBE__\\n'")
+            child.sendline("printf '__W1PROBE__\\n'")
             probe = child.expect(
                 [
-                    self._literal_pattern("__W3PROBE__"),
+                    self._literal_pattern("__W1PROBE__"),
                     r"\[Pp\]assword:",
                     "Permission denied",
                     pexpect.EOF,
@@ -246,7 +238,7 @@ class Benchmark:
         child = self._spawn(protocol)
         try:
             self._await_shell(child)
-            setup_marker = "__W3SETUP__"
+            setup_marker = "__W1SETUP__"
             child.sendline(
                 "unset PROMPT_COMMAND 2>/dev/null || true; "
                 "bind 'set enable-bracketed-paste off' 2>/dev/null || true; "
@@ -296,13 +288,12 @@ class Benchmark:
         token: str,
         latency_ms: float,
     ) -> None:
-        
         self.records.append(
             SampleRecord(protocol, metric, trial_id, sample_id, is_warmup, token, latency_ms)
         )
         if is_warmup:
             return
-        if metric not in self.results[protocol]:
+        if metric not in self.results.get(protocol, {}):
             return
         self.results[protocol][metric].append(latency_ms)
 
@@ -352,10 +343,10 @@ class Benchmark:
         child, _ = self._open_session(protocol)
         try:
             child.sendline(
-                "command -v python3 >/dev/null 2>&1 && printf '__W3HAS_PY3__\\n' || printf '__W3NO_PY3__\\n'"
+                "command -v python3 >/dev/null 2>&1 && printf '__W1HAS_PY3__\\n' || printf '__W1NO_PY3__\\n'"
             )
             idx = child.expect(
-                [self._literal_pattern("__W3HAS_PY3__"), self._literal_pattern("__W3NO_PY3__")],
+                [self._literal_pattern("__W1HAS_PY3__"), self._literal_pattern("__W1NO_PY3__")],
                 timeout=self.args.timeout,
             )
             self._expect_literal(child, self.args.prompt)
@@ -367,26 +358,26 @@ class Benchmark:
             self._close_session(child)
 
     def _start_helper(self, child: pexpect.spawn, protocol: str, trial_id: int) -> Tuple[str, str]:
-        ready = f"W3RDY{protocol[:2].upper()}{trial_id:03d}Z"
-        ack = f"W3ACK{protocol[:2].upper()}{trial_id:03d}A"
-        bye = f"W3BYE{protocol[:2].upper()}{trial_id:03d}Z"
+        ready = f"W1RDY{protocol[:2].upper()}{trial_id:03d}Z"
+        ack = f"W1ACK{protocol[:2].upper()}{trial_id:03d}A"
+        bye = f"W1BYE{protocol[:2].upper()}{trial_id:03d}Z"
         helper = (
             "import os,sys\n"
-            "rdy=os.environ['W3R']\n"
-            "ack=os.environ['W3A']\n"
-            "bye=os.environ['W3B']\n"
+            "rdy=os.environ['W1R']\n"
+            "ack=os.environ['W1A']\n"
+            "bye=os.environ['W1B']\n"
             "print(rdy,flush=True)\n"
             "for ln in sys.stdin:\n"
             "    ln=ln.rstrip('\\n')\n"
-            "    if ln=='W3EXIT':\n"
+            "    if ln=='W1EXIT':\n"
             "        print(bye,flush=True)\n"
             "        break\n"
             "    print(ack+ln,flush=True)\n"
         )
         cmd = (
-            f"W3R={shlex.quote(ready)} "
-            f"W3A={shlex.quote(ack)} "
-            f"W3B={shlex.quote(bye)} "
+            f"W1R={shlex.quote(ready)} "
+            f"W1A={shlex.quote(ack)} "
+            f"W1B={shlex.quote(bye)} "
             f"python3 -u -c {shlex.quote(helper)}"
         )
         child.sendline(cmd)
@@ -394,82 +385,38 @@ class Benchmark:
         return ack, bye
 
     def _stop_helper(self, child: pexpect.spawn, bye: str) -> None:
-        child.sendline("W3EXIT")
+        child.sendline("W1EXIT")
         self._expect_literal(child, bye, timeout=self.args.timeout)
-        child.sendline("printf 'W3BACK\\n'")
-        self._expect_literal(child, "W3BACK", timeout=self.args.timeout)
+        child.sendline("printf 'W1BACK\\n'")
+        self._expect_literal(child, "W1BACK", timeout=self.args.timeout)
         self._expect_literal(child, self.args.prompt, timeout=self.args.timeout)
 
     @staticmethod
     def _drain_buffer(child: pexpect.spawn) -> None:
-        """Xóa dữ liệu thừa trong read buffer để tránh match nhầm ACK/marker cũ."""
         while True:
             try:
                 child.read_nonblocking(size=4096, timeout=0.01)
             except (pexpect.TIMEOUT, pexpect.EOF):
                 break
 
-    def _wait_ack_via_stream(
+    def _wait_clean_substring(
         self,
         child: pexpect.spawn,
-        ack_marker: str,
+        needle: str,
         timeout_s: float,
-    ) -> None:
-        deadline = time.monotonic() + timeout_s
-        raw_parts: List[str] = []
-        max_chars = 32768
-
-        while True:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                raise pexpect.TIMEOUT(f"ACK not received within {timeout_s:.1f}s: {ack_marker!r}")
-
-            try:
-                chunk = child.read_nonblocking(
-                    size=4096,
-                    timeout=min(0.5, max(0.05, remaining)),
-                )
-            except pexpect.TIMEOUT:
-                continue
-            except pexpect.EOF as exc:
-                raise SessionOpenError(f"EOF while waiting for ACK. {self._buf(child)}") from exc
-
-            if not chunk:
-                continue
-
-            raw_parts.append(chunk)
-            total = sum(len(x) for x in raw_parts)
-            if total > max_chars:
-                raw_parts = ["".join(raw_parts)[-max_chars:]]
-
-            if ack_marker in self._strip_ansi("".join(raw_parts)):
-                return
-
-    def _wait_marker_via_stream(
-        self,
-        child: pexpect.spawn,
-        marker: str,
-        timeout_s: float,
+        what: str,
     ) -> str:
-        """Wait until a line containing `marker` appears and return that line only.
-
-        FIX-4: Previously returned the entire accumulated buffer, which could
-        cause callers to regex-match against stale tokens from earlier samples.
-        Now returns only the specific line that contains the marker.
-        """
         deadline = time.monotonic() + timeout_s
         raw_parts: List[str] = []
         max_chars = 32768
-
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 clean_dump = self._strip_ansi("".join(raw_parts))[-500:]
                 raise pexpect.TIMEOUT(
-                    f"Marker not received within {timeout_s:.1f}s: {marker!r}. "
+                    f"{what} not received within {timeout_s:.1f}s: {needle!r}. "
                     f"Buffer end: {clean_dump!r}"
                 )
-
             try:
                 chunk = child.read_nonblocking(
                     size=4096,
@@ -478,7 +425,7 @@ class Benchmark:
             except pexpect.TIMEOUT:
                 continue
             except pexpect.EOF as exc:
-                raise SessionOpenError(f"EOF while waiting for marker. {self._buf(child)}") from exc
+                raise SessionOpenError(f"EOF while waiting for {what}. {self._buf(child)}") from exc
 
             if not chunk:
                 continue
@@ -489,14 +436,8 @@ class Benchmark:
                 raw_parts = ["".join(raw_parts)[-max_chars:]]
 
             clean = self._strip_ansi("".join(raw_parts))
-            # FIX-4: search line-by-line so we return only the matching line,
-            # not the entire buffer (avoids stale-token false-positives).
-            for line in clean.splitlines():
-                if marker in line:
-                    return line
-
-        # unreachable — timeout branch raises above
-        raise AssertionError("unreachable")
+            if needle in clean:
+                return clean[-500:]
 
     def _measure_echo(
         self,
@@ -507,16 +448,13 @@ class Benchmark:
         ack_prefix: str,
     ) -> Tuple[str, float]:
         self._drain_buffer(child)
-
         token = self._token(protocol, trial_id, sample_id)
         ack_marker = ack_prefix + token
-        echo_timeout = float(getattr(self.args, "echo_timeout", self.args.timeout))
-
+        timeout_s = float(getattr(self.args, "echo_timeout", self.args.timeout))
         t0 = time.perf_counter_ns()
         child.sendline(token)
-        self._wait_ack_via_stream(child, ack_marker, echo_timeout)
+        self._wait_clean_substring(child, ack_marker, timeout_s, "ACK")
         t1 = time.perf_counter_ns()
-
         return token, (t1 - t0) / 1e6
 
     def _measure_command_latency(
@@ -528,22 +466,20 @@ class Benchmark:
         cmd: str,
     ) -> Tuple[str, float]:
         timeout_s = float(getattr(self.args, "echo_timeout", self.args.timeout))
-
-        child.sendline(cmd)
-        self._expect_literal(child, self.args.prompt, timeout=12)
-
-        time.sleep(0.2)
         self._drain_buffer(child)
 
         token = self._token(protocol, trial_id, sample_id)
-        row = (abs(sample_id) % 40) + 1
-        marker_cmd = f"printf '\\033[2J\\033[{row};1H__W1DONE__ {token}\\n'"
+        marker = f"__W1DONE__{token}__END__"
+
+        # Send the workload command and the completion marker as one shell line.
+        # This measures actual command completion latency and avoids the older
+        # flaky design that emitted a separate clear-screen printf afterward.
+        compound_cmd = f"{cmd}; printf '\\r\\n{marker}\\r\\n'"
 
         t0 = time.perf_counter_ns()
-        child.sendline(marker_cmd)
-        self._wait_marker_via_stream(child, f"__W1DONE__ {token}", timeout_s)
+        child.sendline(compound_cmd)
+        self._wait_clean_substring(child, marker, timeout_s, "marker")
         t1 = time.perf_counter_ns()
-
         return token, (t1 - t0) / 1e6
 
     def _run_protocol(self, protocol: str) -> None:
@@ -561,25 +497,20 @@ class Benchmark:
             try:
                 child, setup_ms = self._open_session(protocol)
                 setup_ok = True
-                self._record_ok(protocol, "session_setup", trial_id, 1, False, "__W3_SETUP__", setup_ms)
+                self._record_ok(protocol, "session_setup", trial_id, 1, False, "__W1_SETUP__", setup_ms)
                 print(f"[{protocol:>4}/setup      ] trial {trial_id:>2}:  OK  {setup_ms:.1f} ms")
 
                 if "command_latency" in self.args.metrics:
-                    from constants import W1_COMMANDS
                     for i in range(1, self.args.warmup_samples + 1):
                         sid = -i
                         cmd = W1_COMMANDS[i % len(W1_COMMANDS)]
                         try:
-                            tok, lat = self._measure_command_latency(
-                                child, protocol, trial_id, sid, cmd
-                            )
+                            tok, lat = self._measure_command_latency(child, protocol, trial_id, sid, cmd)
                             self._record_ok(protocol, "command_latency", trial_id, sid, True, tok, lat)
                             print(f"[{protocol:>4}/cmd  warm {i:>3}/{self.args.warmup_samples}]  {lat:.2f} ms")
                         except Exception as exc:
                             self._record_fail(protocol, "command_latency", trial_id, sid, True, exc, child)
-                            print(
-                                f"[{protocol:>4}/cmd  warm {i:>3}     ]  FAIL  {type(exc).__name__}: {exc}"
-                            )
+                            print(f"[{protocol:>4}/cmd  warm {i:>3}     ]  FAIL  {type(exc).__name__}: {exc}")
                             if not self.args.reopen_on_failure:
                                 raise
                             break
@@ -587,16 +518,12 @@ class Benchmark:
                     for sid in range(1, self.args.samples_per_trial + 1):
                         cmd = W1_COMMANDS[sid % len(W1_COMMANDS)]
                         try:
-                            tok, lat = self._measure_command_latency(
-                                child, protocol, trial_id, sid, cmd
-                            )
+                            tok, lat = self._measure_command_latency(child, protocol, trial_id, sid, cmd)
                             self._record_ok(protocol, "command_latency", trial_id, sid, False, tok, lat)
                             print(f"[{protocol:>4}/cmd  meas {sid:>3}/{self.args.samples_per_trial}]  {lat:.2f} ms")
                         except Exception as exc:
                             self._record_fail(protocol, "command_latency", trial_id, sid, False, exc, child)
-                            print(
-                                f"[{protocol:>4}/cmd  meas {sid:>3}     ]  FAIL  {type(exc).__name__}: {exc}"
-                            )
+                            print(f"[{protocol:>4}/cmd  meas {sid:>3}     ]  FAIL  {type(exc).__name__}: {exc}")
                             if not self.args.reopen_on_failure:
                                 raise
                             break
@@ -611,9 +538,7 @@ class Benchmark:
                             print(f"[{protocol:>4}/echo warm {i:>3}/{self.args.warmup_samples}]  {lat:.2f} ms")
                         except Exception as exc:
                             self._record_fail(protocol, "line_echo", trial_id, sid, True, exc, child)
-                            print(
-                                f"[{protocol:>4}/echo warm {i:>3}     ]  FAIL  {type(exc).__name__}: {exc}"
-                            )
+                            print(f"[{protocol:>4}/echo warm {i:>3}     ]  FAIL  {type(exc).__name__}: {exc}")
                             if not self.args.reopen_on_failure:
                                 raise
                             break
@@ -625,9 +550,7 @@ class Benchmark:
                             print(f"[{protocol:>4}/echo meas {sid:>3}/{self.args.samples_per_trial}]  {lat:.2f} ms")
                         except Exception as exc:
                             self._record_fail(protocol, "line_echo", trial_id, sid, False, exc, child)
-                            print(
-                                f"[{protocol:>4}/echo meas {sid:>3}     ]  FAIL  {type(exc).__name__}: {exc}"
-                            )
+                            print(f"[{protocol:>4}/echo meas {sid:>3}     ]  FAIL  {type(exc).__name__}: {exc}")
                             if not self.args.reopen_on_failure:
                                 raise
                             break
@@ -635,10 +558,7 @@ class Benchmark:
             except Exception as exc:
                 if not setup_ok:
                     self._record_fail(protocol, "session_setup", trial_id, 1, False, exc, child)
-                    print(
-                        f"[{protocol:>4}/setup      ] trial {trial_id:>2}:  FAIL  {type(exc).__name__}: {exc}"
-                    )
-
+                    print(f"[{protocol:>4}/setup      ] trial {trial_id:>2}:  FAIL  {type(exc).__name__}: {exc}")
             finally:
                 if child is not None:
                     if bye_marker is not None:
@@ -778,10 +698,10 @@ class Benchmark:
                         "Time-to-usable-shell from pexpect.spawn() to a configured, ready shell."
                     ),
                     "command_latency_ms": (
-                        "Terminal round-trip latency for a marker printf after the command has completed. "
-                        "The actual command runs BEFORE the timing window starts; sleep(0.2) for Mosh "
-                        "frame flush also happens outside the window. Only the marker RTT is measured. "
-                        "Note: the 200 ms sleep adds ~0.2 s of wall-clock overhead per sample."
+                        "Time from sending a shell command until a plain-text completion marker, "
+                        "appended on the same shell line, is observed in the PTY stream. This "
+                        "captures command completion latency plus terminal transport/flush time "
+                        "without relying on cursor-move or screen-clear control sequences."
                     ),
                     "line_echo_ms": (
                         "Application-level terminal RTT from sendline(token) to ACK receipt."
