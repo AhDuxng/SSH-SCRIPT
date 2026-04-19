@@ -36,15 +36,8 @@ tmux split-window -v -t "$SESSION":0.1 \
              done'"
 
 # Pane 4: background writer + log tail
-(
-  while true; do
-    printf "pane4 log %s background-event\n" "$(date +%s%N)" >> "$LOGFILE"
-    sleep 0.05
-  done
-) >/dev/null 2>&1 &
-
 tmux split-window -v -t "$SESSION":0.2 \
-  "bash -lc 'tail -f $LOGFILE'"
+  "bash -lc '(while true; do printf \"pane4 log %s background-event\n\" \"\$(date +%s%N)\" >> $LOGFILE; sleep 0.05; done) & tail -f $LOGFILE'"
 
 # Layout
 tmux select-layout   -t "$SESSION":0 tiled
