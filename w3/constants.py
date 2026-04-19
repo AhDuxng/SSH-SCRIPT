@@ -1,4 +1,4 @@
-DEFAULT_PROTOCOLS = ["ssh", "ssh3", "mosh"]
+DEFAULT_PROTOCOLS = ["ssh", "ssh3"]
 
 DEFAULT_METRICS   = ["session_setup", "line_echo"]
 DEFAULT_PROMPT    = "__W3PROMPT__"
