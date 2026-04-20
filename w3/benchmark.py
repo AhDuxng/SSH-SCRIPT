@@ -401,6 +401,7 @@ class Benchmark:
     def _close_session(self, child: pexpect.spawn) -> None:
         try:
             if child.isalive():
+                child.sendline("tmux kill-session -t w3bench 2>/dev/null || true")
                 child.sendline("exit")
                 child.expect(pexpect.EOF, timeout=min(6, self.args.timeout))
         except Exception:
