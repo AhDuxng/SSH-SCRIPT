@@ -112,6 +112,7 @@ class Benchmark:
         self._pattern_cache: Dict[str, re.Pattern] = {}
         self._stream_state: Dict[int, Dict[str, object]] = {}
         self._key_ack_regex_cache: Dict[str, Pattern[str]] = {}
+        self._key_sync_counter = 0
 
     @classmethod
     def _canonical_metric_name(cls, metric: str) -> str:
@@ -346,6 +347,7 @@ class Benchmark:
                 f"stty -echo -echoctl cols {self.args.pty_cols} rows {self.args.pty_rows} 2>/dev/null || true"
             )
             self._expect_literal(child, self.args.prompt)
+            self._drain_output_until_quiet(child, quiet_s=0.03, budget_s=0.20)
             t1 = time.perf_counter_ns()
             return child, (t1 - t0) / 1e6
         except Exception:
@@ -494,52 +496,49 @@ class Benchmark:
         self, child: pexpect.spawn, protocol: str, trial_id: int
     ) -> Tuple[str, str]:
         self._reset_stream_reader(child)
-        """
-        Start a remote Python helper that reads stdin one byte at a time in
-        raw mode and echoes each byte back with a per-byte ACK prefix.
-
-        ACK format: <ack_prefix><hex_of_byte>  (e.g. "W3KEY...A61" for 'a')
-
-        Implementation notes — why os.read/os.write instead of sys.stdin/stdout
-        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─        ─
-        After tty.setraw(), the PTY slave fd is in raw mode with VMIN=1,
-        VTIME=0 so the OS delivers each byte immediately.  However,
-        sys.stdin and sys.stdout are TextIOWrapper objects with an ~8 KB
-        internal buffer.  sys.stdin.read(1) may block waiting for that
-        buffer to fill even though the byte is already at the fd level.
-
-        os.read(fd, 1) and os.write(fd, bytes) bypass Python buffering
-        entirely.  This was the root cause of the 20 s timeouts: the ACK
-        was stuck in TextIOWrapper's buffer and never reached the PTY master.
-
-        CR+LF (\\r\\n) is used as the line terminator because in raw mode
-        OPOST is disabled, so '\\n' is NOT expanded to CR+LF by the PTY.
-        pexpect's stream reader strips '\\r', so received lines are clean.
-        """
         ready = f"W3KRY{protocol[:2].upper()}{trial_id:03d}Z"
         ack   = f"W3KEY{protocol[:2].upper()}{trial_id:03d}A"
         bye   = f"W3KBY{protocol[:2].upper()}{trial_id:03d}Z"
-        frame = f"__W3KFRAME__{ack}"
+        frame = f"\x1e__W3KFRAME__{ack}"
+        self._key_sync_counter += 1
+        sync = f"__W3KSYNC__{protocol[:2].upper()}{trial_id:03d}{self._key_sync_counter:04d}__"
+        armed = f"W3KARM{protocol[:2].upper()}{trial_id:03d}Z"
         helper = (
             "import os,sys,tty,termios\n"
             "rdy=os.environ['W3R']\n"
             "ack=os.environ['W3A']\n"
             "bye=os.environ['W3B']\n"
             "frm=os.environ['W3F']\n"
+            "syn=os.environ['W3S'].encode()\n"
+            "arm=os.environ['W3Q']\n"
             "fi=sys.stdin.fileno()\n"
             "fo=sys.stdout.fileno()\n"
             "old=termios.tcgetattr(fi)\n"
             "try:\n"
             "    tty.setraw(fi)\n"
-            "    os.write(fo,(rdy+'\\r\\n').encode())\n"
+            "    os.write(fo,(rdy+'\r\n').encode())\n"
+            "    win=bytearray()\n"
+            "    while True:\n"
+            "        b=os.read(fi,1)\n"
+            "        if not b or b==b'\x03':\n"
+            "            os.write(fo,(bye+'\r\n').encode())\n"
+            "            break\n"
+            "        win += b\n"
+            "        if len(win) > len(syn):\n"
+            "            del win[:-len(syn)]\n"
+            "        if bytes(win) == syn:\n"
+            "            os.write(fo,(arm+'\r\n').encode())\n"
+            "            break\n"
             "    c=1\n"
             "    while True:\n"
             "        b=os.read(fi,1)\n"
-            "        if not b or b==b'\\x03':\n"
-            "            os.write(fo,(bye+'\\r\\n').encode())\n"
+            "        if not b or b==b'\x03':\n"
+            "            os.write(fo,(bye+'\r\n').encode())\n"
             "            break\n"
-            "        os.write(fo,(frm+f'{c:04d}:'+format(b[0],'02x')+';').encode())\n"
-            "        c+=1\n"
+            "        rec = frm+f'{c:04d}:'+format(b[0],'02x')+';\x1f'\n"
+            "        os.write(fo, rec.encode())\n"
+            "        os.write(fo, rec.encode())\n"
+            "        c += 1\n"
             "finally:\n"
             "    termios.tcsetattr(fi,termios.TCSADRAIN,old)\n"
         )
@@ -548,12 +547,19 @@ class Benchmark:
             f"W3A={shlex.quote(ack)} "
             f"W3B={shlex.quote(bye)} "
             f"W3F={shlex.quote(frame)} "
+            f"W3S={shlex.quote(sync)} "
+            f"W3Q={shlex.quote(armed)} "
             f"python3 -u -c {shlex.quote(helper)}"
         )
         child.sendline(cmd)
         self._expect_literal(child, ready, timeout=self.args.timeout)
+        self._drain_output_until_quiet(child, quiet_s=0.03, budget_s=0.20)
+        child.send(sync)
+        self._expect_literal(child, armed, timeout=self.args.timeout)
         self._arm_keystroke_parser(child, ack)
+        self._drain_output_until_quiet(child, quiet_s=0.03, budget_s=0.20)
         return ack, bye
+
 
     def _stop_keystroke_helper(self, child: pexpect.spawn, bye: str) -> None:
         """Send Ctrl-C to terminate the raw-mode keystroke helper."""
@@ -564,6 +570,7 @@ class Benchmark:
 
     _STREAM_MAX_CHARS = 32768
     _KEY_ACK_BUF_MAX = 8192
+    _OUTPUT_DRAIN_CHUNK = 4096
 
     def _reset_stream_reader(self, child: pexpect.spawn) -> None:
         self._stream_state[id(child)] = {
@@ -578,7 +585,7 @@ class Benchmark:
         pat = self._key_ack_regex_cache.get(ack_prefix)
         if pat is None:
             pat = re.compile(
-                rf"__W3KFRAME__{re.escape(ack_prefix)}(\d{{4}}):([0-9a-f]{{2}});"
+                rf"\x1e__W3KFRAME__{re.escape(ack_prefix)}(\d{{4}}):([0-9a-f]{{2}});\x1f"
             )
             self._key_ack_regex_cache[ack_prefix] = pat
         return pat
@@ -629,6 +636,36 @@ class Benchmark:
             self._reset_stream_reader(child)
             state = self._stream_state[id(child)]
         return state
+
+    def _drain_output_until_quiet(
+        self,
+        child: pexpect.spawn,
+        quiet_s: float = 0.05,
+        budget_s: float = 0.25,
+    ) -> None:
+        """Best-effort drain of noisy background output without failing if the stream stays busy."""
+        deadline = time.monotonic() + max(0.0, budget_s)
+        quiet_deadline = time.monotonic() + max(0.0, quiet_s)
+
+        while time.monotonic() < deadline:
+            timeout = max(0.01, min(quiet_deadline - time.monotonic(), deadline - time.monotonic()))
+            try:
+                chunk = child.read_nonblocking(
+                    size=self._OUTPUT_DRAIN_CHUNK,
+                    timeout=timeout,
+                )
+            except pexpect.TIMEOUT:
+                if time.monotonic() >= quiet_deadline:
+                    break
+                continue
+            except pexpect.EOF:
+                break
+
+            if not chunk:
+                continue
+
+            self._enqueue_stream_chunk(child, chunk)
+            quiet_deadline = time.monotonic() + max(0.0, quiet_s)
 
     def _stream_tail(self, child: pexpect.spawn, limit: int = 300) -> str:
         state = self._stream_reader_state(child)
@@ -842,17 +879,35 @@ class Benchmark:
         key_timeout = float(getattr(self.args, "echo_timeout", self.args.timeout))
 
         token = self._token(protocol, trial_id, sample_id)
+        self._drain_output_until_quiet(child, quiet_s=0.01, budget_s=0.05)
         t0 = time.perf_counter_ns()
         child.send(key_byte)
-        seq, ack_hex, ack_raw = self._wait_keystroke_ack(child, expected_seq, key_timeout)
-        t1 = time.perf_counter_ns()
 
-        if ack_hex != sent_hex and seq == expected_seq:
-            raise RuntimeError(
-                f"Keystroke ACK byte mismatch at seq {seq}: sent {sent_hex!r}, got {ack_hex!r} via {ack_raw!r}"
+        deadline = time.monotonic() + key_timeout
+        mismatches: List[str] = []
+        next_expected = expected_seq
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                detail = "; ".join(mismatches[-3:])
+                if detail:
+                    raise pexpect.TIMEOUT(
+                        f"keystroke ACK seq>={expected_seq} with byte {sent_hex!r} not received within {key_timeout:.1f}s. {detail}"
+                    )
+                raise pexpect.TIMEOUT(
+                    f"keystroke ACK seq>={expected_seq} with byte {sent_hex!r} not received within {key_timeout:.1f}s"
+                )
+
+            seq, ack_hex, ack_raw = self._wait_keystroke_ack(
+                child, next_expected, min(remaining, key_timeout)
             )
+            if ack_hex == sent_hex:
+                t1 = time.perf_counter_ns()
+                return token, (t1 - t0) / 1e6, seq + 1
 
-        return token, (t1 - t0) / 1e6, seq + 1
+            mismatches.append(f"seq {seq}: got {ack_hex!r} via {ack_raw!r}")
+            next_expected = seq + 1
+
 
     def _measure_control_step_latency(
         self,
@@ -1380,7 +1435,6 @@ class Benchmark:
         jpath = out / "summary.json"
         jpath.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
-        # summary.csv
         cpath = out / "summary.csv"
         with cpath.open("w", newline="", encoding="utf-8") as f:
             w = csv.writer(f)
@@ -1406,7 +1460,6 @@ class Benchmark:
                     "" if ping_mean is None else f"{ping_mean:.6f}",
                 ])
 
-        # samples.csv
         spath = out / "samples.csv"
         with spath.open("w", newline="", encoding="utf-8") as f:
             w = csv.writer(f)
