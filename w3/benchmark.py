@@ -502,9 +502,10 @@ class Benchmark:
 
     def _start_helper(self, child: pexpect.spawn, protocol: str, trial_id: int) -> Tuple[str, str]:
         self._reset_stream_reader(child)
-        ready = f"W3RDY{protocol[:2].upper()}{trial_id:03d}Z"
-        ack   = f"W3ACK{protocol[:2].upper()}{trial_id:03d}A"
-        bye   = f"W3BYE{protocol[:2].upper()}{trial_id:03d}Z"
+        rand_id = "".join(random.choices(string.ascii_uppercase, k=4))
+        ready = f"W3RDY{protocol[:2].upper()}{trial_id:03d}{rand_id}Z"
+        ack   = f"W3ACK{protocol[:2].upper()}{trial_id:03d}{rand_id}A"
+        bye   = f"W3BYE{protocol[:2].upper()}{trial_id:03d}{rand_id}Z"
         helper = (
             "import os,sys\n"
             "rdy=os.environ['W3R']\n"
@@ -562,9 +563,10 @@ class Benchmark:
         OPOST is disabled, so '\\n' is NOT expanded to CR+LF by the PTY.
         pexpect's stream reader strips '\\r', so received lines are clean.
         """
-        ready = f"W3KRY{protocol[:2].upper()}{trial_id:03d}Z"
-        ack   = f"W3KEY{protocol[:2].upper()}{trial_id:03d}A"
-        bye   = f"W3KBY{protocol[:2].upper()}{trial_id:03d}Z"
+        rand_id = "".join(random.choices(string.ascii_uppercase, k=4))
+        ready = f"W3KRY{protocol[:2].upper()}{trial_id:03d}{rand_id}Z"
+        ack   = f"W3KEY{protocol[:2].upper()}{trial_id:03d}{rand_id}A"
+        bye   = f"W3KBY{protocol[:2].upper()}{trial_id:03d}{rand_id}Z"
         frame = f"__W3KFRAME__{ack}"
         helper = (
             "import os,sys,tty,termios\n"
@@ -584,7 +586,7 @@ class Benchmark:
             "        if not b or b==b'\\x03':\n"
             "            os.write(fo,(bye+'\\r\\n').encode())\n"
             "            break\n"
-            "        os.write(fo,(frm+f'{c:04d}:'+format(b[0],'02x')+';').encode())\n"
+            "        os.write(fo,(frm+f'{c:04d}:'+format(b[0],'02x')+';\\r\\n').encode())\n"
             "        c+=1\n"
             "finally:\n"
             "    termios.tcsetattr(fi,termios.TCSADRAIN,old)\n"
@@ -1496,7 +1498,11 @@ class Benchmark:
 
     def run(self) -> None:
         random.seed(self.args.seed)
-        protocols = list(self.args.protocols)
+        protocols = [p for p in self.args.protocols if p != "mosh"]
+        if not protocols:
+            print("No valid protocols to run (mosh has been disabled).")
+            return
+            
         if self.args.shuffle_protocols:
             random.shuffle(protocols)
 
