@@ -499,7 +499,7 @@ class Benchmark:
         ready = f"W3KRY{protocol[:2].upper()}{trial_id:03d}Z"
         ack   = f"W3KEY{protocol[:2].upper()}{trial_id:03d}A"
         bye   = f"W3KBY{protocol[:2].upper()}{trial_id:03d}Z"
-        frame = f"\x1e__W3KFRAME__{ack}"
+        frame = f"@@@__W3KFRAME__{ack}"
         self._key_sync_counter += 1
         sync = f"__W3KSYNC__{protocol[:2].upper()}{trial_id:03d}{self._key_sync_counter:04d}__"
         armed = f"W3KARM{protocol[:2].upper()}{trial_id:03d}Z"
@@ -535,7 +535,7 @@ class Benchmark:
             "        if not b or b==b'\x03':\n"
             "            os.write(fo,(bye+'\r\n').encode())\n"
             "            break\n"
-            "        rec = frm+f'{c:04d}:'+format(b[0],'02x')+';\x1f'\n"
+            "        rec = frm+f'{c:04d}:'+format(b[0],'02x')+';@@@\\n'\n"
             "        os.write(fo, rec.encode())\n"
             "        os.write(fo, rec.encode())\n"
             "        c += 1\n"
@@ -585,7 +585,7 @@ class Benchmark:
         pat = self._key_ack_regex_cache.get(ack_prefix)
         if pat is None:
             pat = re.compile(
-                rf"\x1e__W3KFRAME__{re.escape(ack_prefix)}(\d{{4}}):([0-9a-f]{{2}});\x1f"
+                rf"@@@__W3KFRAME__{re.escape(ack_prefix)}(\d{{4}}):([0-9a-f]{{2}});@@@"
             )
             self._key_ack_regex_cache[ack_prefix] = pat
         return pat
@@ -1435,6 +1435,7 @@ class Benchmark:
         jpath = out / "summary.json"
         jpath.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
+        # summary.csv
         cpath = out / "summary.csv"
         with cpath.open("w", newline="", encoding="utf-8") as f:
             w = csv.writer(f)
@@ -1460,6 +1461,7 @@ class Benchmark:
                     "" if ping_mean is None else f"{ping_mean:.6f}",
                 ])
 
+        # samples.csv
         spath = out / "samples.csv"
         with spath.open("w", newline="", encoding="utf-8") as f:
             w = csv.writer(f)
