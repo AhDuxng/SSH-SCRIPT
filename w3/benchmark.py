@@ -539,10 +539,10 @@ class Benchmark:
 
     def _stop_helper(self, child: pexpect.spawn, bye: str) -> None:
         child.sendline("W3EXIT")
-        self._expect_literal(child, bye, timeout=self.args.timeout)
+        self._expect_literal(child, bye, timeout=min(3.0, self.args.timeout))
         child.sendline("printf 'W3BACK\n'")
-        self._expect_literal(child, "W3BACK", timeout=self.args.timeout)
-        self._expect_literal(child, self.args.prompt, timeout=self.args.timeout)
+        self._expect_literal(child, "W3BACK", timeout=min(3.0, self.args.timeout))
+        self._expect_literal(child, self.args.prompt, timeout=min(3.0, self.args.timeout))
         self._reset_stream_reader(child)
 
     def _start_keystroke_helper(
@@ -614,8 +614,8 @@ class Benchmark:
     def _stop_keystroke_helper(self, child: pexpect.spawn, bye: str) -> None:
         """Send Ctrl-C to terminate the raw-mode keystroke helper."""
         child.send("\x03")
-        self._expect_literal(child, bye, timeout=self.args.timeout)
-        self._expect_literal(child, self.args.prompt, timeout=self.args.timeout)
+        self._expect_literal(child, bye, timeout=min(3.0, self.args.timeout))
+        self._expect_literal(child, self.args.prompt, timeout=min(3.0, self.args.timeout))
         self._reset_stream_reader(child)
 
     _STREAM_MAX_CHARS = 32768
