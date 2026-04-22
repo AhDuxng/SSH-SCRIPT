@@ -182,11 +182,11 @@ class W3Benchmark:
         child.expect([r"-- INSERT --", r"INSERT"], timeout=self.args.timeout)
         start_ns = time.perf_counter_ns()
         child.send(token)
-        end_ns = self._wait_for_token(child, token)
-        child.buffer = ""  # clear buffered editor output before exiting
+        child.expect_exact(token)
+        end_ns = time.perf_counter_ns()
         child.send("\x1b")
         child.sendline(":q!")
-        self._wait_for_prompt(child)
+        child.expect_exact(self.args.prompt)
         return (end_ns - start_ns) / 1_000_000.0
 
     def _measure_nano(self, child: pexpect.spawn, token: str) -> float:
@@ -195,11 +195,13 @@ class W3Benchmark:
         child.expect([r"GNU nano", r"\^G Help"], timeout=self.args.timeout)
         start_ns = time.perf_counter_ns()
         child.send(token)
-        end_ns = self._wait_for_token(child, token)
-        child.buffer = ""  # clear buffered editor output before exiting
+        child.expect_exact(token)
+        end_ns = time.perf_counter_ns()
         child.sendcontrol("x")
         child.send("n")
-        self._wait_for_prompt(child)
+        # Mosh injects ANSI codes between '#' and the trailing space of the prompt,
+        # so strip trailing space before matching to avoid TIMEOUT.
+        child.expect_exact(self.args.prompt.rstrip())
         return (end_ns - start_ns) / 1_000_000.0
 
     def _run_sample(self, child: pexpect.spawn, protocol: str, workload: str, round_id: int, sample_id: int) -> None:
