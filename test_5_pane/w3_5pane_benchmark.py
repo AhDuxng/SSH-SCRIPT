@@ -273,6 +273,8 @@ class W3Benchmark5Pane:
         workload: str,
         round_id: int,
         sample_id: int,
+        *,
+        record: bool = True,
     ) -> None:
         token = self._token(protocol, workload, round_id, sample_id)
         if workload == "interactive_shell":
@@ -284,10 +286,11 @@ class W3Benchmark5Pane:
         else:
             raise ValueError(f"Unsupported workload: {workload}")
 
-        self.results[protocol][workload].append(latency)
-        self.records.append(
-            SampleRecord(protocol, workload, round_id, sample_id, token, latency)
-        )
+        if record:
+            self.results[protocol][workload].append(latency)
+            self.records.append(
+                SampleRecord(protocol, workload, round_id, sample_id, token, latency)
+            )
 
     def _run_session_group(self, protocol: str, workload: str) -> None:
         for trial_id in range(1, self.args.trials + 1):
@@ -307,7 +310,7 @@ class W3Benchmark5Pane:
 
                 for w_idx in range(1, self.args.warmup_rounds + 1):
                     try:
-                        self._run_sample(child, protocol, workload, 0, w_idx)
+                        self._run_sample(child, protocol, workload, 0, w_idx, record=False)
                         print(
                             f"[{protocol:>4}/{workload:<18}]"
                             f" trial {trial_id:>2} warmup {w_idx}/{self.args.warmup_rounds}: OK"
