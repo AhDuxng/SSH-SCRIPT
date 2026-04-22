@@ -13,6 +13,7 @@ WORKLOADS="interactive_shell vim nano"   # interactive_shell | vim | nano
 # ── Số vòng đo ───────────────────────────────────────────────────────────────
 ITERATIONS=100          # số sample thực đo (bỏ warmup)
 WARMUP_ROUNDS=10        # số vòng khởi động (không tính kết quả)
+TRIALS=15             
 TIMEOUT=20             # pexpect timeout (giây)
 SEED=42                # random seed để tái hiện kết quả
 
@@ -48,6 +49,7 @@ CMD=(
     --workloads       $WORKLOADS
     --iterations      "$ITERATIONS"
     --warmup-rounds   "$WARMUP_ROUNDS"
+    --trials          "$TRIALS"
     --timeout         "$TIMEOUT"
     --seed            "$SEED"
     --output-dir      "$OUTPUT_DIR"

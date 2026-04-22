@@ -12,6 +12,7 @@ WORKLOADS="interactive_shell vim nano"       # interactive_shell | vim | nano
 
 ITERATIONS=100
 WARMUP_ROUNDS=10
+TRIALS=15             
 TIMEOUT=20
 SEED=42
 
@@ -48,6 +49,7 @@ CMD=(
     --workloads         $WORKLOADS
     --iterations        "$ITERATIONS"
     --warmup-rounds     "$WARMUP_ROUNDS"
+    --trials            "$TRIALS"
     --timeout           "$TIMEOUT"
     --seed              "$SEED"
     --output-dir        "$OUTPUT_DIR"
