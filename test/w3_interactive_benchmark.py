@@ -89,6 +89,10 @@ class W3Benchmark:
             protocol: {workload: [] for workload in args.workloads}
             for protocol in args.protocols
         }
+        self.session_setups: Dict[str, Dict[str, List[float]]] = {
+            protocol: {workload: [] for workload in args.workloads}
+            for protocol in args.protocols
+        }
 
     def _token(self, protocol: str, workload: str, round_id: int, sample_id: int) -> str:
         rand = "".join(random.choices(string.ascii_uppercase + string.digits, k=8))
@@ -114,7 +118,7 @@ class W3Benchmark:
             return shlex.join(ssh_common)
 
         if protocol == "mosh":
-            ssh_cmd = shlex.join(ssh_common[:-1])  # remove target
+            ssh_cmd = shlex.join(ssh_common[:-1])  
             mosh_parts = ["mosh", f'--ssh={ssh_cmd}']
             if self.args.mosh_predict and self.args.mosh_predict != "adaptive":
                 mosh_parts += ["--predict", self.args.mosh_predict]
@@ -133,7 +137,8 @@ class W3Benchmark:
 
         raise ValueError(f"Unsupported protocol: {protocol}")
 
-    def _open_session(self, protocol: str) -> pexpect.spawn:
+    def _open_session(self, protocol: str) -> tuple:
+        start_ns = time.perf_counter_ns()
         child = pexpect.spawn(
             self._session_command(protocol),
             encoding="utf-8",
@@ -147,7 +152,8 @@ class W3Benchmark:
 
         child.sendline(f"export PS1='{self.args.prompt}'")
         child.expect_exact(self.args.prompt)
-        return child
+        setup_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
+        return child, setup_ms
 
     def _close_session(self, child: pexpect.spawn) -> None:
         try:
@@ -217,39 +223,63 @@ class W3Benchmark:
         self.records.append(SampleRecord(protocol, workload, round_id, sample_id, token, latency))
 
     def _run_session_group(self, protocol: str, workload: str) -> None:
-        total = self.args.iterations + self.args.warmup_rounds
-        child: Optional[pexpect.spawn] = None
-        try:
-            child = self._open_session(protocol)
-            for sample_idx in range(1, total + 1):
-                is_warmup = sample_idx <= self.args.warmup_rounds
-                round_id = 0 if is_warmup else 1
-                measure_id = sample_idx - self.args.warmup_rounds if not is_warmup else sample_idx
-                try:
-                    self._run_sample(child, protocol, workload, round_id, measure_id)
-                    tag = "warmup" if is_warmup else "measure"
-                    print(f"[{protocol:>4}/{workload:<18}] {tag} {measure_id}/{self.args.iterations if not is_warmup else self.args.warmup_rounds}: OK")
-                except (pexpect.TIMEOUT, pexpect.EOF, ValueError) as exc:
-                    self.failures.append(
-                        FailureRecord(
-                            protocol=protocol,
-                            workload=workload,
-                            round_id=round_id,
-                            sample_id=measure_id,
-                            error_type=type(exc).__name__,
-                            error_message=str(exc),
+        for trial_id in range(1, self.args.trials + 1):
+            child: Optional[pexpect.spawn] = None
+            try:
+                child, setup_ms = self._open_session(protocol)
+                self.session_setups[protocol][workload].append(setup_ms)
+                print(
+                    f"[{protocol:>4}/{workload:<18}]"
+                    f" trial {trial_id:>2}/{self.args.trials}"
+                    f" session_setup={setup_ms:.1f} ms"
+                )
+
+                for w_idx in range(1, self.args.warmup_rounds + 1):
+                    try:
+                        self._run_sample(child, protocol, workload, 0, w_idx)
+                        print(
+                            f"[{protocol:>4}/{workload:<18}]"
+                            f" trial {trial_id:>2} warmup {w_idx}/{self.args.warmup_rounds}: OK"
                         )
-                    )
-                    print(f"[{protocol:>4}/{workload:<18}] {'warmup' if is_warmup else 'measure'} {measure_id}: FAIL ({type(exc).__name__}: {exc})")
-                    if not is_warmup and self.args.reopen_on_failure:
-                        if child is not None:
-                            self._close_session(child)
-                        child = self._open_session(protocol)
-                    elif child is None or not child.isalive():
-                        child = self._open_session(protocol)
-        finally:
-            if child is not None:
-                self._close_session(child)
+                    except (pexpect.TIMEOUT, pexpect.EOF, ValueError) as exc:
+                        print(
+                            f"[{protocol:>4}/{workload:<18}]"
+                            f" trial {trial_id:>2} warmup {w_idx}: FAIL ({type(exc).__name__}: {exc})"
+                        )
+                        if child is None or not child.isalive():
+                            child, setup_ms = self._open_session(protocol)
+
+                for s_idx in range(1, self.args.iterations + 1):
+                    try:
+                        self._run_sample(child, protocol, workload, trial_id, s_idx)
+                        print(
+                            f"[{protocol:>4}/{workload:<18}]"
+                            f" trial {trial_id:>2} measure {s_idx:>3}/{self.args.iterations}: OK"
+                        )
+                    except (pexpect.TIMEOUT, pexpect.EOF, ValueError) as exc:
+                        self.failures.append(
+                            FailureRecord(
+                                protocol=protocol,
+                                workload=workload,
+                                round_id=trial_id,
+                                sample_id=s_idx,
+                                error_type=type(exc).__name__,
+                                error_message=str(exc),
+                            )
+                        )
+                        print(
+                            f"[{protocol:>4}/{workload:<18}]"
+                            f" trial {trial_id:>2} measure {s_idx:>3}: FAIL ({type(exc).__name__}: {exc})"
+                        )
+                        if self.args.reopen_on_failure:
+                            if child is not None:
+                                self._close_session(child)
+                            child, setup_ms = self._open_session(protocol)
+                        elif child is None or not child.isalive():
+                            child, setup_ms = self._open_session(protocol)
+            finally:
+                if child is not None:
+                    self._close_session(child)
 
     def run(self) -> None:
         random.seed(self.args.seed)
@@ -306,7 +336,25 @@ class W3Benchmark:
     def summaries(self) -> List[SummaryRow]:
         return [self._summary_row(p, w) for p in self.args.protocols for w in self.args.workloads]
 
+    def _session_setup_stats(self, protocol: str, workload: str) -> dict:
+        """Return basic stats for session_setup_ms of a (protocol, workload) pair."""
+        data = self.session_setups[protocol][workload]
+        if not data:
+            return dict(n=0, mean=None, median=None, stdev=None, min=None, max=None)
+        n = len(data)
+        return dict(
+            n=n,
+            mean=statistics.mean(data),
+            median=statistics.median(data),
+            stdev=statistics.stdev(data) if n > 1 else 0.0,
+            min=min(data),
+            max=max(data),
+        )
+
     def print_report(self) -> None:
+        def fmt(v: Optional[float]) -> str:
+            return f"{v:.2f}" if v is not None else "N/A"
+
         width = 146
         print("\n" + "=" * width)
         print(
@@ -315,8 +363,6 @@ class W3Benchmark:
         )
         print("-" * width)
         for row in self.summaries():
-            def fmt(v: Optional[float]) -> str:
-                return f"{v:.2f}" if v is not None else "N/A"
             print(
                 f"{row.protocol:<8} | {row.workload:<18} | {row.n:>4} | {row.failures:>4} | {row.success_rate_pct:>8.1f} | "
                 f"{fmt(row.min_ms):>8} | {fmt(row.mean_ms):>8} | {fmt(row.median_ms):>8} | {fmt(row.stdev_ms):>8} | "
@@ -324,13 +370,32 @@ class W3Benchmark:
             )
         print("=" * width)
 
+        ss_width = 90
+        print("\n" + "-" * ss_width)
+        print("SESSION SETUP LATENCY (ms)  [spawn -> first prompt]")
+        print(
+            f"{'Protocol':<8} | {'Workload':<18} | {'N':>3} | "
+            f"{'Min':>8} | {'Mean':>8} | {'Median':>8} | {'Std':>8} | {'Max':>8}"
+        )
+        print("-" * ss_width)
+        for protocol in self.args.protocols:
+            for workload in self.args.workloads:
+                s = self._session_setup_stats(protocol, workload)
+                print(
+                    f"{protocol:<8} | {workload:<18} | {s['n']:>3} | "
+                    f"{fmt(s['min']):>8} | {fmt(s['mean']):>8} | {fmt(s['median']):>8} | "
+                    f"{fmt(s['stdev']):>8} | {fmt(s['max']):>8}"
+                )
+        print("-" * ss_width)
+
     def export(self) -> None:
         outdir = Path(self.args.output_dir)
         outdir.mkdir(parents=True, exist_ok=True)
 
         summary_json = outdir / "w3_summary.json"
-        raw_csv = outdir / "w3_raw_samples.csv"
+        raw_csv      = outdir / "w3_raw_samples.csv"
         failures_csv = outdir / "w3_failures.csv"
+        setup_csv    = outdir / "w3_session_setup.csv"
 
         payload = {
             "meta": {
@@ -339,6 +404,7 @@ class W3Benchmark:
                 "client_source_ip": self.args.source_ip,
                 "protocols": self.args.protocols,
                 "workloads": self.args.workloads,
+                "trials": self.args.trials,
                 "iterations": self.args.iterations,
                 "warmup_rounds": self.args.warmup_rounds,
                 "timeout_sec": self.args.timeout,
@@ -354,6 +420,10 @@ class W3Benchmark:
                 ),
             },
             "summary": [asdict(row) for row in self.summaries()],
+            "session_setup": {
+                p: {w: self._session_setup_stats(p, w) for w in self.args.workloads}
+                for p in self.args.protocols
+            },
         }
         summary_json.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
@@ -369,9 +439,18 @@ class W3Benchmark:
             for r in self.failures:
                 writer.writerow([r.protocol, r.workload, r.round_id, r.sample_id, r.error_type, r.error_message])
 
-        print(f"Saved summary JSON: {summary_json}")
-        print(f"Saved raw samples CSV: {raw_csv}")
-        print(f"Saved failures CSV: {failures_csv}")
+        with setup_csv.open("w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(["protocol", "workload", "trial_id", "session_setup_ms"])
+            for p in self.args.protocols:
+                for w in self.args.workloads:
+                    for trial_id, ms in enumerate(self.session_setups[p][w], start=1):
+                        writer.writerow([p, w, trial_id, f"{ms:.6f}"])
+
+        print(f"Saved summary JSON    : {summary_json}")
+        print(f"Saved raw samples CSV : {raw_csv}")
+        print(f"Saved failures CSV    : {failures_csv}")
+        print(f"Saved session setup   : {setup_csv}")
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -382,8 +461,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--identity-file", default=str(Path.home() / ".ssh" / "id_rsa"), help="SSH private key path")
     p.add_argument("--protocols", nargs="+", default=DEFAULT_PROTOCOLS, choices=DEFAULT_PROTOCOLS)
     p.add_argument("--workloads", nargs="+", default=DEFAULT_WORKLOADS, choices=DEFAULT_WORKLOADS)
-    p.add_argument("--iterations", type=int, default=100, help="Recorded samples per protocol/workload")
-    p.add_argument("--warmup-rounds", type=int, default=5, help="Warmup samples per protocol/workload")
+    p.add_argument("--trials", type=int, default=15, help="Number of independent sessions per protocol/workload pair")
+    p.add_argument("--iterations", type=int, default=100, help="Recorded samples per trial")
+    p.add_argument("--warmup-rounds", type=int, default=5, help="Warmup samples per trial")
     p.add_argument("--timeout", type=int, default=20, help="pexpect timeout in seconds")
     p.add_argument("--seed", type=int, default=42, help="Random seed")
     p.add_argument("--output-dir", default="w3_results", help="Directory for JSON/CSV outputs")
@@ -405,6 +485,8 @@ def main() -> int:
     parser = build_arg_parser()
     args = parser.parse_args()
 
+    if args.trials <= 0:
+        parser.error("--trials must be > 0")
     if args.iterations <= 0:
         parser.error("--iterations must be > 0")
     if args.warmup_rounds < 0:
