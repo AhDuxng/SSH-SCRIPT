@@ -372,6 +372,16 @@ class Benchmark:
         child = self._spawn(protocol, predict_mode=predict_mode)
         try:
             self._await_shell(child)
+            
+            t_transport_ready = time.perf_counter_ns()
+            
+            import base64
+            encoded = base64.b64encode(_TMUX_SETUP_SCRIPT.encode("utf-8")).decode("utf-8")
+            child.sendline(f"echo {encoded} | base64 -d > /tmp/w3_tmux_setup.sh && bash /tmp/w3_tmux_setup.sh")
+            self._expect_literal(child, "__W3_PANE0_READY__", timeout=20.0)
+
+            t_tmux_ready = time.perf_counter_ns()
+
             setup_marker = "__W3SETUP__"
             child.sendline(
                 "unset PROMPT_COMMAND 2>/dev/null || true; "
@@ -386,13 +396,10 @@ class Benchmark:
             )
             self._expect_literal(child, self.args.prompt)
             t1 = time.perf_counter_ns()
-            setup_ms = (t1 - t0) / 1e6
-
-            import base64
-            encoded = base64.b64encode(_TMUX_SETUP_SCRIPT.encode("utf-8")).decode("utf-8")
-            child.sendline(f"echo {encoded} | base64 -d > /tmp/w3_tmux_setup.sh && bash /tmp/w3_tmux_setup.sh")
-            self._expect_literal(child, "__W3_PANE0_READY__", timeout=20.0)
-
+            
+            tmux_overhead_ns = t_tmux_ready - t_transport_ready
+            setup_ms = (t1 - t0 - tmux_overhead_ns) / 1e6
+            
             return child, setup_ms
         except Exception:
             self._safe_close(child)
