@@ -77,6 +77,7 @@ class SummaryRow:
     max_ms: Optional[float]
     ci95_half_width_ms: Optional[float]
 
+
 class W3Benchmark:
     def __init__(self, args: argparse.Namespace) -> None:
         self.args = args
@@ -92,7 +93,6 @@ class W3Benchmark:
     def _token(self, protocol: str, workload: str, round_id: int, sample_id: int) -> str:
         rand = "".join(random.choices(string.ascii_uppercase + string.digits, k=8))
         return f"__W3TOK__{protocol}__{workload}__r{round_id}__s{sample_id}__{rand}__"
-
 
     def _session_command(self, protocol: str) -> str:
         host = self.args.host
@@ -175,30 +175,6 @@ class W3Benchmark:
         child.expect_exact(self.args.prompt)
         return (end_ns - start_ns) / 1_000_000.0
 
-    def _wait_for_token(self, child: pexpect.spawn, token: str) -> int:
-        """Poll pexpect's buffer until *token* appears, then return perf_counter_ns timestamp.
-
-        Using a tight loop avoids the overhead of a second ``expect_exact`` call
-        (which may consume characters the editor still needs to render) and gives
-        a more accurate end-timestamp for editor workloads.
-        """
-        deadline = time.perf_counter_ns() + int(self.args.timeout * 1_000_000_000)
-        while True:
-            # Non-blocking read: fill the internal buffer without blocking
-            try:
-                child.read_nonblocking(size=4096, timeout=0)
-            except (pexpect.TIMEOUT, pexpect.EOF):
-                pass
-            if token in (child.before or "") or token in (child.buffer or ""):
-                return time.perf_counter_ns()
-            if time.perf_counter_ns() > deadline:
-                raise pexpect.TIMEOUT(f"Token not seen within {self.args.timeout}s: {token!r}")
-            time.sleep(0.001)  # 1 ms poll interval
-
-    def _wait_for_prompt(self, child: pexpect.spawn) -> None:
-        """Wait for the configured shell prompt to reappear."""
-        child.expect_exact(self.args.prompt, timeout=self.args.timeout)
-
     def _measure_vim(self, child: pexpect.spawn, token: str) -> float:
         remote_file = self.args.remote_vim_file
         child.sendline(f"vim -Nu NONE -n {shlex.quote(remote_file)}")
@@ -206,11 +182,11 @@ class W3Benchmark:
         child.expect([r"-- INSERT --", r"INSERT"], timeout=self.args.timeout)
         start_ns = time.perf_counter_ns()
         child.send(token)
-        end_ns = self._wait_for_token(child, token)
-        child.buffer = ""  # clear buffered editor output before exiting
+        child.expect_exact(token)
+        end_ns = time.perf_counter_ns()
         child.send("\x1b")
         child.sendline(":q!")
-        self._wait_for_prompt(child)
+        child.expect_exact(self.args.prompt)
         return (end_ns - start_ns) / 1_000_000.0
 
     def _measure_nano(self, child: pexpect.spawn, token: str) -> float:
@@ -219,11 +195,11 @@ class W3Benchmark:
         child.expect([r"GNU nano", r"\^G Help"], timeout=self.args.timeout)
         start_ns = time.perf_counter_ns()
         child.send(token)
-        end_ns = self._wait_for_token(child, token)
-        child.buffer = ""  # clear buffered editor output before exiting
+        child.expect_exact(token)
+        end_ns = time.perf_counter_ns()
         child.sendcontrol("x")
         child.send("n")
-        self._wait_for_prompt(child)
+        child.expect_exact(self.args.prompt)
         return (end_ns - start_ns) / 1_000_000.0
 
     def _run_sample(self, child: pexpect.spawn, protocol: str, workload: str, round_id: int, sample_id: int) -> None:
