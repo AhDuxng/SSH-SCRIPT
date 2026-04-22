@@ -35,8 +35,8 @@ REOPEN_ON_FAILURE=true
 
 USE_TMUX_LOAD=true              # false = chạy không có tải nền tmux
 TMUX_SESSION="w3bench5"
-TMUX_SETUP_SCRIPT="w3_tmux_5pane_setup.sh"    # file local (cùng thư mục)
-REMOTE_TMUX_SETUP="/tmp/w3_tmux_5pane_setup.sh"
+TMUX_SETUP_SCRIPT="w3_tmux_setup.sh"    # file local (cùng thư mục)
+REMOTE_TMUX_SETUP="/tmp/w3_tmux_setup.sh"
 
 CMD=(
     python w3_5pane_benchmark.py
