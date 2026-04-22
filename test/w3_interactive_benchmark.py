@@ -20,6 +20,7 @@ import csv
 import json
 import math
 import random
+import re
 import shlex
 import statistics
 import string
@@ -77,6 +78,15 @@ class SummaryRow:
     max_ms: Optional[float]
     ci95_half_width_ms: Optional[float]
 
+_ANSI_RE = re.compile(
+    r"\x1b(?:"
+    r"\[[0-9;]*[A-Za-z]"
+    r"|[()][AB012]"
+    r"|[=><78MO]"
+    r"|O[A-D]"
+    r")"
+)
+
 
 class W3Benchmark:
     def __init__(self, args: argparse.Namespace) -> None:
@@ -93,6 +103,25 @@ class W3Benchmark:
     def _token(self, protocol: str, workload: str, round_id: int, sample_id: int) -> str:
         rand = "".join(random.choices(string.ascii_uppercase + string.digits, k=8))
         return f"__W3TOK__{protocol}__{workload}__r{round_id}__s{sample_id}__{rand}__"
+
+    def _wait_for_token(self, child: pexpect.spawn, token: str) -> int:
+        buf = ""
+        deadline = time.monotonic() + self.args.timeout
+        while time.monotonic() < deadline:
+            remaining = max(0.05, deadline - time.monotonic())
+            try:
+                chunk = child.read_nonblocking(size=4096, timeout=min(remaining, 0.2))
+                buf += _ANSI_RE.sub("", chunk)
+                if token in buf:
+                    return time.perf_counter_ns()
+            except pexpect.TIMEOUT:
+                continue
+            except pexpect.EOF:
+                raise
+        raise pexpect.TIMEOUT(
+            f"Token not found after {self.args.timeout}s (ANSI-stripped).\n"
+            f"Stripped buf tail: {buf[-200:]!r}"
+        )
 
     def _session_command(self, protocol: str) -> str:
         host = self.args.host
@@ -182,8 +211,7 @@ class W3Benchmark:
         child.expect([r"-- INSERT --", r"INSERT"], timeout=self.args.timeout)
         start_ns = time.perf_counter_ns()
         child.send(token)
-        child.expect_exact(token)
-        end_ns = time.perf_counter_ns()
+        end_ns = self._wait_for_token(child, token)
         child.send("\x1b")
         child.sendline(":q!")
         child.expect_exact(self.args.prompt)
@@ -195,8 +223,7 @@ class W3Benchmark:
         child.expect([r"GNU nano", r"\^G Help"], timeout=self.args.timeout)
         start_ns = time.perf_counter_ns()
         child.send(token)
-        child.expect_exact(token)
-        end_ns = time.perf_counter_ns()
+        end_ns = self._wait_for_token(child, token)
         child.sendcontrol("x")
         child.send("n")
         child.expect_exact(self.args.prompt)
