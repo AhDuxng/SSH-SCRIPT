@@ -160,20 +160,21 @@ class W3Benchmark5Pane:
         child.expect_exact(self.args.prompt, timeout=self.args.timeout)
 
     def _start_tmux_session(self, child: pexpect.spawn) -> None:
-        """Kill any existing tmux session and start a fresh 5-pane one."""
         session = self.args.tmux_session
         child.sendline(f"tmux kill-session -t {shlex.quote(session)} 2>/dev/null || true")
         child.expect_exact(self.args.prompt, timeout=self.args.timeout)
         child.sendline(
-            f"bash {shlex.quote(self.args.remote_tmux_setup)} {shlex.quote(session)} "
-            f">/tmp/w3_5pane_tmux.log 2>&1 &"
+            f"NO_ATTACH=1 setsid bash {shlex.quote(self.args.remote_tmux_setup)}"
+            f" {shlex.quote(session)}"
+            f" </dev/null >/tmp/w3_5pane_tmux.log 2>&1 &"
         )
         child.expect_exact(self.args.prompt, timeout=self.args.timeout)
         print(f"[tmux] Waiting for 5-pane session '{session}' to be ready…")
         deadline = time.monotonic() + PANE0_SETUP_TIMEOUT
         while time.monotonic() < deadline:
             child.sendline(
-                f"tmux has-session -t {shlex.quote(session)} 2>/dev/null && echo __SESS_OK__ || echo __SESS_WAIT__"
+                f"tmux has-session -t {shlex.quote(session)} 2>/dev/null"
+                f" && echo __SESS_OK__ || echo __SESS_WAIT__"
             )
             child.expect_exact(self.args.prompt, timeout=self.args.timeout)
             if "__SESS_OK__" in child.before:

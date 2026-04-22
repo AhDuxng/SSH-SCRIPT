@@ -74,6 +74,10 @@ echo "  Pane 2 → burst      (~750 lines/s)"
 echo "  Pane 3 → ls-loop    (~clear+list every 0.4 s)"
 echo "  Pane 4 → log-writer (~20 events/s) + tail -f"
 echo ""
-echo "Attaching to session..."
 
-exec tmux attach -t "$SESSION"
+if [ -z "${NO_ATTACH:-}" ]; then
+    echo "Attaching to session..."
+    exec tmux attach -t "$SESSION"
+else
+    echo "[tmux] NO_ATTACH=1: session running detached."
+fi
