@@ -35,8 +35,8 @@ ANSI_STRIP_RE = re.compile(
 )
 
 W2_PUSH_INTERVAL_S: float = 1.0   
-W2_FRAME_LINES: int = 24         
-W2_LINE_WIDTH: int = 75          
+W2_FRAME_LINES: int = 24          
+W2_LINE_WIDTH: int = 75    
 
 
 class Benchmark:
@@ -450,11 +450,8 @@ class Benchmark:
         "width    = int(os.environ.get('W2_WIDTH',    '75'))\n"
         "chars    = string.ascii_letters + string.digits + ' '\n"
         "lines    = [''.join(random.choices(chars, k=width)) for _ in range(nlines)]\n"
-        # Signal that the helper is ready before entering the push loop.
         "sys.stdout.write('W2READY\\n')\n"
         "sys.stdout.flush()\n"
-        # Push loop: one frame per interval.  Honour W2EXIT on stdin
-        # without blocking the push (non-blocking stdin check).
         "import selectors\n"
         "sel = selectors.DefaultSelector()\n"
         "sel.register(sys.stdin, selectors.EVENT_READ)\n"
@@ -467,7 +464,6 @@ class Benchmark:
         "    out.append(f'__W2_END__\\n')\n"
         "    sys.stdout.write(''.join(out))\n"
         "    sys.stdout.flush()\n"
-        # Sleep for the interval while checking stdin every 50 ms.
         "    deadline = time.monotonic() + interval\n"
         "    while time.monotonic() < deadline:\n"
         "        wait = max(0, min(0.05, deadline - time.monotonic()))\n"
@@ -545,22 +541,67 @@ class Benchmark:
                 if marker in line:
                     return line
 
+    _W2_FRAME_RE = re.compile(
+        r"__W2_HDR__\s+(\d+).*?__W2_END__",
+        re.DOTALL,
+    )
+
     def _collect_w2_frame(
         self,
         child: pexpect.spawn,
         timeout_s: float,
     ) -> Tuple[int, float]:
-        hdr_line = self._wait_marker_via_stream(child, "__W2_HDR__", timeout_s)
-        try:
-            t_sent_ns = int(hdr_line.strip().split()[-1])
-        except (ValueError, IndexError) as exc:
-            raise RuntimeError(f"Malformed W2 header: {hdr_line!r}") from exc
+        deadline = time.monotonic() + timeout_s
+        raw_parts: List[str] = []
+        max_chars = 131072
 
-        self._wait_marker_via_stream(child, "__W2_END__", timeout_s)
-        t_recv_ns = time.perf_counter_ns()
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                clean_dump = self._strip_ansi("".join(raw_parts))[-600:]
+                raise pexpect.TIMEOUT(
+                    f"W2 frame not received within {timeout_s:.1f}s. "
+                    f"Buffer tail: {clean_dump!r}"
+                )
 
-        latency_ms = (t_recv_ns - t_sent_ns) / 1e6
-        return t_sent_ns, latency_ms
+            try:
+                chunk = child.read_nonblocking(
+                    size=4096,
+                    timeout=min(0.002, max(0.001, remaining)),
+                )
+            except pexpect.TIMEOUT:
+                continue
+            except pexpect.EOF as exc:
+                raise SessionOpenError(
+                    f"EOF while waiting for W2 frame. {self._buf(child)}"
+                ) from exc
+
+            if not chunk:
+                continue
+
+            raw_parts.append(chunk)
+            total = sum(len(x) for x in raw_parts)
+            if total > max_chars:
+                raw_parts = ["".join(raw_parts)[-max_chars:]]
+
+            clean = self._strip_ansi("".join(raw_parts))
+
+            m = self._W2_FRAME_RE.search(clean)
+            if m:
+                t_recv_ns = time.perf_counter_ns()
+                try:
+                    t_sent_ns = int(m.group(1))
+                except ValueError as exc:
+                    raise RuntimeError(
+                        f"Malformed W2 header timestamp: {m.group(1)!r}"
+                    ) from exc
+
+                consumed = m.end()
+                remainder = clean[consumed:]
+                raw_parts = [remainder] if remainder else []
+
+                latency_ms = (t_recv_ns - t_sent_ns) / 1e6
+                return t_sent_ns, latency_ms
 
     def _measure_screen_update_latency(
         self,
