@@ -162,14 +162,6 @@ class W3Benchmark:
             except Exception:
                 pass
 
-    def _wait_for_token(self, child: pexpect.spawn, token: str) -> int:
-        """Wait until token appears in output; return perf_counter_ns at that moment."""
-        child.expect_exact(token, timeout=self.args.timeout)
-        return time.perf_counter_ns()
-
-    def _wait_for_prompt(self, child: pexpect.spawn) -> None:
-        child.expect_exact(self.args.prompt, timeout=self.args.timeout)
-
     def _measure_interactive_shell(self, child: pexpect.spawn, token: str) -> float:
         cmd = (
             "bash -lc 'IFS= read -r line; "
@@ -191,7 +183,7 @@ class W3Benchmark:
         start_ns = time.perf_counter_ns()
         child.send(token)
         end_ns = self._wait_for_token(child, token)
-        child.buffer = ""  
+        child.buffer = ""  # clear buffered editor output before exiting
         child.send("\x1b")
         child.sendline(":q!")
         self._wait_for_prompt(child)
@@ -200,35 +192,14 @@ class W3Benchmark:
     def _measure_nano(self, child: pexpect.spawn, token: str) -> float:
         remote_file = self.args.remote_nano_file
         child.sendline(f"nano --ignorercfiles {shlex.quote(remote_file)}")
-        child.expect(
-            [r"GNU nano", r"\^X Exit", r"\^X"],
-            timeout=self.args.timeout,
-        )
-
-        time.sleep(0.15)
-        child.buffer = ""
-
+        child.expect([r"GNU nano", r"\^G Help"], timeout=self.args.timeout)
         start_ns = time.perf_counter_ns()
         child.send(token)
         end_ns = self._wait_for_token(child, token)
-        child.buffer = "" 
+        child.buffer = ""  # clear buffered editor output before exiting
         child.sendcontrol("x")
-        idx = child.expect(
-            [r"Save modified", r"save modified", self.args.prompt, pexpect.TIMEOUT],
-            timeout=self.args.timeout,
-        )
-        if idx in (0, 1):
-            child.send("n")
-            self._wait_for_prompt(child)
-        elif idx == 2:
-            pass
-        else:
-            child.send("n")
-            try:
-                self._wait_for_prompt(child)
-            except (pexpect.TIMEOUT, pexpect.EOF):
-                pass
-
+        child.send("n")
+        self._wait_for_prompt(child)
         return (end_ns - start_ns) / 1_000_000.0
 
     def _run_sample(self, child: pexpect.spawn, protocol: str, workload: str, round_id: int, sample_id: int) -> None:
