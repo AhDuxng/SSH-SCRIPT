@@ -78,16 +78,6 @@ class SummaryRow:
     max_ms: Optional[float]
     ci95_half_width_ms: Optional[float]
 
-_ANSI_RE = re.compile(
-    r"\x1b(?:"
-    r"\[[0-9;]*[A-Za-z]"
-    r"|[()][AB012]"
-    r"|[=><78MO]"
-    r"|O[A-D]"
-    r")"
-)
-
-
 class W3Benchmark:
     def __init__(self, args: argparse.Namespace) -> None:
         self.args = args
@@ -104,47 +94,6 @@ class W3Benchmark:
         rand = "".join(random.choices(string.ascii_uppercase + string.digits, k=8))
         return f"__W3TOK__{protocol}__{workload}__r{round_id}__s{sample_id}__{rand}__"
 
-    def _wait_for_token(self, child: pexpect.spawn, token: str) -> int:
-        """Read stream chunks, append to child.buffer (so later expect() calls still work),
-        strip ANSI codes, return perf_counter_ns() when token found."""
-        deadline = time.monotonic() + self.args.timeout
-        while time.monotonic() < deadline:
-            remaining = max(0.05, deadline - time.monotonic())
-            try:
-                chunk = child.read_nonblocking(size=4096, timeout=min(remaining, 0.2))
-                child.buffer += chunk  # keep data for subsequent expect() calls
-            except pexpect.TIMEOUT:
-                pass
-            except pexpect.EOF:
-                raise
-            if token in _ANSI_RE.sub("", child.buffer):
-                return time.perf_counter_ns()
-        raise pexpect.TIMEOUT(
-            f"Token not found after {self.args.timeout}s (ANSI-stripped).\n"
-            f"Stripped buf tail: {_ANSI_RE.sub('', child.buffer)[-200:]!r}"
-        )
-
-    def _wait_for_prompt(self, child: pexpect.spawn) -> None:
-        """Wait for shell prompt, stripping ANSI escape codes (Mosh injects cursor codes
-        between '#' and the trailing space, breaking expect_exact)."""
-        prompt = self.args.prompt.rstrip()  # match without trailing space
-        deadline = time.monotonic() + self.args.timeout
-        while time.monotonic() < deadline:
-            remaining = max(0.05, deadline - time.monotonic())
-            try:
-                chunk = child.read_nonblocking(size=4096, timeout=min(remaining, 0.2))
-                child.buffer += chunk
-            except pexpect.TIMEOUT:
-                pass
-            except pexpect.EOF:
-                raise
-            if prompt in _ANSI_RE.sub("", child.buffer):
-                child.buffer = ""  # consumed up to prompt
-                return
-        raise pexpect.TIMEOUT(
-            f"Prompt not found after {self.args.timeout}s (ANSI-stripped).\n"
-            f"Stripped buf tail: {_ANSI_RE.sub('', child.buffer)[-200:]!r}"
-        )
 
     def _session_command(self, protocol: str) -> str:
         host = self.args.host
