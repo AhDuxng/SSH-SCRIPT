@@ -1,6 +1,6 @@
 DEFAULT_PROTOCOLS = ["ssh", "ssh3", "mosh"]
 
-DEFAULT_METRICS   = ["session_setup", "screen_update_latency"]
+DEFAULT_METRICS   = ["session_setup", "screen_latency"]
 DEFAULT_PROMPT    = "__W2PROMPT__"
 DEFAULT_SSH3_PATH = "/ssh3-term"
 

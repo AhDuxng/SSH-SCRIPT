@@ -434,12 +434,6 @@ class Benchmark:
         marker: str,
         timeout_s: float,
     ) -> str:
-        """Wait until a line containing `marker` appears; return that line only.
-
-        FIX-3: Previously returned the entire accumulated buffer, which allowed
-        callers to regex-match stale tokens from earlier samples still present
-        in the buffer. Now scans line-by-line and returns only the matching line.
-        """
         deadline = time.monotonic() + timeout_s
         raw_parts: List[str] = []
         max_chars = 32768
@@ -506,7 +500,6 @@ class Benchmark:
         token = self._token(protocol, trial_id, sample_id)
         timeout_s = float(getattr(self.args, "echo_timeout", self.args.timeout))
 
-        # Clear buffer
         while True:
             try:
                 child.read_nonblocking(size=4096, timeout=0.01)
