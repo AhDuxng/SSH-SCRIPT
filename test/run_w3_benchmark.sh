@@ -7,12 +7,12 @@ SOURCE_IP="192.168.8.100"
 IDENTITY_FILE="$HOME/.ssh/id_rsa" 
 
 # ── Giao thức & workload ──────────────────────────────────────────────────────
-PROTOCOLS="mosh"                          # ssh | ssh3 | mosh  (space-separated)
+PROTOCOLS="ssh ssh3"                          # ssh | ssh3 | mosh  (space-separated)
 WORKLOADS="interactive_shell vim nano"   # interactive_shell | vim | nano
 
 # ── Số vòng đo ───────────────────────────────────────────────────────────────
-ITERATIONS=10          # số sample thực đo (bỏ warmup)
-WARMUP_ROUNDS=5        # số vòng khởi động (không tính kết quả)
+ITERATIONS=100          # số sample thực đo (bỏ warmup)
+WARMUP_ROUNDS=10        # số vòng khởi động (không tính kết quả)
 TIMEOUT=20             # pexpect timeout (giây)
 SEED=42                # random seed để tái hiện kết quả
 
