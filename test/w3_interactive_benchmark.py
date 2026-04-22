@@ -175,6 +175,30 @@ class W3Benchmark:
         child.expect_exact(self.args.prompt)
         return (end_ns - start_ns) / 1_000_000.0
 
+    def _wait_for_token(self, child: pexpect.spawn, token: str) -> int:
+        """Poll pexpect's buffer until *token* appears, then return perf_counter_ns timestamp.
+
+        Using a tight loop avoids the overhead of a second ``expect_exact`` call
+        (which may consume characters the editor still needs to render) and gives
+        a more accurate end-timestamp for editor workloads.
+        """
+        deadline = time.perf_counter_ns() + int(self.args.timeout * 1_000_000_000)
+        while True:
+            # Non-blocking read: fill the internal buffer without blocking
+            try:
+                child.read_nonblocking(size=4096, timeout=0)
+            except (pexpect.TIMEOUT, pexpect.EOF):
+                pass
+            if token in (child.before or "") or token in (child.buffer or ""):
+                return time.perf_counter_ns()
+            if time.perf_counter_ns() > deadline:
+                raise pexpect.TIMEOUT(f"Token not seen within {self.args.timeout}s: {token!r}")
+            time.sleep(0.001)  # 1 ms poll interval
+
+    def _wait_for_prompt(self, child: pexpect.spawn) -> None:
+        """Wait for the configured shell prompt to reappear."""
+        child.expect_exact(self.args.prompt, timeout=self.args.timeout)
+
     def _measure_vim(self, child: pexpect.spawn, token: str) -> float:
         remote_file = self.args.remote_vim_file
         child.sendline(f"vim -Nu NONE -n {shlex.quote(remote_file)}")
