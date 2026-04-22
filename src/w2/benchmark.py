@@ -34,10 +34,6 @@ ANSI_STRIP_RE = re.compile(
     r"|[\r\n\x00\x08]"
 )
 
-W2_PUSH_INTERVAL_S: float = 1.0   
-W2_FRAME_LINES: int = 24          
-W2_LINE_WIDTH: int = 75    
-
 
 class Benchmark:
     def __init__(self, args: object) -> None:
@@ -93,7 +89,12 @@ class Benchmark:
             cmd += ["-I", self.args.source_ip]
         cmd.append(self.args.host)
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
             for line in result.stdout.splitlines():
                 if "time=" in line:
                     for part in line.split():
@@ -407,7 +408,10 @@ class Benchmark:
                 raise pexpect.TIMEOUT(f"ACK not received within {timeout_s:.1f}s: {ack_marker!r}")
 
             try:
-                chunk = child.read_nonblocking(size=4096, timeout=min(0.002, max(0.001, remaining)))
+                chunk = child.read_nonblocking(
+                    size=4096,
+                    timeout=min(0.5, max(0.05, remaining)),
+                )
             except pexpect.TIMEOUT:
                 continue
             except pexpect.EOF as exc:
@@ -423,6 +427,55 @@ class Benchmark:
 
             if ack_marker in self._strip_ansi("".join(raw_parts)):
                 return
+
+    def _wait_marker_via_stream(
+        self,
+        child: pexpect.spawn,
+        marker: str,
+        timeout_s: float,
+    ) -> str:
+        """Wait until a line containing `marker` appears; return that line only.
+
+        FIX-3: Previously returned the entire accumulated buffer, which allowed
+        callers to regex-match stale tokens from earlier samples still present
+        in the buffer. Now scans line-by-line and returns only the matching line.
+        """
+        deadline = time.monotonic() + timeout_s
+        raw_parts: List[str] = []
+        max_chars = 32768
+
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                clean_dump = self._strip_ansi("".join(raw_parts))[-500:]
+                raise pexpect.TIMEOUT(
+                    f"Marker not received within {timeout_s:.1f}s: {marker!r}. "
+                    f"Buffer end: {clean_dump!r}"
+                )
+
+            try:
+                chunk = child.read_nonblocking(
+                    size=4096,
+                    timeout=min(0.5, max(0.05, remaining)),
+                )
+            except pexpect.TIMEOUT:
+                continue
+            except pexpect.EOF as exc:
+                raise SessionOpenError(f"EOF while waiting for marker. {self._buf(child)}") from exc
+
+            if not chunk:
+                continue
+
+            raw_parts.append(chunk)
+            total = sum(len(x) for x in raw_parts)
+            if total > max_chars:
+                raw_parts = ["".join(raw_parts)[-max_chars:]]
+
+            # FIX-3: scan line-by-line to return only the matching line.
+            clean = self._strip_ansi("".join(raw_parts))
+            for line in clean.splitlines():
+                if marker in line:
+                    return line
 
     def _measure_echo(
         self,
@@ -443,166 +496,6 @@ class Benchmark:
 
         return token, (t1 - t0) / 1e6
 
-    _W2_SERVER_SCRIPT = (
-        "import sys, time, string, random, os\n"
-        "interval = float(os.environ.get('W2_INTERVAL', '1.0'))\n"
-        "nlines   = int(os.environ.get('W2_LINES',    '24'))\n"
-        "width    = int(os.environ.get('W2_WIDTH',    '75'))\n"
-        "chars    = string.ascii_letters + string.digits + ' '\n"
-        "lines    = [''.join(random.choices(chars, k=width)) for _ in range(nlines)]\n"
-        "sys.stdout.write('W2READY\\n')\n"
-        "sys.stdout.flush()\n"
-        "import selectors\n"
-        "sel = selectors.DefaultSelector()\n"
-        "sel.register(sys.stdin, selectors.EVENT_READ)\n"
-        "while True:\n"
-        "    t_sent = time.perf_counter_ns()\n"
-        "    random.shuffle(lines)\n"
-        "    out = []\n"
-        "    out.append(f'__W2_HDR__ {t_sent}\\n')\n"
-        "    out.extend(l + '\\n' for l in lines)\n"
-        "    out.append(f'__W2_END__\\n')\n"
-        "    sys.stdout.write(''.join(out))\n"
-        "    sys.stdout.flush()\n"
-        "    deadline = time.monotonic() + interval\n"
-        "    while time.monotonic() < deadline:\n"
-        "        wait = max(0, min(0.05, deadline - time.monotonic()))\n"
-        "        ready = sel.select(timeout=wait)\n"
-        "        if ready:\n"
-        "            cmd = sys.stdin.readline().strip()\n"
-        "            if cmd == 'W2EXIT':\n"
-        "                sys.stdout.write('W2BYE\\n')\n"
-        "                sys.stdout.flush()\n"
-        "                sel.close()\n"
-        "                sys.exit(0)\n"
-    )
-
-    def _start_w2_helper(self, child: pexpect.spawn) -> None:
-        """Launch the W2 push helper on the remote and wait for W2READY."""
-        env = (
-            f"W2_INTERVAL={W2_PUSH_INTERVAL_S} "
-            f"W2_LINES={W2_FRAME_LINES} "
-            f"W2_WIDTH={W2_LINE_WIDTH} "
-        )
-        cmd = f"{env}python3 -u -c {shlex.quote(self._W2_SERVER_SCRIPT)}"
-        child.sendline(cmd)
-        self._wait_marker_via_stream(child, "W2READY", timeout_s=self.args.timeout)
-
-    def _stop_w2_helper(self, child: pexpect.spawn) -> None:
-        """Cleanly stop the W2 push helper and return to the shell prompt."""
-        try:
-            child.sendline("W2EXIT")
-            self._wait_marker_via_stream(child, "W2BYE", timeout_s=self.args.timeout)
-            self._expect_literal(child, self.args.prompt, timeout=self.args.timeout)
-        except Exception:
-            pass
-
-    def _wait_marker_via_stream(
-        self,
-        child: pexpect.spawn,
-        marker: str,
-        timeout_s: float,
-    ) -> str:
-        deadline = time.monotonic() + timeout_s
-        raw_parts: List[str] = []
-        max_chars = 65536
-
-        while True:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                clean_dump = self._strip_ansi("".join(raw_parts))[-500:]
-                raise pexpect.TIMEOUT(
-                    f"Marker not received within {timeout_s:.1f}s: {marker!r}. "
-                    f"Buffer tail: {clean_dump!r}"
-                )
-
-            try:
-                chunk = child.read_nonblocking(
-                    size=4096,
-                    timeout=min(0.002, max(0.001, remaining)),
-                )
-            except pexpect.TIMEOUT:
-                continue
-            except pexpect.EOF as exc:
-                raise SessionOpenError(
-                    f"EOF while waiting for marker {marker!r}. {self._buf(child)}"
-                ) from exc
-
-            if not chunk:
-                continue
-
-            raw_parts.append(chunk)
-            total = sum(len(x) for x in raw_parts)
-            if total > max_chars:
-                raw_parts = ["".join(raw_parts)[-max_chars:]]
-
-            clean = self._strip_ansi("".join(raw_parts))
-            for line in clean.splitlines():
-                if marker in line:
-                    return line
-
-    _W2_FRAME_RE = re.compile(
-        r"__W2_HDR__\s+(\d+).*?__W2_END__",
-        re.DOTALL,
-    )
-
-    def _collect_w2_frame(
-        self,
-        child: pexpect.spawn,
-        timeout_s: float,
-    ) -> Tuple[int, float]:
-        deadline = time.monotonic() + timeout_s
-        raw_parts: List[str] = []
-        max_chars = 131072
-
-        while True:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                clean_dump = self._strip_ansi("".join(raw_parts))[-600:]
-                raise pexpect.TIMEOUT(
-                    f"W2 frame not received within {timeout_s:.1f}s. "
-                    f"Buffer tail: {clean_dump!r}"
-                )
-
-            try:
-                chunk = child.read_nonblocking(
-                    size=4096,
-                    timeout=min(0.002, max(0.001, remaining)),
-                )
-            except pexpect.TIMEOUT:
-                continue
-            except pexpect.EOF as exc:
-                raise SessionOpenError(
-                    f"EOF while waiting for W2 frame. {self._buf(child)}"
-                ) from exc
-
-            if not chunk:
-                continue
-
-            raw_parts.append(chunk)
-            total = sum(len(x) for x in raw_parts)
-            if total > max_chars:
-                raw_parts = ["".join(raw_parts)[-max_chars:]]
-
-            clean = self._strip_ansi("".join(raw_parts))
-
-            m = self._W2_FRAME_RE.search(clean)
-            if m:
-                t_recv_ns = time.perf_counter_ns()
-                try:
-                    t_sent_ns = int(m.group(1))
-                except ValueError as exc:
-                    raise RuntimeError(
-                        f"Malformed W2 header timestamp: {m.group(1)!r}"
-                    ) from exc
-
-                consumed = m.end()
-                remainder = clean[consumed:]
-                raw_parts = [remainder] if remainder else []
-
-                latency_ms = (t_recv_ns - t_sent_ns) / 1e6
-                return t_sent_ns, latency_ms
-
     def _measure_screen_update_latency(
         self,
         child: pexpect.spawn,
@@ -611,11 +504,21 @@ class Benchmark:
         sample_id: int,
     ) -> Tuple[str, float]:
         token = self._token(protocol, trial_id, sample_id)
-        frame_timeout = float(
-            getattr(self.args, "w2_frame_timeout", W2_PUSH_INTERVAL_S * 4)
-        )
-        _t_sent_ns, latency_ms = self._collect_w2_frame(child, frame_timeout)
-        return token, latency_ms
+        timeout_s = float(getattr(self.args, "echo_timeout", self.args.timeout))
+
+        # Clear buffer
+        while True:
+            try:
+                child.read_nonblocking(size=4096, timeout=0.01)
+            except (pexpect.TIMEOUT, pexpect.EOF):
+                break
+
+        t0 = time.perf_counter_ns()
+        child.sendline(f"W2PULL {token}")
+        self._wait_marker_via_stream(child, f"__W2_END__ {token}", timeout_s)
+        t1 = time.perf_counter_ns()
+
+        return token, (t1 - t0) / 1e6
 
     def _run_protocol(self, protocol: str) -> None:
         for trial_id in range(1, self.args.trials + 1):
@@ -627,7 +530,6 @@ class Benchmark:
             child: Optional[pexpect.spawn] = None
             ack_prefix: Optional[str] = None
             bye_marker: Optional[str] = None
-            w2_running: bool = False
             setup_ok = False
 
             try:
@@ -637,57 +539,61 @@ class Benchmark:
                 print(f"[{protocol:>4}/setup      ] trial {trial_id:>2}:  OK  {setup_ms:.1f} ms")
 
                 if "screen_latency" in self.args.metrics:
-                    self._start_w2_helper(child)
-                    w2_running = True
+                    script = (
+                        "import sys\n"
+                        "pay = 'X' * 2000\n"
+                        "row = 1\n"
+                        "print('W2READY', flush=True)\n"
+                        "for line in sys.stdin:\n"
+                        "    line = line.strip()\n"
+                        "    if line.startswith('W2PULL'):\n"
+                        "        tok = line.split()[1]\n"
+                        "        print(f'__W2_START__ {tok}')\n"
+                        "        print(pay)\n"
+                        "        row = (row % 40) + 1\n"
+                        "        sys.stdout.write(f'\\033[2J\\033[{row};1H__W2_END__ {tok}\\n'); sys.stdout.flush()\n"
+                        "    elif line == 'W2EXIT':\n"
+                        "        print('W2BYE', flush=True)\n"
+                        "        break\n"
+                    )
+                    child.sendline(f"python3 -u -c {shlex.quote(script)}")
+                    self._wait_marker_via_stream(child, "W2READY", self.args.timeout)
 
                     total_iterations = self.args.warmup_samples + self.args.samples_per_trial
-
                     for i in range(1, total_iterations + 1):
                         is_warmup = (i <= self.args.warmup_samples)
                         sid = -i if is_warmup else i - self.args.warmup_samples
                         phase = "warm" if is_warmup else "meas"
                         try:
-                            tok, lat = self._measure_screen_update_latency(
-                                child, protocol, trial_id, sid
-                            )
-                            self._record_ok(
-                                protocol, "screen_latency", trial_id, sid, is_warmup, tok, lat
-                            )
+                            tok, lat = self._measure_screen_update_latency(child, protocol, trial_id, sid)
+                            self._record_ok(protocol, "screen_latency", trial_id, sid, is_warmup, tok, lat)
                             print(f"[{protocol:>4}/scrn {phase} {abs(sid):>3}]  {lat:.2f} ms")
                         except Exception as exc:
-                            self._record_fail(
-                                protocol, "screen_latency", trial_id, sid, is_warmup, exc, child
-                            )
-                            print(
-                                f"[{protocol:>4}/scrn {phase} {abs(sid):>3}     ]  FAIL  "
-                                f"{type(exc).__name__}: {exc}"
-                            )
+                            self._record_fail(protocol, "screen_latency", trial_id, sid, is_warmup, exc, child)
+                            print(f"[{protocol:>4}/scrn {phase} {abs(sid):>3}     ]  FAIL  {type(exc).__name__}: {exc}")
                             if not self.args.reopen_on_failure:
                                 raise
                             break
 
-                    self._stop_w2_helper(child)
-                    w2_running = False
+                    try:
+                        child.sendline("W2EXIT")
+                        self._wait_marker_via_stream(child, "W2BYE", 2.0)
+                        self._expect_literal(child, self.args.prompt, timeout=self.args.timeout)
+                    except Exception:
+                        pass
 
                 if "line_echo" in self.args.metrics:
                     ack_prefix, bye_marker = self._start_helper(child, protocol, trial_id)
-
                     for i in range(1, self.args.warmup_samples + 1):
                         sid = -i
                         try:
                             tok, lat = self._measure_echo(child, protocol, trial_id, sid, ack_prefix)
                             self._record_ok(protocol, "line_echo", trial_id, sid, True, tok, lat)
-                            print(
-                                f"[{protocol:>4}/echo warm {i:>3}/{self.args.warmup_samples}]"
-                                f"  {lat:.2f} ms"
-                            )
+                            print(f"[{protocol:>4}/echo warm {i:>3}/{self.args.warmup_samples}]  {lat:.2f} ms")
                         except Exception as exc:
-                            self._record_fail(
-                                protocol, "line_echo", trial_id, sid, True, exc, child
-                            )
+                            self._record_fail(protocol, "line_echo", trial_id, sid, True, exc, child)
                             print(
-                                f"[{protocol:>4}/echo warm {i:>3}     ]  FAIL  "
-                                f"{type(exc).__name__}: {exc}"
+                                f"[{protocol:>4}/echo warm {i:>3}     ]  FAIL  {type(exc).__name__}: {exc}"
                             )
                             if not self.args.reopen_on_failure:
                                 raise
@@ -697,17 +603,11 @@ class Benchmark:
                         try:
                             tok, lat = self._measure_echo(child, protocol, trial_id, sid, ack_prefix)
                             self._record_ok(protocol, "line_echo", trial_id, sid, False, tok, lat)
-                            print(
-                                f"[{protocol:>4}/echo meas {sid:>3}/{self.args.samples_per_trial}]"
-                                f"  {lat:.2f} ms"
-                            )
+                            print(f"[{protocol:>4}/echo meas {sid:>3}/{self.args.samples_per_trial}]  {lat:.2f} ms")
                         except Exception as exc:
-                            self._record_fail(
-                                protocol, "line_echo", trial_id, sid, False, exc, child
-                            )
+                            self._record_fail(protocol, "line_echo", trial_id, sid, False, exc, child)
                             print(
-                                f"[{protocol:>4}/echo meas {sid:>3}     ]  FAIL  "
-                                f"{type(exc).__name__}: {exc}"
+                                f"[{protocol:>4}/echo meas {sid:>3}     ]  FAIL  {type(exc).__name__}: {exc}"
                             )
                             if not self.args.reopen_on_failure:
                                 raise
@@ -717,17 +617,11 @@ class Benchmark:
                 if not setup_ok:
                     self._record_fail(protocol, "session_setup", trial_id, 1, False, exc, child)
                     print(
-                        f"[{protocol:>4}/setup      ] trial {trial_id:>2}:  FAIL  "
-                        f"{type(exc).__name__}: {exc}"
+                        f"[{protocol:>4}/setup      ] trial {trial_id:>2}:  FAIL  {type(exc).__name__}: {exc}"
                     )
 
             finally:
                 if child is not None:
-                    if w2_running:
-                        try:
-                            self._stop_w2_helper(child)
-                        except Exception:
-                            pass
                     if bye_marker is not None:
                         try:
                             self._stop_helper(child, bye_marker)
@@ -771,10 +665,7 @@ class Benchmark:
         rate = 100.0 * n / total if total else 0.0
 
         if n == 0:
-            return SummaryRow(
-                protocol, metric, 0, failures, rate,
-                None, None, None, None, None, None, None, None,
-            )
+            return SummaryRow(protocol, metric, 0, failures, rate, None, None, None, None, None, None, None, None)
 
         mean = statistics.mean(data)
         median = statistics.median(data)
@@ -840,9 +731,6 @@ class Benchmark:
                 "warmup_samples": self.args.warmup_samples,
                 "timeout_sec": self.args.timeout,
                 "echo_timeout_sec": getattr(self.args, "echo_timeout", self.args.timeout),
-                "w2_push_interval_s": W2_PUSH_INTERVAL_S,
-                "w2_frame_lines": W2_FRAME_LINES,
-                "w2_line_width": W2_LINE_WIDTH,
                 "pty_cols": self.args.pty_cols,
                 "pty_rows": self.args.pty_rows,
                 "random_seed": self.args.seed,
@@ -862,23 +750,20 @@ class Benchmark:
                         "Time-to-usable-shell from pexpect.spawn() to a configured, ready shell."
                     ),
                     "screen_latency_ms": (
-                        "W2 push-model: one-way delivery latency of a full screen frame "
-                        f"({W2_FRAME_LINES} lines × {W2_LINE_WIDTH} chars) pushed at "
-                        f"{W2_PUSH_INTERVAL_S}s intervals. "
-                        "Measured as (t_recv_client − t_sent_server) using perf_counter_ns on "
-                        "each side.  Requires NTP-synchronised clocks; clock-skew is the "
-                        "dominant error source, not polling jitter (≤ 2 ms)."
+                        "Agent continuous monitoring: Time to deliver a 2000-byte screen update block over the network. "
+                        "Measures the network latency for transferring full screen blocks like top or tail -f."
                     ),
                     "line_echo_ms": (
                         "Application-level terminal RTT from sendline(token) to ACK receipt."
                     ),
                     "success_rate_pct_note": (
                         "Denominator is max(budget, n + recorded_failures) to avoid inflation "
-                        "when reopen-on-failure retries exceed the original budget."
+                        "when reopen-on-failure retries exceed the original budget. "
+                        "Missing observations count as non-success."
                     ),
                     "stdev_ms_note": "Sample standard deviation (statistics.stdev, ddof=1).",
                     "ping_rtt_ms": (
-                        "ICMP baseline covariate; not directly comparable to line_echo_ms."
+                        "ICMP baseline covariate with optional source binding; not directly comparable to line_echo_ms."
                     ),
                 },
                 "skipped_protocols": self.protocol_skip_reasons,
@@ -919,24 +804,16 @@ class Benchmark:
         spath = out / "samples.csv"
         with spath.open("w", newline="", encoding="utf-8") as f:
             w = csv.writer(f)
-            w.writerow(["protocol", "metric", "trial_id", "sample_id",
-                        "is_warmup", "token", "latency_ms"])
+            w.writerow(["protocol", "metric", "trial_id", "sample_id", "is_warmup", "token", "latency_ms"])
             for r in self.records:
-                w.writerow([
-                    r.protocol, r.metric, r.trial_id, r.sample_id,
-                    r.is_warmup, r.token, f"{r.latency_ms:.6f}",
-                ])
+                w.writerow([r.protocol, r.metric, r.trial_id, r.sample_id, r.is_warmup, r.token, f"{r.latency_ms:.6f}"])
 
         fpath = out / "failures.csv"
         with fpath.open("w", newline="", encoding="utf-8") as f:
             w = csv.writer(f)
-            w.writerow(["protocol", "metric", "trial_id", "sample_id",
-                        "is_warmup", "error_type", "error_message"])
+            w.writerow(["protocol", "metric", "trial_id", "sample_id", "is_warmup", "error_type", "error_message"])
             for r in self.failures:
-                w.writerow([
-                    r.protocol, r.metric, r.trial_id, r.sample_id,
-                    r.is_warmup, r.error_type, r.error_message,
-                ])
+                w.writerow([r.protocol, r.metric, r.trial_id, r.sample_id, r.is_warmup, r.error_type, r.error_message])
 
         ppath = out / "ping_rtts.csv"
         with ppath.open("w", newline="", encoding="utf-8") as f:
