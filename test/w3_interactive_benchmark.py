@@ -105,22 +105,45 @@ class W3Benchmark:
         return f"__W3TOK__{protocol}__{workload}__r{round_id}__s{sample_id}__{rand}__"
 
     def _wait_for_token(self, child: pexpect.spawn, token: str) -> int:
-        buf = ""
+        """Read stream chunks, append to child.buffer (so later expect() calls still work),
+        strip ANSI codes, return perf_counter_ns() when token found."""
         deadline = time.monotonic() + self.args.timeout
         while time.monotonic() < deadline:
             remaining = max(0.05, deadline - time.monotonic())
             try:
                 chunk = child.read_nonblocking(size=4096, timeout=min(remaining, 0.2))
-                buf += _ANSI_RE.sub("", chunk)
-                if token in buf:
-                    return time.perf_counter_ns()
+                child.buffer += chunk  # keep data for subsequent expect() calls
             except pexpect.TIMEOUT:
-                continue
+                pass
             except pexpect.EOF:
                 raise
+            if token in _ANSI_RE.sub("", child.buffer):
+                return time.perf_counter_ns()
         raise pexpect.TIMEOUT(
             f"Token not found after {self.args.timeout}s (ANSI-stripped).\n"
-            f"Stripped buf tail: {buf[-200:]!r}"
+            f"Stripped buf tail: {_ANSI_RE.sub('', child.buffer)[-200:]!r}"
+        )
+
+    def _wait_for_prompt(self, child: pexpect.spawn) -> None:
+        """Wait for shell prompt, stripping ANSI escape codes (Mosh injects cursor codes
+        between '#' and the trailing space, breaking expect_exact)."""
+        prompt = self.args.prompt.rstrip()  # match without trailing space
+        deadline = time.monotonic() + self.args.timeout
+        while time.monotonic() < deadline:
+            remaining = max(0.05, deadline - time.monotonic())
+            try:
+                chunk = child.read_nonblocking(size=4096, timeout=min(remaining, 0.2))
+                child.buffer += chunk
+            except pexpect.TIMEOUT:
+                pass
+            except pexpect.EOF:
+                raise
+            if prompt in _ANSI_RE.sub("", child.buffer):
+                child.buffer = ""  # consumed up to prompt
+                return
+        raise pexpect.TIMEOUT(
+            f"Prompt not found after {self.args.timeout}s (ANSI-stripped).\n"
+            f"Stripped buf tail: {_ANSI_RE.sub('', child.buffer)[-200:]!r}"
         )
 
     def _session_command(self, protocol: str) -> str:
@@ -212,9 +235,10 @@ class W3Benchmark:
         start_ns = time.perf_counter_ns()
         child.send(token)
         end_ns = self._wait_for_token(child, token)
+        child.buffer = ""  # clear buffered editor output before exiting
         child.send("\x1b")
         child.sendline(":q!")
-        child.expect_exact(self.args.prompt)
+        self._wait_for_prompt(child)
         return (end_ns - start_ns) / 1_000_000.0
 
     def _measure_nano(self, child: pexpect.spawn, token: str) -> float:
@@ -224,9 +248,10 @@ class W3Benchmark:
         start_ns = time.perf_counter_ns()
         child.send(token)
         end_ns = self._wait_for_token(child, token)
+        child.buffer = ""  # clear buffered editor output before exiting
         child.sendcontrol("x")
         child.send("n")
-        child.expect_exact(self.args.prompt)
+        self._wait_for_prompt(child)
         return (end_ns - start_ns) / 1_000_000.0
 
     def _run_sample(self, child: pexpect.spawn, protocol: str, workload: str, round_id: int, sample_id: int) -> None:
