@@ -20,6 +20,7 @@ import csv
 import json
 import math
 import random
+import re
 import shlex
 import statistics
 import string
@@ -29,6 +30,10 @@ from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
+
+# Regex fragment matching zero or more ANSI escape sequences (CSI + ESC single-char).
+# Used to build expect patterns that tolerate mosh screen-diff interleaving.
+_ANSI_FRAG = r'(?:\x1b\[[0-?]*[ -/]*[@-~]|\x1b[@-Z\\-_])*'
 
 try:
     import pexpect
@@ -189,17 +194,49 @@ class W3Benchmark:
         child.expect_exact(self.args.prompt)
         return (end_ns - start_ns) / 1_000_000.0
 
+    @staticmethod
+    def _ansi_tolerant_pattern(text: str) -> str:
+        """Build a regex that matches *text* with optional ANSI escapes between chars.
+
+        Mosh is a screen-diff protocol: it may insert cursor-movement / SGR
+        sequences in between the characters of the token echo.  A plain
+        ``expect_exact`` therefore fails.  This helper builds a regex that
+        tolerates arbitrary ANSI noise between every character while still
+        matching the token content in order.
+        """
+        return _ANSI_FRAG.join(re.escape(c) for c in text)
+
     def _measure_nano(self, child: pexpect.spawn, token: str) -> float:
         remote_file = self.args.remote_nano_file
         child.sendline(f"nano --ignorercfiles {shlex.quote(remote_file)}")
-        child.expect([r"GNU nano", r"\^G Help"], timeout=self.args.timeout)
+        # Wait for nano to fully render — mosh may take extra time
+        time.sleep(1.5)
+        # Drain buffered output so the next expect starts clean
+        try:
+            while child.read_nonblocking(size=4096, timeout=0.1):
+                pass
+        except (pexpect.TIMEOUT, pexpect.EOF):
+            pass
+        # Use ANSI-tolerant regex: mosh screen-diffs interleave escape
+        # sequences inside the echoed token, breaking expect_exact.
+        token_re = self._ansi_tolerant_pattern(token)
         start_ns = time.perf_counter_ns()
         child.send(token)
-        child.expect_exact(token)
+        child.expect(token_re, timeout=self.args.timeout)
         end_ns = time.perf_counter_ns()
+        # Exit nano: Ctrl-X, wait, then 'n' to discard changes
         child.sendcontrol("x")
+        time.sleep(0.5)
+        try:
+            while child.read_nonblocking(size=4096, timeout=0.1):
+                pass
+        except (pexpect.TIMEOUT, pexpect.EOF):
+            pass
         child.send("n")
-        child.expect_exact(self.args.prompt)
+        time.sleep(0.3)
+        # Wait for shell prompt — also use ANSI-tolerant pattern for mosh
+        prompt_re = self._ansi_tolerant_pattern(self.args.prompt)
+        child.expect(prompt_re, timeout=self.args.timeout)
         return (end_ns - start_ns) / 1_000_000.0
 
     def _run_sample(self, child: pexpect.spawn, protocol: str, workload: str, round_id: int, sample_id: int) -> None:
@@ -378,8 +415,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="W3 Interactive Editing benchmark")
     p.add_argument("--host", default="192.168.8.102", help="Target host IP or hostname")
     p.add_argument("--user", default="trungnt", help="Remote username")
-    p.add_argument("--source-ip", default="192.168.8.100", help="Client source IP for SSH/Mosh where supported")
-    p.add_argument("--identity-file", default=str(Path.home() / ".ssh" / "id_rsa"), help="SSH private key path")
+    p.add_argument("--source-ip", default=None, help="Client source IP for SSH/Mosh (-b flag); omit for Tailscale")
+    p.add_argument("--identity-file", default=str(Path.home() / ".ssh" / "id_ed25519"), help="SSH private key path")
     p.add_argument("--protocols", nargs="+", default=DEFAULT_PROTOCOLS, choices=DEFAULT_PROTOCOLS)
     p.add_argument("--workloads", nargs="+", default=DEFAULT_WORKLOADS, choices=DEFAULT_WORKLOADS)
     p.add_argument("--iterations", type=int, default=100, help="Recorded samples per protocol/workload")

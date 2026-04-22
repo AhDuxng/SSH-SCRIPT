@@ -1,0 +1,2968 @@
+Warning: Permanently added '100.66.79.93' (ED25519) to the list of known hosts.
+
+
+[?1049h[22;0;0t[?1h[?5l[r[0m[H[2J[?25l[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K[1;1H[?25h[0m[?2004l[?1003l[?1002l[?1001l[?1000l[?1004l[?1015l[?1006l[?1005lLinux raspi 6.12.47+rpt-rpi-2712 #1 SMP PREEMPT Debian 1:6.12.47-1+rpt1 (2025-09-16) aarch64[?25l
+
+The programs included with the Debian GNU/Linux system are free software;
+the exact distribution terms for each program are described in the
+individual files in /usr/share/doc/*/copyright.
+
+Debian GNU/Linux comes with ABSOLUTELY NO WARRANTY, to the extent
+permitted by applicable law.
+[?25h
+printf '__W3PROBE__\n'
+]0;[mosh] pi@raspi: ~[0;1;32mpi@raspi[0m:[0;1;34m~ $[0m printf '__W3PROBE__\n'[?25l
+__W3PROBE__
+[0;1;32mpi@raspi[0m:[0;1;34m~ $[0m [?25h[?2004hunset PROMPT_COMMAND 2>/dev/null || true; bind 'set enable-bracketed-paste off' 2>/dev/null || true; export PS1=__W3PROMPT__; printf '__W3SETUP__\n'[?25l
+__W3SETUP__
+__W3PROMPT__[?25h[?2004lstty -echo -echoctl cols 220 rows 50 2>/dev/null || true[?25l
+__W3PROMPT__[?25h__W3HAS_PY3__[?25l
+__W3PROMPT__[?25hlogout
+]0;pi@raspi: ~[?1l[0m[?25h[?1003l[?1002l[?1001l[?1000l[?1015l[?1006l[?1005l[?1049l[23;0;0t[mosh is exiting.]
+Warning: Permanently added '100.66.79.93' (ED25519) to the list of known hosts.
+
+
+[?1049h[22;0;0t[?1h[?5l[r[0m[H[2J[?25l[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K[1;1H[?25h[0m[?2004l[?1003l[?1002l[?1001l[?1000l[?1004l[?1015l[?1006l[?1005lLinux raspi 6.12.47+rpt-rpi-2712 #1 SMP PREEMPT Debian 1:6.12.47-1+rpt1 (2025-09-16) aarch64[?25l
+
+The programs included with the Debian GNU/Linux system are free software;
+the exact distribution terms for each program are described in the
+individual files in /usr/share/doc/*/copyright.
+
+Debian GNU/Linux comes with ABSOLUTELY NO WARRANTY, to the extent
+permitted by applicable law.
+[?25h
+]0;[mosh] pi@raspi: ~printf '__W3PROBE__\n'[?25l
+[0;1;32mpi@raspi[0m:[0;1;34m~ $[0m printf '__W3PROBE__\n'
+__W3PROBE__
+[0;1;32mpi@raspi[0m:[0;1;34m~ $[0m [?25h[?2004hunset PROMPT_COMMAND 2>/dev/null || true; bind 'set enable-bracketed-paste off' 2>/dev/null || true; export PS1=__W3PROMPT__; printf '__W3SETUP__\n'[?25l
+__W3SETUP__
+__W3PROMPT__[?25h[?2004lstty -echo -echoctl cols 220 rows 50 2>/dev/null || true[?25l
+__W3PROMPT__[?25h> > > > > > > > > > > > > > > > > > > > > W3KRYMO001Z
+__W3KFRAME__W3KEYMO001A0001:56;__W3KFRAME__W3KEYMO001A0002:6b;__W3KFRAME__W3KEYMO001A0003:78;__W3KFRAME__W3KEYMO001A0004:49;__W3KFRAME__W3KEYMO001A0005:4b;__W3KFRAME__W3KEYMO001A0006:6d;__W3KFRAME__W3KEYMO001A0007:67;__[?25l[17;220HW3KFRAME__W3KEYMO001A0008:47;[?25h__W3KFRAME__W3KEYMO001A0009:62;__W3KFRAME__W3KEYMO001A0010:75;__W3KFRAME__W3KEYMO001A0011:45;__W3KFRAME__W3KEYMO001A0012:71;__W3KFRAME__W3KEYMO001A0013:70;__W3KFRAME__W3KEYMO001A0014:46;__W3K[?25l[18;220HFRAME__W3KEYMO001A0015:4e;[?25h__W3KFRAME__W3KEYMO001A0016:48;__W3KFRAME__W3KEYMO001A0017:79;__W3KFRAME__W3KEYMO001A0018:4f;__W3KFRAME__W3KEYMO001A0019:50;__W3KFRAME__W3KEYMO001A0020:65;W3KBYMO001Z[?25l
+__W3PROMPT__[?25hlogout
+]0;pi@raspi: ~[?1l[0m[?25h[?1003l[?1002l[?1001l[?1000l[?1015l[?1006l[?1005l[?1049l[23;0;0t[mosh is exiting.]
+Warning: Permanently added '100.66.79.93' (ED25519) to the list of known hosts.
+
+
+[?1049h[22;0;0t[?1h[?5l[r[0m[H[2J[?25l[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K[1;1H[?25h[0m[?2004l[?1003l[?1002l[?1001l[?1000l[?1004l[?1015l[?1006l[?1005lLinux raspi 6.12.47+rpt-rpi-2712 #1 SMP PREEMPT Debian 1:6.12.47-1+rpt1 (2025-09-16) aarch64[?25l
+
+The programs included with the Debian GNU/Linux system are free software;
+the exact distribution terms for each program are described in the
+individual files in /usr/share/doc/*/copyright.
+
+Debian GNU/Linux comes with ABSOLUTELY NO WARRANTY, to the extent
+permitted by applicable law.
+[?25h
+printf '__W3PROBE__\n'
+]0;[mosh] pi@raspi: ~[0;1;32mpi@raspi[0m:[0;1;34m~ $[0m printf '__W3PROBE__\n'[?25l
+__W3PROBE__
+[0;1;32mpi@raspi[0m:[0;1;34m~ $[0m [?25h[?2004hunset PROMPT_COMMAND 2>/dev/null || true; bind 'set enable-bracketed-paste off' 2>/dev/null || true; export PS1=__W3PROMPT__; printf '__W3SETUP__\n'[?25l
+__W3SETUP__
+__W3PROMPT__[?25h[?2004lstty -echo -echoctl cols 220 rows 50 2>/dev/null || true[?25l
+__W3PROMPT__[?25h> > > > > > > > > > > > > > > > > > > > > W3KRYMO002Z
+__W3KFRAME__W3KEYMO002A0001:75;__W3KFRAME__W3KEYMO002A0002:6d;__W3KFRAME__W3KEYMO002A0003:42;__W3KFRAME__W3KEYMO002A0004:46;__W3KFRAME__W3KEYMO002A0005:6c;__W3KFRAME__W3KEYMO002A0006:42;__W3KFRAME__W3KEYMO002A0007:42;__[?25l[17;220HW3KFRAME__W3KEYMO002A0008:5a;[?25h__W3KFRAME__W3KEYMO002A0009:69;__W3KFRAME__W3KEYMO002A0010:52;__W3KFRAME__W3KEYMO002A0011:75;__W3KFRAME__W3KEYMO002A0012:4a;__W3KFRAME__W3KEYMO002A0013:46;__W3KFRAME__W3KEYMO002A0014:5a;__W3K[?25l[18;220HFRAME__W3KEYMO002A0015:74;[?25h__W3KFRAME__W3KEYMO002A0016:68;__W3KFRAME__W3KEYMO002A0017:44;__W3KFRAME__W3KEYMO002A0018:55;__W3KFRAME__W3KEYMO002A0019:65;__W3KFRAME__W3KEYMO002A0020:6c;W3KBYMO002Z[?25l
+__W3PROMPT__[?25hlogout
+]0;pi@raspi: ~[?1l[0m[?25h[?1003l[?1002l[?1001l[?1000l[?1015l[?1006l[?1005l[?1049l[23;0;0t[mosh is exiting.]
+Warning: Permanently added '100.66.79.93' (ED25519) to the list of known hosts.
+
+
+[?1049h[22;0;0t[?1h[?5l[r[0m[H[2J[?25l[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K[1;1H[?25h[0m[?2004l[?1003l[?1002l[?1001l[?1000l[?1004l[?1015l[?1006l[?1005lLinux raspi 6.12.47+rpt-rpi-2712 #1 SMP PREEMPT Debian 1:6.12.47-1+rpt1 (2025-09-16) aarch64[?25l
+
+The programs included with the Debian GNU/Linux system are free software;
+the exact distribution terms for each program are described in the
+individual files in /usr/share/doc/*/copyright.
+
+Debian GNU/Linux comes with ABSOLUTELY NO WARRANTY, to the extent
+permitted by applicable law.
+[?25h
+]0;[mosh] pi@raspi: ~printf '__W3PROBE__\n'[?25l
+[0;1;32mpi@raspi[0m:[0;1;34m~ $[0m printf '__W3PROBE__\n'
+__W3PROBE__
+[0;1;32mpi@raspi[0m:[0;1;34m~ $[0m [?25h[?2004hunset PROMPT_COMMAND 2>/dev/null || true; bind 'set enable-bracketed-paste off' 2>/dev/null || true; export PS1=__W3PROMPT__; printf '__W3SETUP__\n'[?25l
+__W3SETUP__
+__W3PROMPT__[?25h[?2004lstty -echo -echoctl cols 220 rows 50 2>/dev/null || true[?25l
+__W3PROMPT__[?25h> > > > > > > > > > > > > > > > > > > > > W3KRYMO003Z
+__W3KFRAME__W3KEYMO003A0001:74;__W3KFRAME__W3KEYMO003A0002:66;__W3KFRAME__W3KEYMO003A0003:47;__W3KFRAME__W3KEYMO003A0004:76;__W3KFRAME__W3KEYMO003A0005:4b;__W3KFRAME__W3KEYMO003A0006:49;__W3KFRAME__W3KEYMO003A0007:65;__[?25l[17;220HW3KFRAME__W3KEYMO003A0008:54;[?25h__W3KFRAME__W3KEYMO003A0009:67;__W3KFRAME__W3KEYMO003A0010:79;__W3KFRAME__W3KEYMO003A0011:55;__W3KFRAME__W3KEYMO003A0012:62;__W3KFRAME__W3KEYMO003A0013:73;__W3KFRAME__W3KEYMO003A0014:42;__W3K[?25l[18;220HFRAME__W3KEYMO003A0015:4a;[?25h__W3KFRAME__W3KEYMO003A0016:4e;__W3KFRAME__W3KEYMO003A0017:78;__W3KFRAME__W3KEYMO003A0018:76;__W3KFRAME__W3KEYMO003A0019:75;__W3KFRAME__W3KEYMO003A0020:49;W3KBYMO003Z[?25l
+__W3PROMPT__[?25hlogout
+]0;pi@raspi: ~[?1l[0m[?25h[?1003l[?1002l[?1001l[?1000l[?1015l[?1006l[?1005l[?1049l[23;0;0t[mosh is exiting.]
+Warning: Permanently added '100.66.79.93' (ED25519) to the list of known hosts.
+
+
+[?1049h[22;0;0t[?1h[?5l[r[0m[H[2J[?25l[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K[1;1H[?25h[0m[?2004l[?1003l[?1002l[?1001l[?1000l[?1004l[?1015l[?1006l[?1005lLinux raspi 6.12.47+rpt-rpi-2712 #1 SMP PREEMPT Debian 1:6.12.47-1+rpt1 (2025-09-16) aarch64[?25l
+
+The programs included with the Debian GNU/Linux system are free software;
+the exact distribution terms for each program are described in the
+individual files in /usr/share/doc/*/copyright.
+
+Debian GNU/Linux comes with ABSOLUTELY NO WARRANTY, to the extent
+permitted by applicable law.
+[?25h
+]0;[mosh] pi@raspi: ~printf '__W3PROBE__\n'[?25l
+[0;1;32mpi@raspi[0m:[0;1;34m~ $[0m printf '__W3PROBE__\n'
+__W3PROBE__
+[0;1;32mpi@raspi[0m:[0;1;34m~ $[0m [?25h[?2004hunset PROMPT_COMMAND 2>/dev/null || true; bind 'set enable-bracketed-paste off' 2>/dev/null || true; export PS1=__W3PROMPT__; printf '__W3SETUP__\n'[?25l
+__W3SETUP__
+__W3PROMPT__[?25h[?2004lstty -echo -echoctl cols 220 rows 50 2>/dev/null || true[?25l
+__W3PROMPT__[?25h> > > > > > > > > > > > > > > > > > > > > W3KRYMO004Z
+__W3KFRAME__W3KEYMO004A0001:41;__W3KFRAME__W3KEYMO004A0002:50;__W3KFRAME__W3KEYMO004A0003:4f;__W3KFRAME__W3KEYMO004A0004:53;__W3KFRAME__W3KEYMO004A0005:58;__W3KFRAME__W3KEYMO004A0006:4a;__W3KFRAME__W3KEYMO004A0007:76;__[?25l[17;220HW3KFRAME__W3KEYMO004A0008:45;[?25h__W3KFRAME__W3KEYMO004A0009:73;__W3KFRAME__W3KEYMO004A0010:55;__W3KFRAME__W3KEYMO004A0011:58;__W3KFRAME__W3KEYMO004A0012:71;__W3KFRAME__W3KEYMO004A0013:67;__W3KFRAME__W3KEYMO004A0014:64;__W3K[?25l[18;220HFRAME__W3KEYMO004A0015:6b;[?25h__W3KFRAME__W3KEYMO004A0016:75;__W3KFRAME__W3KEYMO004A0017:63;__W3KFRAME__W3KEYMO004A0018:7a;__W3KFRAME__W3KEYMO004A0019:74;__W3KFRAME__W3KEYMO004A0020:46;W3KBYMO004Z[?25l
+__W3PROMPT__[?25hlogout
+]0;pi@raspi: ~[?1l[0m[?25h[?1003l[?1002l[?1001l[?1000l[?1015l[?1006l[?1005l[?1049l[23;0;0t[mosh is exiting.]
+Warning: Permanently added '100.66.79.93' (ED25519) to the list of known hosts.
+
+
+[?1049h[22;0;0t[?1h[?5l[r[0m[H[2J[?25l[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K[1;1H[?25h[0m[?2004l[?1003l[?1002l[?1001l[?1000l[?1004l[?1015l[?1006l[?1005lLinux raspi 6.12.47+rpt-rpi-2712 #1 SMP PREEMPT Debian 1:6.12.47-1+rpt1 (2025-09-16) aarch64[?25l
+
+The programs included with the Debian GNU/Linux system are free software;
+the exact distribution terms for each program are described in the
+individual files in /usr/share/doc/*/copyright.
+
+Debian GNU/Linux comes with ABSOLUTELY NO WARRANTY, to the extent
+permitted by applicable law.
+[?25h
+printf '__W3PROBE__\n'
+]0;[mosh] pi@raspi: ~[0;1;32mpi@raspi[0m:[0;1;34m~ $[0m printf '__W3PROBE__\n'[?25l
+__W3PROBE__
+[0;1;32mpi@raspi[0m:[0;1;34m~ $[0m [?25h[?2004hunset PROMPT_COMMAND 2>/dev/null || true; bind 'set enable-bracketed-paste off' 2>/dev/null || true; export PS1=__W3PROMPT__; printf '__W3SETUP__\n'[?25l
+__W3SETUP__
+__W3PROMPT__[?25h[?2004lstty -echo -echoctl cols 220 rows 50 2>/dev/null || true[?25l
+__W3PROMPT__[?25h> > > > > > > > > > > > > > > > > > > > > W3KRYMO005Z
+__W3KFRAME__W3KEYMO005A0001:55;__W3KFRAME__W3KEYMO005A0002:57;__W3KFRAME__W3KEYMO005A0003:7a;__W3KFRAME__W3KEYMO005A0004:70;__W3KFRAME__W3KEYMO005A0005:78;__W3KFRAME__W3KEYMO005A0006:54;__W3KFRAME__W3KEYMO005A0007:69;__[?25l[17;220HW3KFRAME__W3KEYMO005A0008:57;[?25h__W3KFRAME__W3KEYMO005A0009:66;__W3KFRAME__W3KEYMO005A0010:47;__W3KFRAME__W3KEYMO005A0011:54;__W3KFRAME__W3KEYMO005A0012:44;__W3KFRAME__W3KEYMO005A0013:61;__W3KFRAME__W3KEYMO005A0014:65;__W3K[?25l[18;220HFRAME__W3KEYMO005A0015:55;[?25h__W3KFRAME__W3KEYMO005A0016:79;__W3KFRAME__W3KEYMO005A0017:49;__W3KFRAME__W3KEYMO005A0018:44;__W3KFRAME__W3KEYMO005A0019:72;__W3KFRAME__W3KEYMO005A0020:62;W3KBYMO005Z
+__W3PROMPT__logout
+]0;pi@raspi: ~[?1l[0m[?25h[?1003l[?1002l[?1001l[?1000l[?1015l[?1006l[?1005l[?1049l[23;0;0t[mosh is exiting.]
+export PS1='__W3_PROMPT__# '
+bash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+__W3TOK__mosh__interactive_shell__r0__s1__NAM148P0__
+Warning: Permanently added '100.66.79.93' (ED25519) to the list of known hosts.
+
+
+[?1049h[22;0;0t[?1h[?5l[r[0m[H[2J[?25l[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K[1;1H[?25h[0m[?2004l[?1003l[?1002l[?1001l[?1000l[?1004l[?1015l[?1006l[?1005l[0;1;37;44mmosh: Nothing received from server on UDP port 60001. [To quit: Ctrl-^ .][0;37;44m       
+[1;1H[?25l[0mLinux raspi 6.12.47+rpt-rpi-2712 #1 SMP PREEMPT Debian 1:6.12.47-1+rpt1 (2025-0[1;80H9-16) aarch64
+
+The programs included with the Debian GNU/Linux system are free software;
+the exact distribution terms for each program are described in the
+individual files in /usr/share/doc/*/copyright.
+
+Debian GNU/Linux comes with ABSOLUTELY NO WARRANTY, to the extent
+permitted by applicable law.
+[?25h]0;[mosh] pi@raspi: ~[?25l
+export PS1='__W3_PROMPT__# '
+bash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+__W3TOK__mosh__interactive_shell__r0__s1__NAM148P0__
+[0;1;32mpi@raspi[0m:[0;1;34m~ $[0m export PS1='__W3_PROMPT__# '
+__W3_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+__W3TOK__mosh__interactive_shell__r0__s1__NAM148P0__
+__W3_PROMPT__# [?25h[?2004hbash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+[?2004l__W3TOK__mosh__interactive_shell__r0__s2__TVHHPBMY__[?25l
+__W3TOK__mosh__interactive_shell__r0__s2__TVHHPBMY__
+__W3_PROMPT__# [?25h[?2004hbash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+[?2004l__W3TOK__mosh__interactive_shell__r0__s3__OFQEWAOU__[?25l
+__W3TOK__mosh__interactive_shell__r0__s3__OFQEWAOU__
+__W3_PROMPT__# [?25h[?2004hbash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+[?2004l[0m[1;22r[?25l[22;1H
+
+[r[21;1H__W3_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+__W3TOK__mosh__interactive_shell__r0__s4__AXEQBNHL__[23;5HTOK__mosh__interactive_shell__r0__s4__AXEQBNHL__[K
+__W3_PROMPT__# [?25h[?2004h[0m[1;23r[?25l[23;1H
+[r[23;1H__W3_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+[K[?25h[?2004l[0m[1;22r[?25l[22;1H
+
+[r[21;1H__W3_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+__W3TOK__mosh__interactive_shell__r0__s5__1N13JCAT__[23;5HTOK__mosh__interactive_shell__r0__s5__1N13JCAT__[K
+__W3_PROMPT__# [?25h[?2004h[0m[1;23r[?25l[23;1H
+[r[23;1H__W3_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+[K[?25h[?2004l[0m[1;23r[?25l[23;1H
+
+[r[22;1H__W3TOK__mosh__interactive_shell__r1__s1__9MX2X18H__
+__W3TOK__mosh__interactive_shell__r1__s1__9MX2X18H__
+__W3_PROMPT__# [?25h[?2004h[0m[1;23r[?25l[23;1H
+[r[23;1H__W3_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+[K[?25h[?2004l[0m[1;22r[?25l[22;1H
+
+[r[21;1H__W3_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+__W3TOK__mosh__interactive_shell__r1__s2__AFEYUHZ1__[23;5HTOK__mosh__interactive_shell__r1__s2__AFEYUHZ1__[K
+__W3_PROMPT__# [?25h[?2004h[0m[1;23r[?25l[23;1H
+[r[23;1H__W3_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+[K[?25h[?2004l[0m[1;23r[?25l[23;1H
+
+[r[22;1H__W3TOK__mosh__interactive_shell__r1__s3__GV0E38DA__
+__W3TOK__mosh__interactive_shell__r1__s3__GV0E38DA__
+__W3_PROMPT__# [?25h[?2004h[0m[1;23r[?25l[23;1H
+[r[23;1H__W3_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+[K[?25h[?2004l[0m[1;22r[?25l[22;1H
+
+[r[21;1H__W3_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+__W3TOK__mosh__interactive_shell__r1__s4__LY8OZCYW__[23;5HTOK__mosh__interactive_shell__r1__s4__LY8OZCYW__[K
+__W3_PROMPT__# [?25h[?2004h[?25l[2;5H_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'[3;5HTOK__mosh__interactive_shell__r0__s3__OFQEWAOU__[K[5;5H_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'[6;5HTOK__mosh__interactive_shell__r0__s4__AXEQBNHL__[K[8;5H_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'[9;5HTOK__mosh__interactive_shell__r0__s5__1N13JCAT__[K[11;5H_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'[12;5HTOK__mosh__interactive_shell__r1__s1__9MX2X18H__[K[14;5H_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'[15;5HTOK__mosh__interactive_shell__r1__s2__AFEYUHZ1__[K[17;5H_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'[18;5HTOK__mosh__interactive_shell__r1__s3__GV0E38DA__[K[20;5H_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'[21;5HTOK__mosh__interactive_shell__r1__s4__LY8OZCYW__[K[23;5H_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+[K[?25h[?2004l[0m[1;4r[?25l[4;1H
+[r[4;1H__W3_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'[5;5HTOK__mosh__interactive_shell__r0__s4__AXEQBNHL__[K[7;5H_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'[8;5HTOK__mosh__interactive_shell__r0__s5__1N13JCAT__[K[10;5H_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'[11;5HTOK__mosh__interactive_shell__r1__s1__9MX2X18H__[K[13;5H_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'[14;5HTOK__mosh__interactive_shell__r1__s2__AFEYUHZ1__[K[16;5H_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'[17;5HTOK__mosh__interactive_shell__r1__s3__GV0E38DA__[K[19;5H_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'[20;5HTOK__mosh__interactive_shell__r1__s4__LY8OZCYW__[K[22;5H_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'[23;5HTOK__mosh__interactive_shell__r1__s5__D14VE92M__[K
+__W3_PROMPT__# [?25h[?2004h[0m[1;2r[?25l[2;1H
+[r[2;1H__W3_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'[3;40H4[3;43HAXEQBNHL[4;5HTOK__mosh__interactive_shell__r0__s4__AXEQBNHL__[K[5;5H_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'[6;40H5[6;43H1N13JCAT[7;5HTOK__mosh__interactive_shell__r0__s5__1N13JCAT__[K[8;5H_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'[9;36H1[9;40H1[9;43H9MX2X18H[10;5HTOK__mosh__interactive_shell__r1__s1__9MX2X18H__[K[11;5H_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'[12;40H2[12;43HAFEYUHZ1[13;5HTOK__mosh__interactive_shell__r1__s2__AFEYUHZ1__[K[14;5H_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'[15;40H3[15;43HGV0E38DA[16;5HTOK__mosh__interactive_shell__r1__s3__GV0E38DA__[K[17;5H_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'[18;40H4[18;43HLY8OZCYW[19;5HTOK__mosh__interactive_shell__r1__s4__LY8OZCYW__[K[20;5H_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'[21;40H5[21;43HD14VE92M[22;16Hexit[K
+logout[K
+[K[?25h[?2004l]0;pi@raspi: ~[?1l[0m[?25h[?1003l[?1002l[?1001l[?1000l[?1015l[?1006l[?1005l[?1049l[23;0;0t[mosh is exiting.]
+export PS1='__W3_PROMPT__# '
+exit
+Warning: Permanently added '100.66.79.93' (ED25519) to the list of known hosts.
+
+
+[?1049h[22;0;0t[?1h[?5l[r[0m[H[2J[?25l[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K[1;1H[?25h[0m[?2004l[?1003l[?1002l[?1001l[?1000l[?1004l[?1015l[?1006l[?1005l[0;1;37;44mmosh: Nothing received from server on UDP port 60001. [To quit: Ctrl-^ .][0;37;44m       
+[1;1H[?25l[0mLinux raspi 6.12.47+rpt-rpi-2712 #1 SMP PREEMPT Debian 1:6.12.47-1+rpt1 (2025-0[1;80H9-16) aarch64
+
+The programs included with the Debian GNU/Linux system are free software;
+the exact distribution terms for each program are described in the
+individual files in /usr/share/doc/*/copyright.
+
+Debian GNU/Linux comes with ABSOLUTELY NO WARRANTY, to the extent
+permitted by applicable law.
+[?25h]0;[mosh] pi@raspi: ~[?25l
+export PS1='__W3_PROMPT__# '
+exit
+[0;1;32mpi@raspi[0m:[0;1;34m~ $[0m export PS1='__W3_PROMPT__# '
+__W3_PROMPT__# exit
+logout
+[?25h]0;pi@raspi: ~[?1l[0m[?25h[?1003l[?1002l[?1001l[?1000l[?1015l[?1006l[?1005l[?1049l[23;0;0t[mosh is exiting.]
+export PS1='__W3_PROMPT__# '
+vim -Nu NONE -n /tmp/w3_vim_bench.txt
+iWarning: Permanently added '100.66.79.93' (ED25519) to the list of known hosts.
+
+
+[?1049h[22;0;0t[?1h[?5l[r[0m[H[2J[?25l[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K[1;1H[?25h[0m[?2004l[?1003l[?1002l[?1001l[?1000l[?1004l[?1015l[?1006l[?1005l[0;1;37;44mmosh: Nothing received from server on UDP port 60001. [To quit: Ctrl-^ .][0;37;44m       
+[1;1H[?25l[0mLinux raspi 6.12.47+rpt-rpi-2712 #1 SMP PREEMPT Debian 1:6.12.47-1+rpt1 (2025-0[1;80H9-16) aarch64
+
+The programs included with the Debian GNU/Linux system are free software;
+the exact distribution terms for each program are described in the
+individual files in /usr/share/doc/*/copyright.
+
+Debian GNU/Linux comes with ABSOLUTELY NO WARRANTY, to the extent
+permitted by applicable law.
+[?25h[?25l
+export PS1='__W3_PROMPT__# '
+vim -Nu NONE -n /tmp/w3_vim_bench.txt
+i[?25h]0;[mosh] pi@raspi: ~[0m[1;3r[?25l[3;1H
+
+[r[2;1H[0;38;5;12m~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+[0;1m-- INSERT --[?25h[0m[?2004h[?1004h[?25l[1;1H__W3TOK__mosh__vim__r0__s1__PNSM43D8__[?25h[?25l[24;1H[K[1;38H[?25h[?25l[24;1H:q![?2004l__W3_PROMPT__# [?25h[?2004h[?1004l[?25l[1;1H[K[24;1H"/tmp/w3_vim[24;14Hbench.txt" 0L, 0B[1;1H[?25h[0;38;5;12m[?1004h[?25l[24;1H[0;1m-- INSERT --[0m[K[1;1H[?25h__W3TOK__mosh__vim__r0__s2__W3ZP08J3__[?25l[24;1H[K[1;38H[?25h[?25l[24;1H:q![?2004l__W3_PROMPT__# [?25h[?2004h[?1004l[?25l[1;1H[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+"/tmp/w3_vim[24;14Hbench.txt" 0L, 0B[?1004h[2;1H[0;38;5;12m~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+[0;1m-- INSERT --[0m[K[1;1H[?25h__W3TOK__mosh__vim__r0__s3__TRP0J43D__[?25l[24;1H:q![K[?2004l__W3_PROMPT__# [?25h[?2004h[?1004l[0m[1;23r[?25l[23;1H
+[r[23;1H__W3_PROMPT__# vim -Nu NONE -n /tmp/w3_vim_bench.txt
+[K[?25h[?1004h[0m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[?25l[2;1H[0;38;5;12m~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+[0;1m-- INSERT --[1;1H[?25h[0m__W3TOK__mosh__vim__r0__s4__5IQVNB4G__[?25l[24;1H[K[1;38H[?25h[?25l[24;1H:q![?2004l__W3_PROMPT__# [?25h[?2004h[?1004l[?25l[1;1H[K[24;1H"/tmp/w3_vim[24;14Hbench.txt" 0L, 0B[1;1H[?25h[0;38;5;12m[?1004h[?25l[24;1H[0;1m-- INSERT --[0m[K[1;1H[?25h__W3TOK__mosh__vim__r0__s5__H2M5ZJA8__[?25l[24;1H[K[1;38H[?25h[?25l[24;1H:q![?2004l__W3_PROMPT__# [?25h[?2004h[?1004l[?25l[1;1H[K[24;1H[0;1m-- INSERT --[0m[K[?25h[?1004h[?25l[1;1H__W3TOK__mosh__vim__r1__s1__DZR1YXR2__[?25h[?25l[24;1H[K[1;38H[?25h[?25l[24;1H:q![?2004l__W3_PROMPT__# [?25h[?2004h[?1004l[?25l[1;1H[K[24;1H"/tmp/w3_vim[24;14Hbench.txt" 0L, 0B[1;1H[?25h[0;38;5;12m[?1004h[?25l[24;1H[0;1m-- INSERT --[0m[K[1;1H[?25h__W3TOK__mosh__vim__r1__s2__DHYLURTP__[?25l[24;1H[K[1;38H[?25h[?25l[24;1H:q![?2004l__W3_PROMPT__# [?25h[?2004h[?1004l[0m[1;23r[?25l[23;1H
+[r[23;1H__W3_PROMPT__# vim -Nu NONE -n /tmp/w3_vim_bench.txt
+[K[1;1H[?25h[?1004h[0m[1;24r[?25l[24;1H
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[r[2;1H[0;38;5;12m~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+[0m"/tmp/w3_vim_bench.txt" 0L, 0B[1;1H[?25h[0;38;5;12m[?25l[24;1H[0;1m-- INSERT --[0m[K[1;1H[?25h__W3TOK__mosh__vim__r1__s3__0LZJJEGE__[?25l[24;1H[K[1;38H[?25h[?25l[24;1H:q![?2004l__W3_PROMPT__# [?25h[?2004h[?1004l[?25l[1;1H[K[24;1H"/tmp/w3_vim[24;14Hbench.txt" 0L, 0B[1;1H[?25h[0;38;5;12m[?1004h[?25l[24;1H[0;1m-- INSERT --[0m[K[1;1H[?25h__W3TOK__mosh__vim__r1__s4__T1GHR09S__[?25l[24;1H[K[1;38H[?25h[?25l[24;1H:q![?2004l__W3_PROMPT__# [?25h[?2004h[?1004l[0m[1;23r[?25l[23;1H
+[r[23;1H__W3_PROMPT__# vim -Nu NONE -n /tmp/w3_vim_bench.txt
+[K[?25h[?2004l[0m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[?25l[2;1H[0;38;5;12m~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+[0m"/tmp/w3_vim_bench.txt" 0L, 0B[1;1H[?25h[0;38;5;12m[?2004h[?1004h[?25l[24;1H[0;1m-- INSERT --[0m[K[1;1H[?25h__W3TOK__mosh__vim__r1__s5__KDGIGATJ__[?25l[24;1H[K[1;38H[?25h[?25l[24;1H:q![?2004l__W3_PROMPT__# [?25h[?2004h[?1004l[0m[1;22r[?25l[22;1H
+[r[22;1H__W3_PROMPT__# exit
+logout[K
+[K[?25h[?2004l]0;pi@raspi: ~[?1l[0m[?25h[?1003l[?1002l[?1001l[?1000l[?1015l[?1006l[?1005l[?1049l[23;0;0t[mosh is exiting.]
+export PS1='__W3_PROMPT__# '
+nano --ignorercfiles /tmp/w3_nano_bench.txt
+Warning: Permanently added '100.66.79.93' (ED25519) to the list of known hosts.
+
+
+[?1049h[22;0;0t[?1h[?5l[r[0m[H[2J[?25l[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K[1;1H[?25h[0m[?2004l[?1003l[?1002l[?1001l[?1000l[?1004l[?1015l[?1006l[?1005l[0;1;37;44mmosh: Nothing received from server on UDP port 60001. [To quit: Ctrl-^ .][0;37;44m       
+[1;1H[?25l[0mLinux raspi 6.12.47+rpt-rpi-2712 #1 SMP PREEMPT Debian 1:6.12.47-1+rpt1 (2025-0[1;80H9-16) aarch64
+
+The programs included with the Debian GNU/Linux system are free software;
+the exact distribution terms for each program are described in the
+individual files in /usr/share/doc/*/copyright.
+
+Debian GNU/Linux comes with ABSOLUTELY NO WARRANTY, to the extent
+permitted by applicable law.
+[?25h]0;[mosh] pi@raspi: ~[?25l[1;1H[0;7m  GNU nano 8.4                 /tmp/w3_nano_bench.txt                           
+[0m[K
+
+[K
+[K
+[K
+
+[K
+[K[22;35H[0;7m[ New File ]
+^G[0m Help[23;14H[0;7m^O[0m Write Out [0;7m^F[0m Where Is  [0;7m^K[0m Cut[23;53H[0;7m^T[0m Execute   [0;7m^C[0m Location
+[0;7m^X[0m Exit[24;14H[0;7m^R[0m Read File [0;7m^\[0m Replace   [0;7m^U[0m Paste     [0;7m^J[0m Justify   [0;7m^/[0m Go To Line[2;1H[?25h[?2004h[?25l[1;71H[0;7mModified
+[0m__W3TOK__mosh__nano__r0__s1__9TZE5R5U__[22;35H[K[2;40H[?25h[?25l[22;1H[0;7mSave modified buffer?                                                           
+ Y[23;4H[0mY[23;6Hs[K
+[0;7m N[24;4H[0mNo  [24;14H  [24;17H[0;7m^C[0m Cancel[K[22;23H[?25h[?25l[K
+[K
+__W3_PROMPT__#[24;16H[K[?25h[?25l[1;71H[0;7m        
+[0m[K[22;35H[0;7m[ New File ]
+^G[0m Help[23;14H[0;7m^O[0m Write Out [0;7m^F[0m Where Is  [0;7m^K[0m Cut[23;53H[0;7m^T[0m Execute   [0;7m^C[0m Location
+[0;7m^X[0m Exit[6X[24;14H[0;7m^R[0m Read File [0;7m^\[0m Replace   [0;7m^U[0m Paste     [0;7m^J[0m Justify   [0;7m^/[0m Go To Line[2;1H[?25h[?25l[1;71H[0;7mModified
+[0mnano --ignorercfiles /tmp/w3_nano_bench.txt[22;29H[0;7m[ Justifi[22;39Hd[22;41Hparagraph ][3;1H[?25h[0m[?25l[2;45Hnano --ignorercfiles
+/tmp/w3_nano_bench.txt
+[?25h[?25l[3;24Hnano --ignorercfiles /tmp/w3_nano_bench.txt
+[?25h[?25l[3;68Hnano
+--ignorercfiles /tmp/w3_nano_bench.txt
+[?25h[?25l[4;40Hexit
+[?25hexport PS1='__W3_PROMPT__# '
+nano --ignorercfiles /tmp/w3_nano_bench.txt
+Warning: Permanently added '100.66.79.93' (ED25519) to the list of known hosts.
+
+
+[?1049h[22;0;0t[?1h[?5l[r[0m[H[2J[?25l[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K[1;1H[?25h[0m[?2004l[?1003l[?1002l[?1001l[?1000l[?1004l[?1015l[?1006l[?1005l[0;1;37;44mmosh: Nothing received from server on UDP port 60001. [To quit: Ctrl-^ .][0;37;44m       
+[1;1H[?25l[0mLinux raspi 6.12.47+rpt-rpi-2712 #1 SMP PREEMPT Debian 1:6.12.47-1+rpt1 (2025-0[1;80H9-16) aarch64
+
+The programs included with the Debian GNU/Linux system are free software;
+the exact distribution terms for each program are described in the
+individual files in /usr/share/doc/*/copyright.
+
+Debian GNU/Linux comes with ABSOLUTELY NO WARRANTY, to the extent
+permitted by applicable law.
+[?25h]0;[mosh] pi@raspi: ~[?25l[1;1H[0;7m  GNU nano 8.4                 /tmp/w3_nano_bench.txt                           
+[0m[K
+
+[K
+[K
+[K
+
+[K
+[K[22;35H[0;7m[ New File ]
+^G[0m Help[23;14H[0;7m^O[0m Write Out [0;7m^F[0m Where Is  [0;7m^K[0m Cut[23;53H[0;7m^T[0m Execute   [0;7m^C[0m Location
+[0;7m^X[0m Exit[24;14H[0;7m^R[0m Read File [0;7m^\[0m Replace   [0;7m^U[0m Paste     [0;7m^J[0m Justify   [0;7m^/[0m Go To Line[2;1H[?25h[?2004h[?25l[1;71H[0;7mModified
+[0m__W3TOK__mosh__nano__r1__s2__IZZQY72W__[22;35H[K[2;40H[?25h[?25l[22;1H[0;7mSave modified buffer?                                                           
+ Y[23;4H[0mY[23;6Hs[K
+[0;7m N[24;4H[0mNo  [24;14H  [24;17H[0;7m^C[0m Cancel[K[22;23H[?25h[?25l[K
+[K
+__W3_PROMPT__#[24;16H[K[?25h[0m[1;23r[?25l[23;1H
+
+[r[22;1H__W3_PROMPT__# exit
+logout
+[K[?25h[?2004l]0;pi@raspi: ~[?1l[0m[?25h[?1003l[?1002l[?1001l[?1000l[?1015l[?1006l[?1005l[?1049l[23;0;0t[mosh is exiting.]
+export PS1='__W3_PROMPT__# '
+nano --ignorercfiles /tmp/w3_nano_bench.txt
+Warning: Permanently added '100.66.79.93' (ED25519) to the list of known hosts.
+
+
+[?1049h[22;0;0t[?1h[?5l[r[0m[H[2J[?25l[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K[1;1H[?25h[0m[?2004l[?1003l[?1002l[?1001l[?1000l[?1004l[?1015l[?1006l[?1005l[0;1;37;44mmosh: Nothing received from server on UDP port 60001. [To quit: Ctrl-^ .][0;37;44m       
+[1;1H[?25l[0mLinux raspi 6.12.47+rpt-rpi-2712 #1 SMP PREEMPT Debian 1:6.12.47-1+rpt1 (2025-0[1;80H9-16) aarch64
+
+The programs included with the Debian GNU/Linux system are free software;
+the exact distribution terms for each program are described in the
+individual files in /usr/share/doc/*/copyright.
+
+Debian GNU/Linux comes with ABSOLUTELY NO WARRANTY, to the extent
+permitted by applicable law.
+[?25h]0;[mosh] pi@raspi: ~[?25l[1;1H[0;7m  GNU nano 8.4                 /tmp/w3_nano_bench.txt                           
+[0m[K
+
+[K
+[K
+[K
+
+[K
+[K[22;35H[0;7m[ New File ]
+^G[0m Help[23;14H[0;7m^O[0m Write Out [0;7m^F[0m Where Is  [0;7m^K[0m Cut[23;53H[0;7m^T[0m Execute   [0;7m^C[0m Location
+[0;7m^X[0m Exit[24;14H[0;7m^R[0m Read File [0;7m^\[0m Replace   [0;7m^U[0m Paste     [0;7m^J[0m Justify   [0;7m^/[0m Go To Line[2;1H[?25h[?2004h[?25l[1;71H[0;7mModified
+[0m__W3TOK__mosh__nano__r1__s3__X7PTX63C__[22;35H[K[2;40H[?25h[?25l[22;1H[0;7mSave modified buffer?                                                           
+ Y[23;4H[0mY[23;6Hs[K
+[0;7m N[24;4H[0mNo  [24;14H  [24;17H[0;7m^C[0m Cancel[K[22;23H[?25h[?25l[K
+[K
+__W3_PROMPT__#[24;16H[K[?25h[0m[1;23r[?25l[23;1H
+
+[r[22;1H__W3_PROMPT__# exit
+logout
+[K[?25h[?2004l]0;pi@raspi: ~[?1l[0m[?25h[?1003l[?1002l[?1001l[?1000l[?1015l[?1006l[?1005l[?1049l[23;0;0t[mosh is exiting.]
+export PS1='__W3_PROMPT__# '
+nano --ignorercfiles /tmp/w3_nano_bench.txt
+Warning: Permanently added '100.66.79.93' (ED25519) to the list of known hosts.
+
+
+[?1049h[22;0;0t[?1h[?5l[r[0m[H[2J[?25l[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K[1;1H[?25h[0m[?2004l[?1003l[?1002l[?1001l[?1000l[?1004l[?1015l[?1006l[?1005l[0;1;37;44mmosh: Nothing received from server on UDP port 60001. [To quit: Ctrl-^ .][0;37;44m       
+[1;1H[?25l[0mLinux raspi 6.12.47+rpt-rpi-2712 #1 SMP PREEMPT Debian 1:6.12.47-1+rpt1 (2025-0[1;80H9-16) aarch64
+
+The programs included with the Debian GNU/Linux system are free software;
+the exact distribution terms for each program are described in the
+individual files in /usr/share/doc/*/copyright.
+
+Debian GNU/Linux comes with ABSOLUTELY NO WARRANTY, to the extent
+permitted by applicable law.
+[?25h[?25l
+export PS1='__W3_PROMPT__# '
+nano --ignorercfiles /tmp/w3_nano_bench.txt
+[?25h]0;[mosh] pi@raspi: ~[?25l[1;1H[0;7m  GNU nano 8.4                 /tmp/w3_nano_bench.txt                           
+[0m[K
+
+[K
+[K
+[K
+
+[K
+[K
+
+[K
+[K[22;35H[0;7m[ New File ]
+^G[0m Help[23;14H[0;7m^O[0m Write Out [0;7m^F[0m Where Is  [0;7m^K[0m Cut[23;53H[0;7m^T[0m Execute   [0;7m^C[0m Location
+[0;7m^X[0m Exit[24;14H[0;7m^R[0m Read File [0;7m^\[0m Replace   [0;7m^U[0m Paste     [0;7m^J[0m Justify   [0;7m^/[0m Go To Line[2;1H[?25h[?2004h[?25l[1;71H[0;7mModified
+[0m__W3TOK__mosh__nano__r1__s4__FL0UKEYZ__[22;35H[K[2;40H[?25h[?25l[22;1H[0;7mSave modified buffer?                                                           
+ Y[23;4H[0mY[23;6Hs[K
+[0;7m N[24;4H[0mNo  [24;14H  [24;17H[0;7m^C[0m Cancel[K[22;23H[?25h[?25l[K
+[K
+__W3_PROMPT__#[24;16H[K[?25h[0m[1;23r[?25l[23;1H
+
+[r[22;1H__W3_PROMPT__# exit
+logout
+[K[?25h[?2004l]0;pi@raspi: ~[?1l[0m[?25h[?1003l[?1002l[?1001l[?1000l[?1015l[?1006l[?1005l[?1049l[23;0;0t[mosh is exiting.]
+export PS1='__W3_PROMPT__# '
+nano --ignorercfiles /tmp/w3_nano_bench.txt
+Warning: Permanently added '100.66.79.93' (ED25519) to the list of known hosts.
+
+
+[?1049h[22;0;0t[?1h[?5l[r[0m[H[2J[?25l[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K[1;1H[?25h[0m[?2004l[?1003l[?1002l[?1001l[?1000l[?1004l[?1015l[?1006l[?1005l[0;1;37;44mmosh: Nothing received from server on UDP port 60001. [To quit: Ctrl-^ .][0;37;44m       
+[1;1H[?25l[0mLinux raspi 6.12.47+rpt-rpi-2712 #1 SMP PREEMPT Debian 1:6.12.47-1+rpt1 (2025-0[1;80H9-16) aarch64
+
+The programs included with the Debian GNU/Linux system are free software;
+the exact distribution terms for each program are described in the
+individual files in /usr/share/doc/*/copyright.
+
+Debian GNU/Linux comes with ABSOLUTELY NO WARRANTY, to the extent
+permitted by applicable law.
+[?25h]0;[mosh] pi@raspi: ~[?25l[1;1H[0;7m  GNU nano 8.4                 /tmp/w3_nano_bench.txt                           
+[0m[K
+
+[K
+[K
+[K
+
+[K
+[K[22;35H[0;7m[ New File ]
+^G[0m Help[23;14H[0;7m^O[0m Write Out [0;7m^F[0m Where Is  [0;7m^K[0m Cut[23;53H[0;7m^T[0m Execute   [0;7m^C[0m Location
+[0;7m^X[0m Exit[24;14H[0;7m^R[0m Read File [0;7m^\[0m Replace   [0;7m^U[0m Paste     [0;7m^J[0m Justify   [0;7m^/[0m Go To Line[2;1H[?25h[?2004h[?25l[1;71H[0;7mModified
+[0m__W3TOK__mosh__nano__r1__s5__7SRCBPLJ__[22;35H[K[2;40H[?25h[?25l[22;1H[0;7mSave modified buffer?                                                           
+ Y[23;4H[0mY[23;6Hs[K
+[0;7m N[24;4H[0mNo  [24;14H  [24;17H[0;7m^C[0m Cancel[K[22;23H[?25h[?25l[K
+[K
+__W3_PROMPT__#[24;16H[K[?25h[0m[1;23r[?25l[23;1H
+
+[r[22;1H__W3_PROMPT__# exit
+logout
+[K[?25h[?2004l]0;pi@raspi: ~[?1l[0m[?25h[?1003l[?1002l[?1001l[?1000l[?1015l[?1006l[?1005l[?1049l[23;0;0t[mosh is exiting.]
+export PS1='__W3_PROMPT__# '
+exit
+Warning: Permanently added '100.66.79.93' (ED25519) to the list of known hosts.
+
+
+[?1049h[22;0;0t[?1h[?5l[r[0m[H[2J[?25l[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K[1;1H[?25h[0m[?2004l[?1003l[?1002l[?1001l[?1000l[?1004l[?1015l[?1006l[?1005l[0;1;37;44mmosh: Nothing received from server on UDP port 60001. [To quit: Ctrl-^ .][0;37;44m       
+[1;1H[?25l[0mLinux raspi 6.12.47+rpt-rpi-2712 #1 SMP PREEMPT Debian 1:6.12.47-1+rpt1 (2025-0[1;80H9-16) aarch64
+
+The programs included with the Debian GNU/Linux system are free software;
+the exact distribution terms for each program are described in the
+individual files in /usr/share/doc/*/copyright.
+
+Debian GNU/Linux comes with ABSOLUTELY NO WARRANTY, to the extent
+permitted by applicable law.
+[?25h]0;[mosh] pi@raspi: ~[?25l
+export PS1='__W3_PROMPT__# '
+exit
+[0;1;32mpi@raspi[0m:[0;1;34m~ $[0m export PS1='__W3_PROMPT__# '
+__W3_PROMPT__# exit
+logout
+[?25h]0;pi@raspi: ~[?1l[0m[?25h[?1003l[?1002l[?1001l[?1000l[?1015l[?1006l[?1005l[?1049l[23;0;0t[mosh is exiting.]
+export PS1='__W3_PROMPT__# '
+bash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+__W3TOK__mosh__interactive_shell__r0__s1__NAM148P0__
+Warning: Permanently added '100.66.79.93' (ED25519) to the list of known hosts.
+
+
+[?1049h[22;0;0t[?1h[?5l[r[0m[H[2J[?25l[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K[1;1H[?25h[0m[?2004l[?1003l[?1002l[?1001l[?1000l[?1004l[?1015l[?1006l[?1005l[0;1;37;44mmosh: Nothing received from server on UDP port 60001. [To quit: Ctrl-^ .][0;37;44m       
+[1;1H[?25l[0mLinux raspi 6.12.47+rpt-rpi-2712 #1 SMP PREEMPT Debian 1:6.12.47-1+rpt1 (2025-0[1;80H9-16) aarch64
+
+The programs included with the Debian GNU/Linux system are free software;
+the exact distribution terms for each program are described in the
+individual files in /usr/share/doc/*/copyright.
+
+Debian GNU/Linux comes with ABSOLUTELY NO WARRANTY, to the extent
+permitted by applicable law.
+[?25h]0;[mosh] pi@raspi: ~[?25l
+export PS1='__W3_PROMPT__# '
+bash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+__W3TOK__mosh__interactive_shell__r0__s1__NAM148P0__
+[0;1;32mpi@raspi[0m:[0;1;34m~ $[0m export PS1='__W3_PROMPT__# '
+__W3_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+__W3TOK__mosh__interactive_shell__r0__s1__NAM148P0__
+__W3_PROMPT__# [?25h[?2004hbash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+[?2004l__W3TOK__mosh__interactive_shell__r0__s2__TVHHPBMY__[?25l
+__W3TOK__mosh__interactive_shell__r0__s2__TVHHPBMY__
+__W3_PROMPT__# [?25h[?2004hbash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+[?2004l__W3TOK__mosh__interactive_shell__r0__s3__OFQEWAOU__[?25l
+__W3TOK__mosh__interactive_shell__r0__s3__OFQEWAOU__
+__W3_PROMPT__# [?25h[?2004hbash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+[?2004l[0m[1;22r[?25l[22;1H
+
+[r[21;1H__W3_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+__W3TOK__mosh__interactive_shell__r0__s4__AXEQBNHL__[23;5HTOK__mosh__interactive_shell__r0__s4__AXEQBNHL__[K
+__W3_PROMPT__# [?25h[?2004h[0m[1;23r[?25l[23;1H
+[r[23;1H__W3_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+[K[?25h[?2004l[0m[1;22r[?25l[22;1H
+[r[22;1H__W3_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'[23;5HTOK__mosh__interactive_shell__r0__s5__1N13JCAT__[K
+__W3_PROMPT__# [?25h[?2004h[0m[1;23r[?25l[23;1H
+[r[23;1H__W3_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+[K[?25h[?2004l[0m[1;22r[?25l[22;1H
+
+[r[21;1H__W3_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+__W3TOK__mosh__interactive_shell__r1__s1__9MX2X18H__[23;5HTOK__mosh__interactive_shell__r1__s1__9MX2X18H__[K
+__W3_PROMPT__# [?25h[?2004h[0m[1;23r[?25l[23;1H
+[r[23;1H__W3_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+[K[?25h[?2004l[0m[1;22r[?25l[22;1H
+
+[r[21;1H__W3_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+__W3TOK__mosh__interactive_shell__r1__s2__AFEYUHZ1__[23;5HTOK__mosh__interactive_shell__r1__s2__AFEYUHZ1__[K
+__W3_PROMPT__# [?25h[?2004h[0m[1;23r[?25l[23;1H
+[r[23;1H__W3_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+[K[?25h[?2004l[0m[1;22r[?25l[22;1H
+[r[22;1H__W3_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'[23;5HTOK__mosh__interactive_shell__r1__s3__GV0E38DA__[K
+__W3_PROMPT__# [?25h[?2004h[0m[1;23r[?25l[23;1H
+
+[r[22;1H__W3_PROMPT__# exit
+logout
+[K[?25h[?2004l]0;pi@raspi: ~[?1l[0m[?25h[?1003l[?1002l[?1001l[?1000l[?1015l[?1006l[?1005l[?1049l[23;0;0t[mosh is exiting.]
+export PS1='__W3_PROMPT__# '
+bash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+__W3TOK__mosh__interactive_shell__r1__s4__LY8OZCYW__
+Warning: Permanently added '100.66.79.93' (ED25519) to the list of known hosts.
+
+
+[?1049h[22;0;0t[?1h[?5l[r[0m[H[2J[?25l[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K[1;1H[?25h[0m[?2004l[?1003l[?1002l[?1001l[?1000l[?1004l[?1015l[?1006l[?1005l[0;1;37;44mmosh: Nothing received from server on UDP port 60001. [To quit: Ctrl-^ .][0;37;44m       
+[1;1H[?25l[0mLinux raspi 6.12.47+rpt-rpi-2712 #1 SMP PREEMPT Debian 1:6.12.47-1+rpt1 (2025-0[1;80H9-16) aarch64
+
+The programs included with the Debian GNU/Linux system are free software;
+the exact distribution terms for each program are described in the
+individual files in /usr/share/doc/*/copyright.
+
+Debian GNU/Linux comes with ABSOLUTELY NO WARRANTY, to the extent
+permitted by applicable law.
+[?25h]0;[mosh] pi@raspi: ~[?25l
+export PS1='__W3_PROMPT__# '
+bash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+__W3TOK__mosh__interactive_shell__r1__s4__LY8OZCYW__
+[0;1;32mpi@raspi[0m:[0;1;34m~ $[0m export PS1='__W3_PROMPT__# '
+__W3_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+__W3TOK__mosh__interactive_shell__r1__s4__LY8OZCYW__
+__W3_PROMPT__# [?25h[?2004hbash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+[?2004l__W3TOK__mosh__interactive_shell__r1__s5__D14VE92M__[?25l
+__W3TOK__mosh__interactive_shell__r1__s5__D14VE92M__
+__W3_PROMPT__# [?25h[?2004hexit[?25l
+logout
+[?25h[?2004l]0;pi@raspi: ~[?1l[0m[?25h[?1003l[?1002l[?1001l[?1000l[?1015l[?1006l[?1005l[?1049l[23;0;0t[mosh is exiting.]
+export PS1='__W3_PROMPT__# '
+vim -Nu NONE -n /tmp/w3_vim_bench.txt
+iWarning: Permanently added '100.66.79.93' (ED25519) to the list of known hosts.
+
+
+[?1049h[22;0;0t[?1h[?5l[r[0m[H[2J[?25l[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K[1;1H[?25h[0m[?2004l[?1003l[?1002l[?1001l[?1000l[?1004l[?1015l[?1006l[?1005l[0;1;37;44mmosh: Nothing received from server on UDP port 60001. [To quit: Ctrl-^ .][0;37;44m       
+[1;1H[?25l[0mLinux raspi 6.12.47+rpt-rpi-2712 #1 SMP PREEMPT Debian 1:6.12.47-1+rpt1 (2025-0[1;80H9-16) aarch64
+
+The programs included with the Debian GNU/Linux system are free software;
+the exact distribution terms for each program are described in the
+individual files in /usr/share/doc/*/copyright.
+
+Debian GNU/Linux comes with ABSOLUTELY NO WARRANTY, to the extent
+permitted by applicable law.
+[?25h]0;[mosh] pi@raspi: ~[0m[1;3r[?25l[3;1H
+
+[r[2;1H[0;38;5;12m~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+[0;1m-- INSERT --[1;1H[?25h[0m[?2004h[?1004h__W3TOK__mosh__vim__r0__s1__PNSM43D8__[?25l[24;1H[K[1;38H[?25h[?25l[24;1H:q![?2004l__W3_PROMPT__# [?25h[?2004h[?1004l[?25l[1;1H[K[24;1H[0;1m-- INSERT --[0m[K[1;1H[?25h[?1004h__W3TOK__mosh__vim__r0__s2__W3ZP08J3__[?25l[24;1H:q![K[?2004l__W3_PROMPT__# [?25h[?2004h[?1004l[0m[1;23r[?25l[23;1H
+[r[23;1H__W3_PROMPT__# vim -Nu NONE -n /tmp/w3_vim_bench.txt
+[K[?25h[?2004l[0m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[?25l[2;1H[0;38;5;12m~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+[0;1m-- INSERT --[1;1H[?25h[0m[?2004h[?1004h__W3TOK__mosh__vim__r0__s3__TRP0J43D__[?25l[24;1H[K[1;38H[?25h[?25l[24;1H:q![?2004l__W3_PROMPT__# [?25h[?2004h[?1004l[?25l[1;1H[K[24;1H[0;1m-- INSERT --[0m[K[1;1H[?25h[?1004h__W3TOK__mosh__vim__r0__s4__5IQVNB4G__[?25l[24;1H[K[1;38H[?25h[?25l[24;1H:q![?2004l__W3_PROMPT__# [?25h[?2004h[?1004l[?25l[1;1H[K[24;1H"/tmp/w3_vim[24;14Hbench.txt" 0L, 0B[1;1H[?25h[0;38;5;12m[?1004h[?25l[24;1H[0;1m-- INSERT --[0m[K[1;1H[?25h__W3TOK__mosh__vim__r0__s5__H2M5ZJA8__[?25l[24;1H[K[1;38H[?25h[?25l[24;1H:q![?2004l__W3_PROMPT__# [?25h[?2004h[?1004l[?25l[1;1H[K[24;1H"/tmp/w3_vim[24;14Hbench.txt" 0L, 0B[1;1H[?25h[0;38;5;12m[?1004h[?25l[24;1H[0;1m-- INSERT --[0m[K[1;1H[?25h__W3TOK__mosh__vim__r1__s1__DZR1YXR2__[?25l[24;1H[K[1;38H[?25h[?25l[24;1H:q![?2004l__W3_PROMPT__# [?25h[?2004h[?1004l[?25l[1;1H[K[24;1H[0;1m-- INSERT --[0m[K[?25h[?1004h[?25l[1;1H__W3TOK__mosh__vim__r1__s2__DHYLURTP__[?25h[?25l[24;1H[K[1;38H[?25h[?25l[24;1H:q![?2004l__W3_PROMPT__# [?25h[?2004h[?1004l[0m[1;23r[?25l[23;1H
+[r[23;1H__W3_PROMPT__# vim -Nu NONE -n /tmp/w3_vim_bench.txt
+[K[?25h[?2004l[0m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[?25l[2;1H[0;38;5;12m~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+[0;1m-- INSERT --[?25h[0m[?2004h[?1004h[?25l[1;1H__W3TOK__mosh__vim__r1__s3__0LZJJEGE__[?25h[?25l[24;1H:q![K[?2004l__W3_PROMPT__# [?25h[?2004h[?1004l[0m[1;23r[?25l[23;1H
+[r[23;1H__W3_PROMPT__# vim -Nu NONE -n /tmp/w3_vim_bench.txt
+[K[?25h[?1004h[0m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[?25l[2;1H[0;38;5;12m~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+[0m"/tmp/w3_vim_bench.txt" 0L, 0B[1;1H[?25h[0;38;5;12m[?25l[24;1H[0;1m-- INSERT --[0m[K[1;1H[?25h__W3TOK__mosh__vim__r1__s4__T1GHR09S__[?25l[24;1H[K[1;38H[?25h[?25l[24;1H:q![?2004l__W3_PROMPT__# [?25h[?2004h[?1004l[?25l[1;1H[K
+▽[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+"/tmp/w3_vim[24;14Hbench.txt" 0L, 0B[2;2H[?1004h[0;38;5;12m~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+[0;1m-- INSERT --[0m[K[?25h[?25l[1;1H__W3TOK__mosh__vim__r1__s5__KDGIGATJ__[?25h[?25l[24;1H[K[1;38H[?25h[?25l[24;1H:q![?2004l__W3_PROMPT__# [?25h[?2004h[?1004l[0m[1;22r[?25l[22;1H
+[r[22;1H__W3_PROMPT__# exit
+logout[K
+[K[?25h[?2004l]0;pi@raspi: ~[?1l[0m[?25h[?1003l[?1002l[?1001l[?1000l[?1015l[?1006l[?1005l[?1049l[23;0;0t[mosh is exiting.]
+export PS1='__W3_PROMPT__# '
+nano --ignorercfiles /tmp/w3_nano_bench.txt
+Warning: Permanently added '100.66.79.93' (ED25519) to the list of known hosts.
+
+
+[?1049h[22;0;0t[?1h[?5l[r[0m[H[2J[?25l[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K[1;1H[?25h[0m[?2004l[?1003l[?1002l[?1001l[?1000l[?1004l[?1015l[?1006l[?1005l[0;1;37;44mmosh: Nothing received from server on UDP port 60001. [To quit: Ctrl-^ .][0;37;44m       
+[1;1H[?25l[0mLinux raspi 6.12.47+rpt-rpi-2712 #1 SMP PREEMPT Debian 1:6.12.47-1+rpt1 (2025-0[1;80H9-16) aarch64
+
+The programs included with the Debian GNU/Linux system are free software;
+the exact distribution terms for each program are described in the
+individual files in /usr/share/doc/*/copyright.
+
+Debian GNU/Linux comes with ABSOLUTELY NO WARRANTY, to the extent
+permitted by applicable law.
+[?25h]0;[mosh] pi@raspi: ~[?25l[1;1H[0;7m  GNU nano 8.4                 /tmp/w3_nano_bench.txt                           
+[0m[K
+
+[K
+[K
+[K
+
+[K
+[K[22;35H[0;7m[ New File ]
+^G[0m Help[23;14H[0;7m^O[0m Write Out [0;7m^F[0m Where Is  [0;7m^K[0m Cut[23;53H[0;7m^T[0m Execute   [0;7m^C[0m Location
+[0;7m^X[0m Exit[24;14H[0;7m^R[0m Read File [0;7m^\[0m Replace   [0;7m^U[0m Paste     [0;7m^J[0m Justify   [0;7m^/[0m Go To Line[2;1H[?25h[?2004h[?25l[1;71H[0;7mModified
+[0m__W3TOK__mosh__nano__r0__s1__9TZE5R5U__[22;35H[K[2;40H[?25h[?25l[22;1H[0;7mSave modified buffer?                                                           
+ Y[23;4H[0mY[23;6Hs[K
+[0;7m N[24;4H[0mNo  [24;14H  [24;17H[0;7m^C[0m Cancel[K[22;23H[?25h[?25l[K
+[K
+__W3_PROMPT__#[24;16H[K[?25h[?25l[1;71H[0;7m        
+[0m[K[22;35H[0;7m[ New File ]
+^G[0m Help[23;14H[0;7m^O[0m Write Out [0;7m^F[0m Where Is  [0;7m^K[0m Cut[23;53H[0;7m^T[0m Execute   [0;7m^C[0m Location
+[0;7m^X[0m Exit[6X[24;14H[0;7m^R[0m Read File [0;7m^\[0m Replace   [0;7m^U[0m Paste     [0;7m^J[0m Justify   [0;7m^/[0m Go To Line[2;1H[?25h[?25l[1;71H[0;7mModified
+[0mnano --ignorercfiles /tmp/w3_nano_bench.txt[22;29H[0;7m[ Justifi[22;39Hd[22;41Hparagraph ][3;1H[?25h[0m[?25l[2;45Hnano --ignorercfiles
+/tmp/w3_nano_bench.txt
+[?25h[?25l[3;24Hnano --ignorercfiles /tmp/w3_nano_bench.txt
+[?25h[?25l[3;68Hnano
+--ignorercfiles /tmp/w3_nano_bench.txt
+[?25h[?25l[4;40Hexit
+[?25hexport PS1='__W3_PROMPT__# '
+nano --ignorercfiles /tmp/w3_nano_bench.txt
+Warning: Permanently added '100.66.79.93' (ED25519) to the list of known hosts.
+
+
+[?1049h[22;0;0t[?1h[?5l[r[0m[H[2J[?25l[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K[1;1H[?25h[0m[?2004l[?1003l[?1002l[?1001l[?1000l[?1004l[?1015l[?1006l[?1005l[0;1;37;44mmosh: Nothing received from server on UDP port 60001. [To quit: Ctrl-^ .][0;37;44m       
+[1;1H[?25l[0mLinux raspi 6.12.47+rpt-rpi-2712 #1 SMP PREEMPT Debian 1:6.12.47-1+rpt1 (2025-0[1;80H9-16) aarch64
+
+The programs included with the Debian GNU/Linux system are free software;
+the exact distribution terms for each program are described in the
+individual files in /usr/share/doc/*/copyright.
+
+Debian GNU/Linux comes with ABSOLUTELY NO WARRANTY, to the extent
+permitted by applicable law.
+[?25h]0;[mosh] pi@raspi: ~[?25l[1;1H[0;7m  GNU nano 8.4                 /tmp/w3_nano_bench.txt                           
+[0m[K
+
+[K
+[K
+[K
+
+[K
+[K[22;35H[0;7m[ New File ]
+^G[0m Help[23;14H[0;7m^O[0m Write Out [0;7m^F[0m Where Is  [0;7m^K[0m Cut[23;53H[0;7m^T[0m Execute   [0;7m^C[0m Location
+[0;7m^X[0m Exit[24;14H[0;7m^R[0m Read File [0;7m^\[0m Replace   [0;7m^U[0m Paste     [0;7m^J[0m Justify   [0;7m^/[0m Go To Line[2;1H[?25h[?2004h[?25l[1;71H[0;7mModified
+[0m__W3TOK__mosh__nano__r1__s2__IZZQY72W__[22;35H[K[2;40H[?25h[?25l[22;1H[0;7mSave modified buffer?                                                           
+ Y[23;4H[0mY[23;6Hs[K
+[0;7m N[24;4H[0mNo  [24;14H  [24;17H[0;7m^C[0m Cancel[K[22;23H[?25h[?25l[K
+[K
+__W3_PROMPT__#[24;16H[K[?25h[0m[1;23r[?25l[23;1H
+
+[r[22;1H__W3_PROMPT__# exit
+logout
+[K[?25h[?2004l]0;pi@raspi: ~[?1l[0m[?25h[?1003l[?1002l[?1001l[?1000l[?1015l[?1006l[?1005l[?1049l[23;0;0t[mosh is exiting.]
+export PS1='__W3_PROMPT__# '
+nano --ignorercfiles /tmp/w3_nano_bench.txt
+Warning: Permanently added '100.66.79.93' (ED25519) to the list of known hosts.
+
+
+[?1049h[22;0;0t[?1h[?5l[r[0m[H[2J[?25l[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K[1;1H[?25h[0m[?2004l[?1003l[?1002l[?1001l[?1000l[?1004l[?1015l[?1006l[?1005l[0;1;37;44mmosh: Nothing received from server on UDP port 60001. [To quit: Ctrl-^ .][0;37;44m       
+[1;1H[?25l[0mLinux raspi 6.12.47+rpt-rpi-2712 #1 SMP PREEMPT Debian 1:6.12.47-1+rpt1 (2025-0[1;80H9-16) aarch64
+
+The programs included with the Debian GNU/Linux system are free software;
+the exact distribution terms for each program are described in the
+individual files in /usr/share/doc/*/copyright.
+
+Debian GNU/Linux comes with ABSOLUTELY NO WARRANTY, to the extent
+permitted by applicable law.
+[?25h]0;[mosh] pi@raspi: ~[?25l[1;1H[0;7m  GNU nano 8.4                 /tmp/w3_nano_bench.txt                           
+[0m[K
+
+[K
+[K
+[K
+
+[K
+[K[22;35H[0;7m[ New File ]
+^G[0m Help[23;14H[0;7m^O[0m Write Out [0;7m^F[0m Where Is  [0;7m^K[0m Cut[23;53H[0;7m^T[0m Execute   [0;7m^C[0m Location
+[0;7m^X[0m Exit[24;14H[0;7m^R[0m Read File [0;7m^\[0m Replace   [0;7m^U[0m Paste     [0;7m^J[0m Justify   [0;7m^/[0m Go To Line[2;1H[?25h[?2004h[?25l[1;71H[0;7mModified
+[0m__W3TOK__mosh__nano__r1__s3__X7PTX63C__[22;35H[K[2;40H[?25h[?25l[22;1H[0;7mSave modified buffer?                                                           
+ Y[23;4H[0mY[23;6Hs[K
+[0;7m N[24;4H[0mNo  [24;14H  [24;17H[0;7m^C[0m Cancel[K[22;23H[?25h[?25l[K
+[K
+__W3_PROMPT__#[24;16H[K[?25h[0m[1;23r[?25l[23;1H
+
+[r[22;1H__W3_PROMPT__# exit
+logout
+[K[?25h[?2004l]0;pi@raspi: ~[?1l[0m[?25h[?1003l[?1002l[?1001l[?1000l[?1015l[?1006l[?1005l[?1049l[23;0;0t[mosh is exiting.]
+export PS1='__W3_PROMPT__# '
+nano --ignorercfiles /tmp/w3_nano_bench.txt
+Warning: Permanently added '100.66.79.93' (ED25519) to the list of known hosts.
+
+
+[?1049h[22;0;0t[?1h[?5l[r[0m[H[2J[?25l[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K[1;1H[?25h[0m[?2004l[?1003l[?1002l[?1001l[?1000l[?1004l[?1015l[?1006l[?1005l[0;1;37;44mmosh: Nothing received from server on UDP port 60001. [To quit: Ctrl-^ .][0;37;44m       
+[1;1H[?25l[0mLinux raspi 6.12.47+rpt-rpi-2712 #1 SMP PREEMPT Debian 1:6.12.47-1+rpt1 (2025-0[1;80H9-16) aarch64
+
+The programs included with the Debian GNU/Linux system are free software;
+the exact distribution terms for each program are described in the
+individual files in /usr/share/doc/*/copyright.
+
+Debian GNU/Linux comes with ABSOLUTELY NO WARRANTY, to the extent
+permitted by applicable law.
+[?25h]0;[mosh] pi@raspi: ~[?25l[1;1H[0;7m  GNU nano 8.4                 /tmp/w3_nano_bench.txt                           
+[0m[K
+
+[K
+[K
+[K
+
+[K
+[K[22;35H[0;7m[ New File ]
+^G[0m Help[23;14H[0;7m^O[0m Write Out [0;7m^F[0m Where Is  [0;7m^K[0m Cut[23;53H[0;7m^T[0m Execute   [0;7m^C[0m Location
+[0;7m^X[0m Exit[24;14H[0;7m^R[0m Read File [0;7m^\[0m Replace   [0;7m^U[0m Paste     [0;7m^J[0m Justify   [0;7m^/[0m Go To Line[2;1H[?25h[?2004h[?25l[1;71H[0;7mModified
+[0m__W3TOK__mosh__nano__r1__s4__FL0UKEYZ__[22;35H[K[2;40H[?25h[?25l[22;1H[0;7mSave modified buffer?                                                           
+ Y[23;4H[0mY[23;6Hs[K
+[0;7m N[24;4H[0mNo  [24;14H  [24;17H[0;7m^C[0m Cancel[K[22;23H[?25h[?25l[K
+[K
+__W3_PROMPT__#[24;16H[K[?25h[0m[1;23r[?25l[23;1H
+
+[r[22;1H__W3_PROMPT__# exit
+logout
+[K[?25h[?2004l]0;pi@raspi: ~[?1l[0m[?25h[?1003l[?1002l[?1001l[?1000l[?1015l[?1006l[?1005l[?1049l[23;0;0t[mosh is exiting.]
+export PS1='__W3_PROMPT__# '
+nano --ignorercfiles /tmp/w3_nano_bench.txt
+Warning: Permanently added '100.66.79.93' (ED25519) to the list of known hosts.
+
+
+[?1049h[22;0;0t[?1h[?5l[r[0m[H[2J[?25l[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K[1;1H[?25h[0m[?2004l[?1003l[?1002l[?1001l[?1000l[?1004l[?1015l[?1006l[?1005l[0;1;37;44mmosh: Nothing received from server on UDP port 60001. [To quit: Ctrl-^ .][0;37;44m       
+[1;1H[?25l[0mLinux raspi 6.12.47+rpt-rpi-2712 #1 SMP PREEMPT Debian 1:6.12.47-1+rpt1 (2025-0[1;80H9-16) aarch64
+
+The programs included with the Debian GNU/Linux system are free software;
+the exact distribution terms for each program are described in the
+individual files in /usr/share/doc/*/copyright.
+
+Debian GNU/Linux comes with ABSOLUTELY NO WARRANTY, to the extent
+permitted by applicable law.
+[?25h]0;[mosh] pi@raspi: ~[?25l[1;1H[0;7m  GNU nano 8.4                 /tmp/w3_nano_bench.txt                           
+[0m[K
+
+[K
+[K
+[K
+
+[K
+[K[22;35H[0;7m[ New File ]
+^G[0m Help[23;14H[0;7m^O[0m Write Out [0;7m^F[0m Where Is  [0;7m^K[0m Cut[23;53H[0;7m^T[0m Execute   [0;7m^C[0m Location
+[0;7m^X[0m Exit[24;14H[0;7m^R[0m Read File [0;7m^\[0m Replace   [0;7m^U[0m Paste     [0;7m^J[0m Justify   [0;7m^/[0m Go To Line[2;1H[?25h[?2004h[?25l[1;71H[0;7mModified
+[0m__W3TOK__mosh__nano__r1__s5__7SRCBPLJ__[22;35H[K[2;40H[?25h[?25l[22;1H[0;7mSave modified buffer?                                                           
+ Y[23;4H[0mY[23;6Hs[K
+[0;7m N[24;4H[0mNo  [24;14H  [24;17H[0;7m^C[0m Cancel[K[22;23H[?25h[?25l[K
+[K
+__W3_PROMPT__#[24;16H[K[?25h[0m[1;23r[?25l[23;1H
+
+[r[22;1H__W3_PROMPT__# exit
+logout
+[K[?25h[?2004l]0;pi@raspi: ~[?1l[0m[?25h[?1003l[?1002l[?1001l[?1000l[?1015l[?1006l[?1005l[?1049l[23;0;0t[mosh is exiting.]
+export PS1='__W3_PROMPT__# '
+exit
+Warning: Permanently added '100.66.79.93' (ED25519) to the list of known hosts.
+
+
+[?1049h[22;0;0t[?1h[?5l[r[0m[H[2J[?25l[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K[1;1H[?25h[0m[?2004l[?1003l[?1002l[?1001l[?1000l[?1004l[?1015l[?1006l[?1005l[0;1;37;44mmosh: Nothing received from server on UDP port 60001. [To quit: Ctrl-^ .][0;37;44m       
+[1;1H[?25l[0mLinux raspi 6.12.47+rpt-rpi-2712 #1 SMP PREEMPT Debian 1:6.12.47-1+rpt1 (2025-0[1;80H9-16) aarch64
+
+The programs included with the Debian GNU/Linux system are free software;
+the exact distribution terms for each program are described in the
+individual files in /usr/share/doc/*/copyright.
+
+Debian GNU/Linux comes with ABSOLUTELY NO WARRANTY, to the extent
+permitted by applicable law.
+[?25h]0;[mosh] pi@raspi: ~[?25l
+export PS1='__W3_PROMPT__# '
+exit
+[0;1;32mpi@raspi[0m:[0;1;34m~ $[0m export PS1='__W3_PROMPT__# '
+__W3_PROMPT__# exit
+logout
+[?25h]0;pi@raspi: ~[?1l[0m[?25h[?1003l[?1002l[?1001l[?1000l[?1015l[?1006l[?1005l[?1049l[23;0;0t[mosh is exiting.]
+export PS1='__W3_PROMPT__# '
+bash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+__W3TOK__mosh__interactive_shell__r0__s1__NAM148P0__
+Warning: Permanently added '100.66.79.93' (ED25519) to the list of known hosts.
+
+
+[?1049h[22;0;0t[?1h[?5l[r[0m[H[2J[?25l[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K[1;1H[?25h[0m[?2004l[?1003l[?1002l[?1001l[?1000l[?1004l[?1015l[?1006l[?1005l[0;1;37;44mmosh: Nothing received from server on UDP port 60001. [To quit: Ctrl-^ .][0;37;44m       
+[1;1H[?25l[0mLinux raspi 6.12.47+rpt-rpi-2712 #1 SMP PREEMPT Debian 1:6.12.47-1+rpt1 (2025-0[1;80H9-16) aarch64
+
+The programs included with the Debian GNU/Linux system are free software;
+the exact distribution terms for each program are described in the
+individual files in /usr/share/doc/*/copyright.
+
+Debian GNU/Linux comes with ABSOLUTELY NO WARRANTY, to the extent
+permitted by applicable law.
+[?25h]0;[mosh] pi@raspi: ~[?25l
+export PS1='__W3_PROMPT__# '
+bash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+__W3TOK__mosh__interactive_shell__r0__s1__NAM148P0__
+[0;1;32mpi@raspi[0m:[0;1;34m~ $[0m export PS1='__W3_PROMPT__# '
+__W3_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+__W3TOK__mosh__interactive_shell__r0__s1__NAM148P0__
+__W3_PROMPT__# [?25h[?2004hbash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+[?2004l__W3TOK__mosh__interactive_shell__r0__s2__TVHHPBMY__[?25l
+__W3TOK__mosh__interactive_shell__r0__s2__TVHHPBMY__
+__W3_PROMPT__# [?25h[?2004hbash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+[?2004l__W3TOK__mosh__interactive_shell__r0__s3__OFQEWAOU__[?25l
+__W3TOK__mosh__interactive_shell__r0__s3__OFQEWAOU__
+__W3_PROMPT__# [?25h[?2004hbash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+[?2004l[0m[1;22r[?25l[22;1H
+
+[r[21;1H__W3_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+__W3TOK__mosh__interactive_shell__r0__s4__AXEQBNHL__[23;5HTOK__mosh__interactive_shell__r0__s4__AXEQBNHL__[K
+__W3_PROMPT__# [?25h[?2004h[0m[1;23r[?25l[23;1H
+[r[23;1H__W3_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+[K[?25h[?2004l[0m[1;22r[?25l[22;1H
+
+[r[21;1H__W3_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+__W3TOK__mosh__interactive_shell__r0__s5__1N13JCAT__[23;5HTOK__mosh__interactive_shell__r0__s5__1N13JCAT__[K
+__W3_PROMPT__# [?25h[?2004h[0m[1;23r[?25l[23;1H
+[r[23;1H__W3_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+[K[?25h[?2004l[0m[1;22r[?25l[22;1H
+
+[r[21;1H__W3_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+__W3TOK__mosh__interactive_shell__r1__s1__9MX2X18H__[23;5HTOK__mosh__interactive_shell__r1__s1__9MX2X18H__[K
+__W3_PROMPT__# [?25h[?2004h[0m[1;23r[?25l[23;1H
+[r[23;1H__W3_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+[K[?25h[?2004l[0m[1;22r[?25l[22;1H
+
+[r[21;1H__W3_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+__W3TOK__mosh__interactive_shell__r1__s2__AFEYUHZ1__[23;5HTOK__mosh__interactive_shell__r1__s2__AFEYUHZ1__[K
+__W3_PROMPT__# [?25h[?2004h[0m[1;23r[?25l[23;1H
+[r[23;1H__W3_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+[K[?25h[?2004l[0m[1;22r[?25l[22;1H
+
+[r[21;1H__W3_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+__W3TOK__mosh__interactive_shell__r1__s3__GV0E38DA__[23;5HTOK__mosh__interactive_shell__r1__s3__GV0E38DA__[K
+__W3_PROMPT__# [?25h[?2004h[0m[1;23r[?25l[23;1H
+[r[23;1H__W3_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+[K[?25h[?2004l[0m[1;22r[?25l[22;1H
+
+[r[21;1H__W3_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+__W3TOK__mosh__interactive_shell__r1__s4__LY8OZCYW__[23;5HTOK__mosh__interactive_shell__r1__s4__LY8OZCYW__[K
+__W3_PROMPT__# [?25h[?2004h[?25l[2;5H_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'[3;5HTOK__mosh__interactive_shell__r0__s3__OFQEWAOU__[K[5;5H_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'[6;5HTOK__mosh__interactive_shell__r0__s4__AXEQBNHL__[K[8;5H_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'[9;5HTOK__mosh__interactive_shell__r0__s5__1N13JCAT__[K[11;5H_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'[12;5HTOK__mosh__interactive_shell__r1__s1__9MX2X18H__[K[14;5H_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'[15;5HTOK__mosh__interactive_shell__r1__s2__AFEYUHZ1__[K[17;5H_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'[18;5HTOK__mosh__interactive_shell__r1__s3__GV0E38DA__[K[20;5H_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'[21;5HTOK__mosh__interactive_shell__r1__s4__LY8OZCYW__[K[23;5H_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+[K[?25h[?2004l[0m[1;4r[?25l[4;1H
+
+[r[3;1H__W3_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+__W3TOK__mosh__interactive_shell__r0__s4__AXEQBNHL__[5;5HTOK__mosh__interactive_shell__r0__s4__AXEQBNHL__[K[6;5H_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'[7;40H5[7;43H1N13JCAT[8;5HTOK__mosh__interactive_shell__r0__s5__1N13JCAT__[K[9;5H_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'[10;36H1[10;40H1[10;43H9MX2X18H[11;5HTOK__mosh__interactive_shell__r1__s1__9MX2X18H__[K[12;5H_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'[13;40H2[13;43HAFEYUHZ1[14;5HTOK__mosh__interactive_shell__r1__s2__AFEYUHZ1__[K[15;5H_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'[16;40H3[16;43HGV0E38DA[17;5HTOK__mosh__interactive_shell__r1__s3__GV0E38DA__[K[18;5H_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'[19;40H4[19;43HLY8OZCYW[20;5HTOK__mosh__interactive_shell__r1__s4__LY8OZCYW__[K[21;5H_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'[22;40H5[22;43HD14VE92M[23;5HTOK__mosh__interactive_shell__r1__s5__D14VE92M__[K
+__W3_PROMPT__# [?25h[?2004h[0m[1;23r[?25l[23;1H
+
+[r[22;1H__W3_PROMPT__# exit
+logout
+[K[?25h[?2004l]0;pi@raspi: ~[?1l[0m[?25h[?1003l[?1002l[?1001l[?1000l[?1015l[?1006l[?1005l[?1049l[23;0;0t[mosh is exiting.]
+export PS1='__W3_PROMPT__# '
+exit
+Warning: Permanently added '100.66.79.93' (ED25519) to the list of known hosts.
+
+
+[?1049h[22;0;0t[?1h[?5l[r[0m[H[2J[?25l[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K[1;1H[?25h[0m[?2004l[?1003l[?1002l[?1001l[?1000l[?1004l[?1015l[?1006l[?1005l[0;1;37;44mmosh: Nothing received from server on UDP port 60001. [To quit: Ctrl-^ .][0;37;44m       
+[1;1H[?25l[0mLinux raspi 6.12.47+rpt-rpi-2712 #1 SMP PREEMPT Debian 1:6.12.47-1+rpt1 (2025-0[1;80H9-16) aarch64
+
+The programs included with the Debian GNU/Linux system are free software;
+the exact distribution terms for each program are described in the
+individual files in /usr/share/doc/*/copyright.
+
+Debian GNU/Linux comes with ABSOLUTELY NO WARRANTY, to the extent
+permitted by applicable law.
+[?25h]0;[mosh] pi@raspi: ~[?25l
+export PS1='__W3_PROMPT__# '
+exit
+[0;1;32mpi@raspi[0m:[0;1;34m~ $[0m export PS1='__W3_PROMPT__# '
+__W3_PROMPT__# exit
+logout
+[?25h]0;pi@raspi: ~[?1l[0m[?25h[?1003l[?1002l[?1001l[?1000l[?1015l[?1006l[?1005l[?1049l[23;0;0t[mosh is exiting.]
+export PS1='__W3_PROMPT__# '
+vim -Nu NONE -n /tmp/w3_vim_bench.txt
+iWarning: Permanently added '100.66.79.93' (ED25519) to the list of known hosts.
+
+
+[?1049h[22;0;0t[?1h[?5l[r[0m[H[2J[?25l[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K[1;1H[?25h[0m[?2004l[?1003l[?1002l[?1001l[?1000l[?1004l[?1015l[?1006l[?1005l[0;1;37;44mmosh: Nothing received from server on UDP port 60001. [To quit: Ctrl-^ .][0;37;44m       
+[1;1H[?25l[0mLinux raspi 6.12.47+rpt-rpi-2712 #1 SMP PREEMPT Debian 1:6.12.47-1+rpt1 (2025-0[1;80H9-16) aarch64
+
+The programs included with the Debian GNU/Linux system are free software;
+the exact distribution terms for each program are described in the
+individual files in /usr/share/doc/*/copyright.
+
+Debian GNU/Linux comes with ABSOLUTELY NO WARRANTY, to the extent
+permitted by applicable law.
+[?25h]0;[mosh] pi@raspi: ~[0m[1;3r[?25l[3;1H
+
+[r[2;1H[0;38;5;12m~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+[0;1m-- INSERT --[1;1H[?25h[0m[?2004h[?1004h__W3TOK__mosh__vim__r0__s1__PNSM43D8__[?25l[24;1H:q![K[?2004l__W3_PROMPT__# [?25h[?2004h[?1004l[?25l[1;1H[K[24;1H"/tmp/w3_vim[24;14Hbench.txt" 0L, 0B[1;1H[?25h[0;38;5;12m[?1004h[?25l[24;1H[0;1m-- INSERT --[0m[K[1;1H[?25h__W3TOK__mosh__vim__r0__s2__W3ZP08J3__[?25l[24;1H[K[1;38H[?25h[?25l[24;1H:q![?2004l__W3_PROMPT__# [?25h[?2004h[?1004l[0m[1;23r[?25l[23;1H
+[r[23;1H__W3_PROMPT__# vim -Nu NONE -n /tmp/w3_vim_bench.txt
+[K[?25h[?2004l[0m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[?25l[2;1H[0;38;5;12m~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+[0;1m-- INSERT --[?25h[0m[?2004h[?1004h[?25l[1;1H__W3TOK__mosh__vim__r0__s3__TRP0J43D__[?25h[?25l[24;1H[K[1;38H[?25h[?25l[24;1H:q![?2004l__W3_PROMPT__# [?25h[?2004h[?1004l[?25l[1;1H[K[24;1H"/tmp/w3_vim[24;14Hbench.txt" 0L, 0B[1;1H[?25h[0;38;5;12m[?1004h[?25l[24;1H[0;1m-- INSERT --[0m[K[1;1H[?25h__W3TOK__mosh__vim__r0__s4__5IQVNB4G__[?25l[24;1H[K[1;38H[?25h[?25l[24;1H:q![?2004l__W3_PROMPT__# [?25h[?2004h[?1004l[0m[1;23r[?25l[23;1H
+[r[23;1H__W3_PROMPT__# vim -Nu NONE -n /tmp/w3_vim_bench.txt
+[K[?25h[?2004l[0m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[?25l[2;1H[0;38;5;12m~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+[0;1m-- INSERT --[1;1H[?25h[0m[?2004h[?1004h__W3TOK__mosh__vim__r0__s5__H2M5ZJA8__[?25l[24;1H[K[1;38H[?25h[?25l[24;1H:q![?2004l__W3_PROMPT__# [?25h[?2004h[?1004l[?25l[1;1H[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+"/tmp/w3_vim[24;14Hbench.txt"[?1004h[2;1H[0;38;5;12m~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+[0;1m-- INSERT --[0m[K[1;1H[?25h__W3TOK__mosh__vim__r1__s1__DZR1YXR2__[?25l[24;1H[K[1;38H[?25h[?25l[24;1H:q![?2004l__W3_PROMPT__# [?25h[?2004h[?1004l[?25l[1;1H[K[24;1H[0;1m-- INSERT --[0m[K[?25h[?1004h[?25l[1;1H__W3TOK__mosh__vim__r1__s2__DHYLURTP__[?25h[?25l[24;1H[K[1;38H[?25h[?25l[24;1H:q![?2004l__W3_PROMPT__# [?25h[?2004h[?1004l[?25l[1;1H[K[24;1H[0;1m-- INSERT --[0m[K[?25h[?1004h[?25l[1;1H__W3TOK__mosh__vim__r1__s3__0LZJJEGE__[?25h[?25l[24;1H[K[1;38H[?25h[?25l[24;1H:q![?2004l__W3_PROMPT__# [?25h[?2004h[?1004l[?25l[1;1H[K[24;1H"/tmp/w3_vim[24;14Hbench.txt" 0L, 0B[1;1H[?25h[0;38;5;12m[?1004h[?25l[24;1H[0;1m-- INSERT --[0m[K[1;1H[?25h__W3TOK__mosh__vim__r1__s4__T1GHR09S__[?25l[24;1H[K[1;38H[?25h[?25l[24;1H:q![?2004l__W3_PROMPT__# [?25h[?2004h[?1004l[0m[1;23r[?25l[23;1H
+[r[23;1H__W3_PROMPT__# vim -Nu NONE -n /tmp/w3_vim_bench.txt
+[K[?25h[?1004h[0m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[?25l[2;1H[0;38;5;12m~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+[0;1m-- INSERT --[?25h[0m[?25l[1;1H__W3TOK__mosh__vim__r1__s5__KDGIGATJ__[?25h[?25l[24;1H[K[1;38H[?25h[?25l[24;1H:q![?2004l__W3_PROMPT__# [?25h[?2004h[?1004l[0m[1;22r[?25l[22;1H
+[r[22;1H__W3_PROMPT__# exit
+logout[K
+[K[?25h[?2004l]0;pi@raspi: ~[?1l[0m[?25h[?1003l[?1002l[?1001l[?1000l[?1015l[?1006l[?1005l[?1049l[23;0;0t[mosh is exiting.]
+export PS1='__W3_PROMPT__# '
+nano --ignorercfiles /tmp/w3_nano_bench.txt
+Warning: Permanently added '100.66.79.93' (ED25519) to the list of known hosts.
+__W3TOK__mosh__nano__r0__s1__9TZE5R5U__^Xn
+
+[?1049h[22;0;0t[?1h[?5l[r[0m[H[2J[?25l[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K[1;1H[?25h[0m[?2004l[?1003l[?1002l[?1001l[?1000l[?1004l[?1015l[?1006l[?1005l[0;1;37;44mmosh: Nothing received from server on UDP port 60001. [To quit: Ctrl-^ .][0;37;44m       
+[1;1H[?25l[0m]0;[mosh] pi@raspi: ~[0;7m  GNU nano 8.4                 /tmp/w3_nano_bench.txt                 Modified  
+[24;1H[0m__W3_PROMPT__# [?25h[?2004h[?25l[1;71H[0;7m        [22;35H[ New File ]
+^G[0m Help[23;14H[0;7m^O[0m Write Out [0;7m^F[0m Where Is  [0;7m^K[0m Cut[23;53H[0;7m^T[0m Execute   [0;7m^C[0m Location
+[0;7m^X[0m Exit[6X[24;14H[0;7m^R[0m Read File [0;7m^\[0m Replace   [0;7m^U[0m Paste     [0;7m^J[0m Justify   [0;7m^/[0m Go To Line[2;1H[?25h[?25l[1;71H[0;7mModified
+[0m__W3TOK__mosh__nano__r0__s2__QPGB7R3O__[22;35H[K[2;40H[?25h[?25l[22;1H[0;7mSave modified buffer?                                                           
+ Y[23;4H[0mY[23;6Hs[K
+[0;7m N[24;4H[0mNo  [24;14H  [24;17H[0;7m^C[0m Cancel[K[22;23H[?25h[?25l[K
+[K
+__W3_PROMPT__#[24;16H[K[?25h[?25l[1;71H[0;7m        
+[0m[K[22;35H[0;7m[ New File ]
+^G[0m Help[23;14H[0;7m^O[0m Write Out [0;7m^F[0m Where Is  [0;7m^K[0m Cut[23;53H[0;7m^T[0m Execute   [0;7m^C[0m Location
+[0;7m^X[0m Exit[6X[24;14H[0;7m^R[0m Read File [0;7m^\[0m Replace   [0;7m^U[0m Paste     [0;7m^J[0m Justify   [0;7m^/[0m Go To Line[2;1H[?25h[?25l[1;71H[0;7mModified
+[0m__W3TOK__mosh__nano__r0__s3__CWBFUK9E__[22;35H[K[2;40H[?25h[?25l[22;1H[0;7mSave modified buffer?                                                           
+ Y[23;4H[0mY[23;6Hs[K
+[0;7m N[24;4H[0mNo  [24;14H  [24;17H[0;7m^C[0m Cancel[K[22;23H[?25h[?25l[K
+[K
+__W3_PROMPT__#[24;16H[K[?25h[?25l[1;71H[0;7m        
+[0m[K[22;35H[0;7m[ New File ]
+^G[0m Help[23;14H[0;7m^O[0m Write Out [0;7m^F[0m Where Is  [0;7m^K[0m Cut[23;53H[0;7m^T[0m Execute   [0;7m^C[0m Location
+[0;7m^X[0m Exit[6X[24;14H[0;7m^R[0m Read File [0;7m^\[0m Replace   [0;7m^U[0m Paste     [0;7m^J[0m Justify   [0;7m^/[0m Go To Line[2;1H[?25h[?25l[1;71H[0;7mModified
+[0m__W3TOK__mosh__nano__r0__s4__1V2ISQP4__[22;35H[K[2;40H[?25h[?25l[22;1H[0;7mSave modified buffer?                                                           
+ Y[23;4H[0mY[23;6Hs[K
+[0;7m N[24;4H[0mNo  [24;14H  [24;17H[0;7m^C[0m Cancel[K[22;23H[?25h[?25l[K
+[K
+__W3_PROMPT__#[24;16H[K[?25h[?25l[1;71H[0;7m        
+[0m[K[22;35H[0;7m[ New File ]
+^G[0m Help[23;14H[0;7m^O[0m Write Out [0;7m^F[0m Where Is  [0;7m^K[0m Cut[23;53H[0;7m^T[0m Execute   [0;7m^C[0m Location
+[0;7m^X[0m Exit[6X[24;14H[0;7m^R[0m Read File [0;7m^\[0m Replace   [0;7m^U[0m Paste     [0;7m^J[0m Justify   [0;7m^/[0m Go To Line[2;1H[?25h[?25l[1;71H[0;7mModified
+[0m__W3TOK__mosh__nano__r0__s5__9KWV08HH__[22;35H[K[2;40H[?25h[?25l[22;1H[0;7mSave modified buffer?                                                           
+ Y[23;4H[0mY[23;6Hs[K
+[0;7m N[24;4H[0mNo  [24;14H  [24;17H[0;7m^C[0m Cancel[K[22;23H[?25h[?25l[K
+[K
+__W3_PROMPT__#[24;16H[K[?25h[?25l[1;71H[0;7m        
+[0m[K[22;35H[0;7m[ New File ]
+^G[0m Help[23;14H[0;7m^O[0m Write Out [0;7m^F[0m Where Is  [0;7m^K[0m Cut[23;53H[0;7m^T[0m Execute   [0;7m^C[0m Location
+[0;7m^X[0m Exit[6X[24;14H[0;7m^R[0m Read File [0;7m^\[0m Replace   [0;7m^U[0m Paste     [0;7m^J[0m Justify   [0;7m^/[0m Go To Line[2;1H[?25h[?25l[1;71H[0;7mModified
+[0m__W3TOK__mosh__nano__r1__s1__XFGCAQVK__[22;35H[K[2;40H[?25h[?25l[22;1H[0;7mSave modified buffer?                                                           
+ Y[23;4H[0mY[23;6Hs[K
+[0;7m N[24;4H[0mNo  [24;14H  [24;17H[0;7m^C[0m Cancel[K[22;23H[?25h[?25l[K
+[K
+__W3_PROMPT__#[24;16H[K[?25h[0m[1;23r[?25l[23;1H
+
+[r[22;1H__W3_PROMPT__# exit
+logout
+[K[?25h[?2004l]0;pi@raspi: ~[?1l[0m[?25h[?1003l[?1002l[?1001l[?1000l[?1015l[?1006l[?1005l[?1049l[23;0;0t[mosh is exiting.]
+export PS1='__W3_PROMPT__# '
+nano --ignorercfiles /tmp/w3_nano_bench.txt
+Warning: Permanently added '100.66.79.93' (ED25519) to the list of known hosts.
+__W3TOK__mosh__nano__r1__s2__IZZQY72W__^Xn
+
+[?1049h[22;0;0t[?1h[?5l[r[0m[H[2J[?25l[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K[1;1H[?25h[0m[?2004l[?1003l[?1002l[?1001l[?1000l[?1004l[?1015l[?1006l[?1005l[0;1;37;44mmosh: Nothing received from server on UDP port 60001. [To quit: Ctrl-^ .][0;37;44m       
+[1;1H[?25l[0mLinux raspi 6.12.47+rpt-rpi-2712 #1 SMP PREEMPT Debian 1:6.12.47-1+rpt1 (2025-0[1;80H9-16) aarch64
+
+The programs included with the Debian GNU/Linux system are free software;
+the exact distribution terms for each program are described in the
+individual files in /usr/share/doc/*/copyright.
+
+Debian GNU/Linux comes with ABSOLUTELY NO WARRANTY, to the extent
+permitted by applicable law.
+[?25h[?25l
+export PS1='__W3_PROMPT__# '
+nano --ignorercfiles /tmp/w3_nano_bench.txt
+__W3TOK__mosh__nano__r1__s2__IZZQY72W__^Xn[?25h]0;[mosh] pi@raspi: ~[?25l[1;1H[0;7m  GNU nano 8.4                 /tmp/w3_nano_bench.txt                 Modified  
+[0m[K
+
+[K
+[K
+[K
+
+[K
+[K
+
+[K
+[K
+[K[24;1H__W3_PROMPT__# [?25h[?2004h[?25l[1;71H[0;7m        [22;35H[ New File ]
+^G[0m Help[23;14H[0;7m^O[0m Write Out [0;7m^F[0m Where Is  [0;7m^K[0m Cut[23;53H[0;7m^T[0m Execute   [0;7m^C[0m Location
+[0;7m^X[0m Exit[6X[24;14H[0;7m^R[0m Read File [0;7m^\[0m Replace   [0;7m^U[0m Paste     [0;7m^J[0m Justify   [0;7m^/[0m Go To Line[2;1H[?25h[?25l[1;71H[0;7mModified
+[0m__W3TOK__mosh__nano__r1__s3__X7PTX63C__[22;35H[K[2;40H[?25h[?25l[22;1H[0;7mSave modified buffer?                                                           
+ Y[23;4H[0mY[23;6Hs[K
+[0;7m N[24;4H[0mNo  [24;14H  [24;17H[0;7m^C[0m Cancel[K[22;23H[?25h[?25l[K
+[K
+__W3_PROMPT__#[24;16H[K[?25h[0m[1;23r[?25l[23;1H
+
+[r[22;1H__W3_PROMPT__# exit
+logout
+[K[?25h[?2004l]0;pi@raspi: ~[?1l[0m[?25h[?1003l[?1002l[?1001l[?1000l[?1015l[?1006l[?1005l[?1049l[23;0;0t[mosh is exiting.]
+export PS1='__W3_PROMPT__# '
+nano --ignorercfiles /tmp/w3_nano_bench.txt
+Warning: Permanently added '100.66.79.93' (ED25519) to the list of known hosts.
+__W3TOK__mosh__nano__r1__s4__FL0UKEYZ__^Xn
+
+[?1049h[22;0;0t[?1h[?5l[r[0m[H[2J[?25l[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K[1;1H[?25h[0m[?2004l[?1003l[?1002l[?1001l[?1000l[?1004l[?1015l[?1006l[?1005l[0;1;37;44mmosh: Nothing received from server on UDP port 60001. [To quit: Ctrl-^ .][0;37;44m       
+[1;1H[?25l[0mLinux raspi 6.12.47+rpt-rpi-2712 #1 SMP PREEMPT Debian 1:6.12.47-1+rpt1 (2025-0[1;80H9-16) aarch64
+
+The programs included with the Debian GNU/Linux system are free software;
+the exact distribution terms for each program are described in the
+individual files in /usr/share/doc/*/copyright.
+
+Debian GNU/Linux comes with ABSOLUTELY NO WARRANTY, to the extent
+permitted by applicable law.
+[?25h]0;[mosh] pi@raspi: ~[?25l[1;1H[0;7m  GNU nano 8.4                 /tmp/w3_nano_bench.txt                 Modified  
+[0m[K
+
+[K
+[K
+[K
+
+[K
+[K[24;1H__W3_PROMPT__# [?25h[?2004h[?25l[1;71H[0;7m        [22;35H[ New File ]
+^G[0m Help[23;14H[0;7m^O[0m Write Out [0;7m^F[0m Where Is  [0;7m^K[0m Cut[23;53H[0;7m^T[0m Execute   [0;7m^C[0m Location
+[0;7m^X[0m Exit[6X[24;14H[0;7m^R[0m Read File [0;7m^\[0m Replace   [0;7m^U[0m Paste     [0;7m^J[0m Justify   [0;7m^/[0m Go To Line[2;1H[?25h[?25l[1;71H[0;7mModified
+[0m__W3TOK__mosh__nano__r1__s5__7SRCBPLJ__[22;35H[K[2;40H[?25h[?25l[22;1H[0;7mSave modified buffer?                                                           
+ Y[23;4H[0mY[23;6Hs[K
+[0;7m N[24;4H[0mNo  [24;14H  [24;17H[0;7m^C[0m Cancel[K[22;23H[?25h[?25l[K
+[K
+__W3_PROMPT__#[24;16H[K[?25h[0m[1;23r[?25l[23;1H
+
+[r[22;1H__W3_PROMPT__# exit
+logout
+[K[?25h[?2004l]0;pi@raspi: ~[?1l[0m[?25h[?1003l[?1002l[?1001l[?1000l[?1015l[?1006l[?1005l[?1049l[23;0;0t[mosh is exiting.]
+export PS1='__W3_PROMPT__# '
+exit
+Warning: Permanently added '100.66.79.93' (ED25519) to the list of known hosts.
+
+
+[?1049h[22;0;0t[?1h[?5l[r[0m[H[2J[?25l[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K[1;1H[?25h[0m[?2004l[?1003l[?1002l[?1001l[?1000l[?1004l[?1015l[?1006l[?1005l[0;1;37;44mmosh: Nothing received from server on UDP port 60001. [To quit: Ctrl-^ .][0;37;44m       
+[1;1H[?25l[0mLinux raspi 6.12.47+rpt-rpi-2712 #1 SMP PREEMPT Debian 1:6.12.47-1+rpt1 (2025-0[1;80H9-16) aarch64
+
+The programs included with the Debian GNU/Linux system are free software;
+the exact distribution terms for each program are described in the
+individual files in /usr/share/doc/*/copyright.
+
+Debian GNU/Linux comes with ABSOLUTELY NO WARRANTY, to the extent
+permitted by applicable law.
+[?25h]0;[mosh] pi@raspi: ~[?25l
+export PS1='__W3_PROMPT__# '
+exit
+[0;1;32mpi@raspi[0m:[0;1;34m~ $[0m export PS1='__W3_PROMPT__# '
+__W3_PROMPT__# exit
+logout
+[?25h]0;pi@raspi: ~[?1l[0m[?25h[?1003l[?1002l[?1001l[?1000l[?1015l[?1006l[?1005l[?1049l[23;0;0t[mosh is exiting.]
+export PS1='__W3_PROMPT__# '
+bash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+__W3TOK__mosh__interactive_shell__r0__s1__NAM148P0__
+Warning: Permanently added '100.66.79.93' (ED25519) to the list of known hosts.
+
+
+[?1049h[22;0;0t[?1h[?5l[r[0m[H[2J[?25l[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K[1;1H[?25h[0m[?2004l[?1003l[?1002l[?1001l[?1000l[?1004l[?1015l[?1006l[?1005l[0;1;37;44mmosh: Nothing received from server on UDP port 60001. [To quit: Ctrl-^ .][0;37;44m       
+[1;1H[?25l[0mLinux raspi 6.12.47+rpt-rpi-2712 #1 SMP PREEMPT Debian 1:6.12.47-1+rpt1 (2025-0[1;80H9-16) aarch64
+
+The programs included with the Debian GNU/Linux system are free software;
+the exact distribution terms for each program are described in the
+individual files in /usr/share/doc/*/copyright.
+
+Debian GNU/Linux comes with ABSOLUTELY NO WARRANTY, to the extent
+permitted by applicable law.
+[?25h[?25l
+export PS1='__W3_PROMPT__# '
+bash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+__W3TOK__mosh__interactive_shell__r0__s1__NAM148P0__
+[?25h]0;[mosh] pi@raspi: ~[0;1;32mpi@raspi[0m:[0;1;34m~ $[0m export PS1='__W3_PROMPT__# '[?25l
+__W3_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+__W3TOK__mosh__interactive_shell__r0__s1__NAM148P0__
+__W3_PROMPT__# [?25h[?2004hbash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+[?2004l__W3TOK__mosh__interactive_shell__r0__s2__TVHHPBMY__[?25l
+__W3_PROMPT__# [?25h[?2004hbash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+[?2004l__W3TOK__mosh__interactive_shell__r0__s3__OFQEWAOU__[?25l
+__W3_PROMPT__# [?25h[?2004hbash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+[?2004l__W3TOK__mosh__interactive_shell__r0__s4__AXEQBNHL__[?25l
+__W3_PROMPT__# [?25h[?2004hbash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+[?2004l[0m[1;22r[?25l[22;1H
+
+[r[21;1H__W3_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+__W3TOK__mosh__interactive_shell__r0__s5__1N13JCAT__[23;5HTOK__mosh__interactive_shell__r0__s5__1N13JCAT__[K
+[?25h__W3_PROMPT__# [?2004h[0m[1;23r[?25l[23;1H
+[r[23;1H__W3_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+[K[?25h[?2004l[0m[1;22r[?25l[22;1H
+
+[r[21;1H__W3_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+__W3TOK__mosh__interactive_shell__r1__s1__9MX2X18H__[23;5HTOK__mosh__interactive_shell__r1__s1__9MX2X18H__[K
+__W3_PROMPT__# [?25h[?2004h[0m[1;23r[?25l[23;1H
+[r[23;1H__W3_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+[K[?25h[?2004l[0m[1;22r[?25l[22;1H
+
+[r[21;1H__W3_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+__W3TOK__mosh__interactive_shell__r1__s2__AFEYUHZ1__[23;5HTOK__mosh__interactive_shell__r1__s2__AFEYUHZ1__[K
+__W3_PROMPT__# [?25h[?2004h[0m[1;23r[?25l[23;1H
+[r[23;1H__W3_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+[K[?25h[?2004l[0m[1;22r[?25l[22;1H
+
+[r[21;1H__W3_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+__W3TOK__mosh__interactive_shell__r1__s3__GV0E38DA__[23;5HTOK__mosh__interactive_shell__r1__s3__GV0E38DA__[K
+[?25h__W3_PROMPT__# [?2004h[0m[1;23r[?25l[23;1H
+[r[23;1H__W3_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+[K[?25h[?2004l[0m[1;22r[?25l[22;1H
+
+[r[21;1H__W3_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+__W3TOK__mosh__interactive_shell__r1__s4__LY8OZCYW__[23;5HTOK__mosh__interactive_shell__r1__s4__LY8OZCYW__[K
+__W3_PROMPT__# [?25h[?2004h[0m[1;23r[?25l[23;1H
+[r[23;1H__W3_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+[K[?25h[?2004l[0m[1;22r[?25l[22;1H
+
+[r[21;1H__W3_PROMPT__# bash -lc 'IFS= read -r line; printf "%s\n" "$line"'
+__W3TOK__mosh__interactive_shell__r1__s5__D14VE92M__[23;5HTOK__mosh__interactive_shell__r1__s5__D14VE92M__[K
+__W3_PROMPT__# [?25h[?2004h[0m[1;23r[?25l[23;1H
+
+[r[22;1H__W3_PROMPT__# exit
+logout
+[K[?25h[?2004l]0;pi@raspi: ~[?1l[0m[?25h[?1003l[?1002l[?1001l[?1000l[?1015l[?1006l[?1005l[?1049l[23;0;0t[mosh is exiting.]
+export PS1='__W3_PROMPT__# '
+vim -Nu NONE -n /tmp/w3_vim_bench.txt
+iWarning: Permanently added '100.66.79.93' (ED25519) to the list of known hosts.
+
+
+[?1049h[22;0;0t[?1h[?5l[r[0m[H[2J[?25l[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K[1;1H[?25h[0m[?2004l[?1003l[?1002l[?1001l[?1000l[?1004l[?1015l[?1006l[?1005l[0;1;37;44mmosh: Nothing received from server on UDP port 60001. [To quit: Ctrl-^ .][0;37;44m       
+[1;1H[?25l[0mLinux raspi 6.12.47+rpt-rpi-2712 #1 SMP PREEMPT Debian 1:6.12.47-1+rpt1 (2025-0[1;80H9-16) aarch64
+
+The programs included with the Debian GNU/Linux system are free software;
+the exact distribution terms for each program are described in the
+individual files in /usr/share/doc/*/copyright.
+
+Debian GNU/Linux comes with ABSOLUTELY NO WARRANTY, to the extent
+permitted by applicable law.
+[?25h[?25l
+export PS1='__W3_PROMPT__# '
+vim -Nu NONE -n /tmp/w3_vim_bench.txt
+i[?25h]0;[mosh] pi@raspi: ~[0m[1;3r[?25l[3;1H
+
+[r[2;1H[0;38;5;12m~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+[0;1m-- INSERT --[?25h[0m[?2004h[?1004h[?25l[1;1H__W3TOK__mosh__vim__r0__s1__PNSM43D8__[?25h[?25l[24;1H[K[1;38H[?25h[?25l[24;1H:q![?2004l__W3_PROMPT__# [?25h[?2004h[?1004l[?25l[1;1H[K[24;1H[0;1m-- INSERT --[0m[K[1;1H[?25h[?1004h__W3TOK__mosh__vim__r0__s2__W3ZP08J3__[?25l[24;1H[K[1;38H[?25h[?25l[24;1H__W3_PROMPT__# [?25h[?1004l[?25l[1;1H[K[24;1H"/tmp/w3_vim[24;14Hbench.txt" 0L, 0B[1;1H[?25h[0;38;5;12m[?1004h[?25l[24;1H[0;1m-- INSERT --[0m[K[1;1H[?25h__W3TOK__mosh__vim__r0__s3__TRP0J43D__[?25l[24;1H[K[1;38H[?25h[?25l[24;1H:q![?2004l__W3_PROMPT__# [?25h[?2004h[?1004l[?25l[1;1H[K[24;1H[0;1m-- INSERT --[0m[K[?25h[?1004h[?25l[1;1H__W3TOK__mosh__vim__r0__s4__5IQVNB4G__[?25h[?25l[24;1H[K[1;38H[?25h[?25l[24;1H:q![?2004l__W3_PROMPT__# [?25h[?2004h[?1004l[?25l[1;1H[K[24;1H[0;1m-- INSERT --[0m[K[?25h[?1004h[?25l[1;1H__W3TOK__mosh__vim__r0__s5__H2M5ZJA8__[?25h[?25l[24;1H[K[1;38H[?25h[?25l[24;1H:q![?2004l__W3_PROMPT__# [?25h[?2004h[?1004l[0m[1;23r[?25l[23;1H
+[r[23;1H__W3_PROMPT__# vim -Nu NONE -n /tmp/w3_vim_bench.txt
+[K[?25h[?1004h[0m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[?25l[2;1H[0;38;5;12m~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+[0;1m-- INSERT --[1;1H[?25h[0m__W3TOK__mosh__vim__r1__s1__DZR1YXR2__[?25l[24;1H[K[1;38H[?25h[?25l[24;1H:q![?2004l__W3_PROMPT__# [?25h[?2004h[?1004l[?25l[1;1H[K[24;1H"/tmp/w3_vim[24;14Hbench.txt" 0L, 0B[1;1H[?25h[0;38;5;12m[?1004h[?25l[24;1H[0;1m-- INSERT --[0m[K[1;1H[?25h__W3TOK__mosh__vim__r1__s2__DHYLURTP__[?25l[24;1H[K[1;38H[?25h[?25l[24;1H:q![?2004l__W3_PROMPT__# [?25h[?2004h[?1004l[0m[1;23r[?25l[23;1H
+[r[23;1H__W3_PROMPT__# vim -Nu NONE -n /tmp/w3_vim_bench.txt
+[K[?25h[?2004l[0m
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[?25l[2;1H[0;38;5;12m~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+~                                                                               
+[0;1m-- INSERT --[1;1H[?25h[0m[?2004h[?1004h__W3TOK__mosh__vim__r1__s3__0LZJJEGE__[?25l[24;1H[K[1;38H[?25h[?25l[24;1H:q![?2004l__W3_PROMPT__# [?25h[?2004h[?1004l[?25l[1;1H[K[24;1H"/tmp/w3_vim[24;14Hbench.txt" 0L, 0B[1;1H[?25h[0;38;5;12m[?1004h[?25l[24;1H[0;1m-- INSERT --[0m[K[1;1H[?25h__W3TOK__mosh__vim__r1__s4__T1GHR09S__[?25l[24;1H:q![K[?2004l__W3_PROMPT__# [?25h[?2004h[?1004l[?25l[1;1H[K[24;1H"/tmp/w3_vim[24;14Hbench.txt" 0L, 0B[1;1H[?25h[0;38;5;12m[?1004h[?25l[24;1H[0;1m-- INSERT --[0m[K[1;1H[?25h__W3TOK__mosh__vim__r1__s5__KDGIGATJ__[?25l[24;1H[K[1;38H[?25h[?25l[24;1H:q![?2004l__W3_PROMPT__# [?25h[?2004h[?1004l[0m[1;22r[?25l[22;1H
+[r[22;1H__W3_PROMPT__# exit
+logout[K
+[K[?25h[?2004l]0;pi@raspi: ~[?1l[0m[?25h[?1003l[?1002l[?1001l[?1000l[?1015l[?1006l[?1005l[?1049l[23;0;0t[mosh is exiting.]
+export PS1='__W3_PROMPT__# '
+nano --ignorercfiles /tmp/w3_nano_bench.txt
+__W3TOK__mosh__nano__r0__s1__9TZE5R5U__^XnWarning: Permanently added '100.66.79.93' (ED25519) to the list of known hosts.
+
+
+[?1049h[22;0;0t[?1h[?5l[r[0m[H[2J[?25l[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K[1;1H[?25h[0m[?2004l[?1003l[?1002l[?1001l[?1000l[?1004l[?1015l[?1006l[?1005l[0;1;37;44mmosh: Nothing received from server on UDP port 60001. [To quit: Ctrl-^ .][0;37;44m       
+[1;1H[?25l[0mLinux raspi 6.12.47+rpt-rpi-2712 #1 SMP PREEMPT Debian 1:6.12.47-1+rpt1 (2025-0[1;80H9-16) aarch64
+
+The programs included with the Debian GNU/Linux system are free software;
+the exact distribution terms for each program are described in the
+individual files in /usr/share/doc/*/copyright.
+
+Debian GNU/Linux comes with ABSOLUTELY NO WARRANTY, to the extent
+permitted by applicable law.
+[?25h[?25l
+export PS1='__W3_PROMPT__# '
+nano --ignorercfiles /tmp/w3_nano_bench.txt
+__W3TOK__mosh__nano__r0__s1__9TZE5R5U__^Xn[?25h]0;[mosh] pi@raspi: ~[?25l[1;1H[0;7m  GNU nano 8.4                 /tmp/w3_nano_bench.txt                           
+[0m[K
+
+[K
+[K
+[K
+
+[K
+[K
+
+[K
+[K
+[K[22;35H[0;7m[ New File ]
+^G[0m Help[23;14H[0;7m^O[0m Write Out [0;7m^F[0m Where Is  [0;7m^K[0m Cut[23;53H[0;7m^T[0m Execute   [0;7m^C[0m Location
+[0;7m^X[0m Exit[24;14H[0;7m^R[0m Read File [0;7m^\[0m Replace   [0;7m^U[0m Paste     [0;7m^J[0m Justify   [0;7m^/[0m Go To Line[2;1H[?25h[?2004h[?25l[1;71H[0;7mModified
+[0m__W3TOK__mosh__nano__r0__s2__QPGB7R3O__[22;35H[K[2;40H[?25h[?25l[22;1H[0;7mSave modified buffer?                                                           
+ Y[23;4H[0mY[23;6Hs[K
+[0;7m N[24;4H[0mNo  [24;14H  [24;17H[0;7m^C[0m Cancel[K[22;23H[?25h[?25l[K
+[K
+__W3_PROMPT__#[24;16H[K[?25h[0m[1;23r[?25l[23;1H
+[r[23;1H__W3_PROMPT__# nano --ignorercfiles /tmp/w3_nano_bench.txt
+[K[?25h[?2004l[?25l[1;1H[0;7m  GNU nano 8.4                 /tmp/w3_nano_bench.txt                           
+[22;35H[ New File ]
+^G[0m Help[6X[23;14H[0;7m^O[0m Write Out [0;7m^F[0m Wher[23;35H Is  [0;7m^K[0m Cut[7X[23;53H[0;7m^T[0m E[23;58Hecute   [0;7m^C[0m Location
+[0;7m^X[0m Exit[24;14H[0;7m^R[0m Read File [0;7m^\[0m Replace   [0;7m^U[0m Paste     [0;7m^J[0m Justify   [0;7m^/[0m Go To Line[2;1H[?25h[?2004h[?25l[1;71H[0;7mModified
+[0m__W3TOK__mosh__nano__r0__s3__CWBFUK9E__[22;35H[K[2;40H[?25h[?25l[22;1H[0;7mSave modified buffer?                                                           
+ Y[23;4H[0mY[23;6Hs[K
+[0;7m N[24;4H[0mNo  [24;14H  [24;17H[0;7m^C[0m Cancel[K[22;23H[?25h[?25l[K
+[K
+__W3_PROMPT__#[24;16H[K[?25h[?25l[1;71H[0;7m        
+[0m[K[22;35H[0;7m[ New File ]
+^G[0m Help[23;14H[0;7m^O[0m Write Out [0;7m^F[0m Where Is  [0;7m^K[0m Cut[23;53H[0;7m^T[0m Execute   [0;7m^C[0m Location
+[0;7m^X[0m Exit[6X[24;14H[0;7m^R[0m Read File [0;7m^\[0m Replace   [0;7m^U[0m Paste     [0;7m^J[0m Justify   [0;7m^/[0m Go To Line[2;1H[?25h[?25l[1;71H[0;7mModified
+[0m__W3TOK__mosh__nano__r0__s4__1V2ISQP4__[22;35H[K[2;40H[?25h[?25l[22;1H[0;7mSave modified buffer?                                                           
+ Y[23;4H[0mY[23;6Hs[K
+[0;7m N[24;4H[0mNo  [24;14H  [24;17H[0;7m^C[0m Cancel[K[22;23H[?25h[?25l[K
+[K
+__W3_PROMPT__#[24;16H[K[?25h[?25l[1;71H[0;7m        
+[0m[K[22;35H[0;7m[ New File ]
+^G[0m Help[23;14H[0;7m^O[0m Write Out [0;7m^F[0m Where Is  [0;7m^K[0m Cut[23;53H[0;7m^T[0m Execute   [0;7m^C[0m Location
+[0;7m^X[0m Exit[6X[24;14H[0;7m^R[0m Read File [0;7m^\[0m Replace   [0;7m^U[0m Paste     [0;7m^J[0m Justify   [0;7m^/[0m Go To Line[2;1H[?25h[?25l[1;71H[0;7mModified
+[0m__W3TOK__mosh__nano__r0__s5__9KWV08HH__[22;35H[K[2;40H[?25h[?25l[22;1H[0;7mSave modified buffer?                                                           
+ Y[23;4H[0mY[23;6Hs[K
+[0;7m N[24;4H[0mNo  [24;14H  [24;17H[0;7m^C[0m Cancel[K[22;23H[?25h[?25l[K
+[K
+__W3_PROMPT__#[24;16H[K[?25h[?25l[1;71H[0;7m        
+[0m[K[22;35H[0;7m[ New File ]
+^G[0m Help[23;14H[0;7m^O[0m Write Out [0;7m^F[0m Where Is  [0;7m^K[0m Cut[23;53H[0;7m^T[0m Execute   [0;7m^C[0m Location
+[0;7m^X[0m Exit[6X[24;14H[0;7m^R[0m Read File [0;7m^\[0m Replace   [0;7m^U[0m Paste     [0;7m^J[0m Justify   [0;7m^/[0m Go To Line[2;1H[?25h[?25l[1;71H[0;7mModified
+[0m__W3TOK__mosh__nano__r1__s1__XFGCAQVK__[22;35H[K[2;40H[?25h[?25l[22;1H[0;7mSave modified buffer?                                                           
+ Y[23;4H[0mY[23;6Hs[K
+[0;7m N[24;4H[0mNo  [24;14H  [24;17H[0;7m^C[0m Cancel[K[22;23H[?25h[?25l[K
+[K
+[K[?25h[?2004l__W3_PROMPT__# [?2004h[?25l[1;71H[0;7m        
+[0m[K[22;35H[0;7m[ New File ]
+^G[0m Help[23;14H[0;7m^O[0m Write Out [0;7m^F[0m Where Is  [0;7m^K[0m Cut[23;53H[0;7m^T[0m Execute   [0;7m^C[0m Location
+[0;7m^X[0m Exit[6X[24;14H[0;7m^R[0m Read File [0;7m^\[0m Replace   [0;7m^U[0m Paste     [0;7m^J[0m Justify   [0;7m^/[0m Go To Line[2;1H[?25h[?25l[1;71H[0;7mModified
+[0m__W3TOK__mosh__nano__r1__s2__IZZQY72W__[22;35H[K[2;40H[?25h[?25l[22;1H[0;7mSave modified buffer?                                                           
+ Y[23;4H[0mY[23;6Hs[K
+[0;7m N[24;4H[0mNo  [24;14H  [24;17H[0;7m^C[0m Cancel[K[22;23H[?25h[?25l[K
+[K
+__W3_PROMPT__#[24;16H[K[?25h[0m[1;23r[?25l[23;1H
+
+[r[22;1H__W3_PROMPT__# exit
+logout
+[K[?25h[?2004l]0;pi@raspi: ~[?1l[0m[?25h[?1003l[?1002l[?1001l[?1000l[?1015l[?1006l[?1005l[?1049l[23;0;0t[mosh is exiting.]
+export PS1='__W3_PROMPT__# '
+nano --ignorercfiles /tmp/w3_nano_bench.txt
+Warning: Permanently added '100.66.79.93' (ED25519) to the list of known hosts.
+__W3TOK__mosh__nano__r1__s3__X7PTX63C__^Xn
+
+[?1049h[22;0;0t[?1h[?5l[r[0m[H[2J[?25l[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K[1;1H[?25h[0m[?2004l[?1003l[?1002l[?1001l[?1000l[?1004l[?1015l[?1006l[?1005l[0;1;37;44mmosh: Nothing received from server on UDP port 60001. [To quit: Ctrl-^ .][0;37;44m       
+[1;1H[?25l[0mLinux raspi 6.12.47+rpt-rpi-2712 #1 SMP PREEMPT Debian 1:6.12.47-1+rpt1 (2025-0[1;80H9-16) aarch64
+
+The programs included with the Debian GNU/Linux system are free software;
+the exact distribution terms for each program are described in the
+individual files in /usr/share/doc/*/copyright.
+
+Debian GNU/Linux comes with ABSOLUTELY NO WARRANTY, to the extent
+permitted by applicable law.
+[?25h]0;[mosh] pi@raspi: ~[?25l[1;1H[0;7m  GNU nano 8.4                 /tmp/w3_nano_bench.txt                 Modified  
+[0m[K
+
+[K
+[K
+[K
+
+[K
+[K[24;1H__W3_PROMPT__# [?25h[?2004h[?25l[1;71H[0;7m        [22;35H[ New File ]
+^G[0m Help[23;14H[0;7m^O[0m Write Out [0;7m^F[0m Where Is  [0;7m^K[0m Cut[23;53H[0;7m^T[0m Execute   [0;7m^C[0m Location
+[0;7m^X[0m Exit[6X[24;14H[0;7m^R[0m Read File [0;7m^\[0m Replace   [0;7m^U[0m Paste     [0;7m^J[0m Justify   [0;7m^/[0m Go To Line[2;1H[?25h[?25l[1;71H[0;7mModified
+[0m__W3TOK__mosh__nano__r1__s4__FL0UKEYZ__[22;35H[K[2;40H[?25h[?25l[22;1H[0;7mSave modified buffer?                                                           
+ Y[23;4H[0mY[23;6Hs[K
+[0;7m N[24;4H[0mNo  [24;14H  [24;17H[0;7m^C[0m Cancel[K[22;23H[?25h[?25l[K
+[K
+__W3_PROMPT__#[24;16H[K[?25h[0m[1;23r[?25l[23;1H
+
+[r[22;1H__W3_PROMPT__# exit
+logout
+[K[?25h[?2004l]0;pi@raspi: ~[?1l[0m[?25h[?1003l[?1002l[?1001l[?1000l[?1015l[?1006l[?1005l[?1049l[23;0;0t[mosh is exiting.]
+export PS1='__W3_PROMPT__# '
+nano --ignorercfiles /tmp/w3_nano_bench.txt
+Warning: Permanently added '100.66.79.93' (ED25519) to the list of known hosts.
+__W3TOK__mosh__nano__r1__s5__7SRCBPLJ__^Xn
+
+[?1049h[22;0;0t[?1h[?5l[r[0m[H[2J[?25l[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K[1;1H[?25h[0m[?2004l[?1003l[?1002l[?1001l[?1000l[?1004l[?1015l[?1006l[?1005l[0;1;37;44mmosh: Nothing received from server on UDP port 60001. [To quit: Ctrl-^ .][0;37;44m       
+[1;1H[?25l[0mLinux raspi 6.12.47+rpt-rpi-2712 #1 SMP PREEMPT Debian 1:6.12.47-1+rpt1 (2025-0[1;80H9-16) aarch64
+
+The programs included with the Debian GNU/Linux system are free software;
+the exact distribution terms for each program are described in the
+individual files in /usr/share/doc/*/copyright.
+
+Debian GNU/Linux comes with ABSOLUTELY NO WARRANTY, to the extent
+permitted by applicable law.
+[?25h]0;[mosh] pi@raspi: ~[?25l[1;1H[0;7m  GNU nano 8.4                 /tmp/w3_nano_bench.txt                 Modified  
+[0m[K
+
+[K
+[K
+[K
+
+[K
+[K[24;1H__W3_PROMPT__# [?25h[?2004h[0m[1;22r[?25l[22;1H
+[r[22;1H__W3_PROMPT__# exit
+logout
+[K[?25h[?2004l]0;pi@raspi: ~[?1l[0m[?25h[?1003l[?1002l[?1001l[?1000l[?1015l[?1006l[?1005l[?1049l[23;0;0t[mosh is exiting.]

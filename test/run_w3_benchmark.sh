@@ -4,7 +4,7 @@ set -euo pipefail
 HOST="192.168.8.102"
 USER_NAME="trungnt"
 SOURCE_IP="192.168.8.100"
-IDENTITY_FILE="$HOME/.ssh/id_rsa" 
+IDENTITY_FILE="$HOME/.ssh/id_ed25519" 
 
 # ── Giao thức & workload ──────────────────────────────────────────────────────
 PROTOCOLS="ssh ssh3"                          # ssh | ssh3 | mosh  (space-separated)
@@ -30,7 +30,7 @@ SSH3_INSECURE=true     # true = thêm -insecure cho ssh3
 # ── SSH / Mosh tuning ────────────────────────────────────────────────────────
 BATCH_MODE=false               # true = BatchMode=yes (tắt password prompt)
 STRICT_HOST_KEY=false          # true = bật StrictHostKeyChecking
-MOSH_PREDICT="never"           # adaptive | always | never
+MOSH_PREDICT="adaptive"           # adaptive | always | never
 
 REMOTE_VIM_FILE="/tmp/w3_vim_bench.txt"
 REMOTE_NANO_FILE="/tmp/w3_nano_bench.txt"

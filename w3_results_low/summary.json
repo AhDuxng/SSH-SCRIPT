@@ -1,0 +1,160 @@
+{
+  "meta": {
+    "started_at_utc": "2026-04-22T16:50:59+00:00",
+    "target": "pi@100.66.79.93",
+    "client_source_ip": null,
+    "protocols": [
+      "ssh",
+      "ssh3",
+      "mosh"
+    ],
+    "requested_metrics": [
+      "session_setup",
+      "keystroke_latency"
+    ],
+    "metrics": [
+      "session_setup",
+      "keystroke_latency"
+    ],
+    "metric_aliases": {
+      "keystroke_latency": "keystroke_latency",
+      "control_step_latency": "control_step_latency",
+      "line_echo": "line_echo",
+      "session_setup": "session_setup"
+    },
+    "trials": 5,
+    "samples_per_trial": 10,
+    "warmup_samples": 10,
+    "warmup_floor": 10,
+    "timeout_sec": 45,
+    "echo_timeout_sec": 20,
+    "pty_cols": 220,
+    "pty_rows": 50,
+    "random_seed": 42,
+    "mosh_predict_for_measurements": "never",
+    "mosh_predict_note": "Mosh latency measurements use --predict=never to disable speculative local rendering.  Without this, the PTY stream contains locally-predicted output that may arrive in a different order or be coalesced differently than the server-confirmed frames, causing the stream reader to miss marker lines (BUG-6).",
+    "topology": {
+      "client": "default-route",
+      "server": "100.66.79.93"
+    },
+    "client_system": {
+      "python": "3.14.3",
+      "platform": "Linux-6.19.11-1-cachyos-x86_64-with-glibc2.43",
+      "hostname": "cachyos-x8664"
+    },
+    "remote_system": {
+      "kernel": "6.12.47+rpt-rpi-2712",
+      "mosh_version": "mosh 1.4.0 [build mosh 1.4.0]",
+      "ssh_version": "OpenSSH_10.0p2 Debian-7, OpenSSL 3.5.5 27 Jan 2026",
+      "ssh3_version": "{\"level\":\"info\",\"time\":\"2026-04-22T23:51:04+07:00\",\"message\":\"plugin privkey_auth successfully registered\"}",
+      "python_version": "Python 3.13.5"
+    },
+    "metric_notes": {
+      "session_setup_ms": "Time-to-usable-shell: from pexpect.spawn() until the remote shell is fully configured (PS1, stty, bracketed-paste). Not a pure transport handshake metric.",
+      "control_step_latency_ms": "PRIMARY metric. obs_rtt_ms + act_rtt_ms. Excludes local Python decision time (processing_overhead_ms). Measured with mosh --predict=never.",
+      "control_step_wall_ms": "Full wall-clock: t_act_recv - t_obs_send. = control_step_latency_ms + processing_overhead_ms. Exported in control_step_details.csv for transparency.",
+      "processing_overhead_ms": "Local Python decision time: t_act_send - t_obs_recv. Excluded from control_step_latency_ms; reflects client CPU only.",
+      "keystroke_latency_ms": "Per-byte ACK RTT via raw-mode remote Python helper. From child.send(byte) to receipt of a framed ACK record. Framed ACK parsing tolerates chunk coalescing and resyncs on seq jumps. Measured with mosh --predict=never.",
+      "line_echo_ms": "Application-level line RTT (Winstein & Balakrishnan 2012, SIGCOMM \u00a74). From sendline(token) to exact-line ACK from line-mode helper.",
+      "ping_rtt_ms": "ICMP baseline covariate, pre-session per trial. Not concurrent with app measurements.",
+      "percentile_method": "Hyndman & Fan (1996) type-7 linear interpolation.",
+      "stdev_note": "Sample standard deviation (ddof=1).",
+      "ci95_note": "1.96 \u00d7 stdev / sqrt(n).",
+      "success_rate_denominator": "Fixed budget: trials \u00d7 samples_per_trial for per-sample metrics; trials for session_setup."
+    },
+    "processing_overhead_summary": {},
+    "skipped_protocols": {}
+  },
+  "summary": [
+    {
+      "protocol": "ssh",
+      "metric": "session_setup",
+      "n": 5,
+      "failures": 0,
+      "success_rate_pct": 100.0,
+      "min_ms": 2227.763528,
+      "mean_ms": 2251.5961738,
+      "median_ms": 2259.83856,
+      "stdev_ms": 18.137026776982868,
+      "p95_ms": 2267.8328835999996,
+      "p99_ms": 2268.42295192,
+      "max_ms": 2268.570469,
+      "ci95_half_width_ms": 15.897804914962503
+    },
+    {
+      "protocol": "ssh",
+      "metric": "keystroke_latency",
+      "n": 50,
+      "failures": 0,
+      "success_rate_pct": 100.0,
+      "min_ms": 167.980564,
+      "mean_ms": 179.29404046,
+      "median_ms": 179.0593035,
+      "stdev_ms": 4.70577281536457,
+      "p95_ms": 186.95036975000002,
+      "p99_ms": 189.26312653,
+      "max_ms": 190.791536,
+      "ci95_half_width_ms": 1.3043736764392986
+    },
+    {
+      "protocol": "ssh3",
+      "metric": "session_setup",
+      "n": 5,
+      "failures": 0,
+      "success_rate_pct": 100.0,
+      "min_ms": 444.863019,
+      "mean_ms": 456.8523092,
+      "median_ms": 448.348734,
+      "stdev_ms": 15.603006468319581,
+      "p95_ms": 478.1097208,
+      "p99_ms": 481.44987856,
+      "max_ms": 482.284918,
+      "ci95_half_width_ms": 13.676638181680348
+    },
+    {
+      "protocol": "ssh3",
+      "metric": "keystroke_latency",
+      "n": 50,
+      "failures": 0,
+      "success_rate_pct": 100.0,
+      "min_ms": 164.327599,
+      "mean_ms": 174.3838078,
+      "median_ms": 166.0740615,
+      "stdev_ms": 35.27215489528685,
+      "p95_ms": 190.2585587499999,
+      "p99_ms": 343.11009928,
+      "max_ms": 344.436739,
+      "ci95_half_width_ms": 9.776942526099688
+    },
+    {
+      "protocol": "mosh",
+      "metric": "session_setup",
+      "n": 5,
+      "failures": 0,
+      "success_rate_pct": 100.0,
+      "min_ms": 2255.808863,
+      "mean_ms": 2347.548061,
+      "median_ms": 2346.573536,
+      "stdev_ms": 64.33773231012165,
+      "p95_ms": 2409.8415794000002,
+      "p99_ms": 2410.79516228,
+      "max_ms": 2411.033558,
+      "ci95_half_width_ms": 56.394508841737704
+    },
+    {
+      "protocol": "mosh",
+      "metric": "keystroke_latency",
+      "n": 50,
+      "failures": 0,
+      "success_rate_pct": 100.0,
+      "min_ms": 172.952689,
+      "mean_ms": 179.8136213,
+      "median_ms": 177.4264255,
+      "stdev_ms": 9.078627376076097,
+      "p95_ms": 193.71595149999996,
+      "p99_ms": 216.68907152999995,
+      "max_ms": 226.725547,
+      "ci95_half_width_ms": 2.516467120743782
+    }
+  ]
+}

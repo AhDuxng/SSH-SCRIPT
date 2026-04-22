@@ -1,0 +1,70 @@
+Warning: Permanently added '100.66.79.93' (ED25519) to the list of known hosts.
+
+
+[?1049h[22;0;0t[?1h[?5l[r[0m[H[2J[?25l[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K[1;1H[?25h[0m[?2004l[?1003l[?1002l[?1001l[?1000l[?1004l[?1015l[?1006l[?1005l[0;1;37;44mmosh: Nothing received from server on UDP port 60001. [To quit: Ctrl-^ .][0;37;44m                                                                                                                                                   
+[1;1H[?25l[0mLinux raspi 6.12.47+rpt-rpi-2712 #1 SMP PREEMPT Debian 1:6.12.47-1+rpt1 (2025-09-16) aarch64[K
+
+The programs included with the Debian GNU/Linux system are free software;
+the exact distribution terms for each program are described in the
+individual files in /usr/share/doc/*/copyright.
+
+Debian GNU/Linux comes with ABSOLUTELY NO WARRANTY, to the extent
+permitted by applicable law.
+[?25h]0;[mosh] pi@raspi: ~[?25l
+[0;1;32mpi@raspi[0m:[0;1;34m~ $[0m printf '__W3PROBE__\n'
+__W3PROBE__
+[0;1;32mpi@raspi[0m:[0;1;34m~ $[0m [?25h[?2004hunset PROMPT_COMMAND 2>/dev/null || true; bind 'set enable-bracketed-paste off' 2>/dev/null || true; export PS1=__W3PROMPT__; printf '__W3SETUP__\n'[?25l
+__W3SETUP__
+__W3PROMPT__[?25h[?2004lstty -echo -echoctl cols 220 rows 50 2>/dev/null || true[?25l
+__W3PROMPT__[?25h__W3HAS_PY3__[?25l
+__W3PROMPT__[?25hlogout
+]0;pi@raspi: ~[?1l[0m[?25h[?1003l[?1002l[?1001l[?1000l[?1015l[?1006l[?1005l[?1049l[23;0;0t[mosh is exiting.]

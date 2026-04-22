@@ -1,0 +1,24 @@
+{"level":"info","time":"2026-04-23T00:03:53+07:00","message":"plugin privkey_auth successfully registered"}
+{"level":"info","time":"2026-04-23T00:03:53+07:00","message":"plugin pubkey_auth successfully registered"}
+{"level":"debug","time":"2026-04-23T00:03:53+07:00","message":"Adding plugin-provided CLI arg: \"privkey\""}
+{"level":"debug","time":"2026-04-23T00:03:53+07:00","message":"Adding plugin-provided CLI arg: \"pubkey-for-agent\""}
+[90m12:03AM[0m [31mWRN[0m no SSH agent is connected
+printf '__W3PROBE__\n'
+unset PROMPT_COMMAND 2>/dev/null || true; bind 'set enable-bracketed-paste off' 2>/dev/null || true; export PS1=__W3PROMPT__; printf '__W3SETUP__\n'
+{"level":"info","time":"2026-04-23T00:04:17+07:00","message":"plugin privkey_auth successfully registered"}
+{"level":"info","time":"2026-04-23T00:04:17+07:00","message":"plugin pubkey_auth successfully registered"}
+{"level":"debug","time":"2026-04-23T00:04:17+07:00","message":"Adding plugin-provided CLI arg: \"privkey\""}
+{"level":"debug","time":"2026-04-23T00:04:17+07:00","message":"Adding plugin-provided CLI arg: \"pubkey-for-agent\""}
+[90m12:04AM[0m [31mWRN[0m no SSH agent is connected
+printf '__W3PROBE__\n'
+unset PROMPT_COMMAND 2>/dev/null || true; bind 'set enable-bracketed-paste off' 2>/dev/null || true; export PS1=__W3PROMPT__; printf '__W3SETUP__\n'
+printf '__W3PROBE__\n'
+unset PROMPT_COMMAND 2>/dev/null || true; bind 'set enable-bracketed-paste off' 2>/dev/null || true; export PS1=__W3PROMPT__; printf '__W3SETUP__\n'
+[?2004h]0;pi@raspi: ~[01;32mpi@raspi[00m:[01;34m~ $[00m printf '__W3PROBE__\n'
+[?2004l__W3PROBE__
+[?2004h]0;pi@raspi: ~[01;32mpi@raspi[00m:[01;34m~ $[00m unset PROMPT_COMMAND 2>/dev/null || true; bind 'set enable-bracketed-paste off' 2>/dev/null || true; export PS1=__W3PROMPT__; printf '__W3SETUP__\n'
+[?2004l__W3SETUP__
+__W3PROMPT__stty -echo -echoctl cols 220 rows 50 2>/dev/null || true
+__W3PROMPT____W3HAS_PY3__
+__W3PROMPT__logout
+
