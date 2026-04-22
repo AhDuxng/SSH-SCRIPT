@@ -208,7 +208,7 @@ class W3Benchmark:
         child.expect_exact(self.args.prompt)
         return (end_ns - start_ns) / 1_000_000.0
 
-    def _run_sample(self, child: pexpect.spawn, protocol: str, workload: str, round_id: int, sample_id: int, *, record: bool = True) -> None:
+    def _run_sample(self, child: pexpect.spawn, protocol: str, workload: str, round_id: int, sample_id: int, *, record: bool = True) -> float:
         token = self._token(protocol, workload, round_id, sample_id)
         if workload == "interactive_shell":
             latency = self._measure_interactive_shell(child, token)
@@ -222,6 +222,7 @@ class W3Benchmark:
         if record:
             self.results[protocol][workload].append(latency)
             self.records.append(SampleRecord(protocol, workload, round_id, sample_id, token, latency))
+        return latency
 
     def _run_session_group(self, protocol: str, workload: str) -> None:
         for trial_id in range(1, self.args.trials + 1):
@@ -237,10 +238,10 @@ class W3Benchmark:
 
                 for w_idx in range(1, self.args.warmup_rounds + 1):
                     try:
-                        self._run_sample(child, protocol, workload, 0, w_idx, record=False)
+                        lat = self._run_sample(child, protocol, workload, 0, w_idx, record=False)
                         print(
                             f"[{protocol:>4}/{workload:<18}]"
-                            f" trial {trial_id:>2} warmup {w_idx}/{self.args.warmup_rounds}: OK"
+                            f" trial {trial_id:>2} warmup {w_idx}/{self.args.warmup_rounds}: {lat:.2f} ms"
                         )
                     except (pexpect.TIMEOUT, pexpect.EOF, ValueError) as exc:
                         print(
@@ -252,10 +253,10 @@ class W3Benchmark:
 
                 for s_idx in range(1, self.args.iterations + 1):
                     try:
-                        self._run_sample(child, protocol, workload, trial_id, s_idx)
+                        lat = self._run_sample(child, protocol, workload, trial_id, s_idx)
                         print(
                             f"[{protocol:>4}/{workload:<18}]"
-                            f" trial {trial_id:>2} measure {s_idx:>3}/{self.args.iterations}: OK"
+                            f" trial {trial_id:>2} measure {s_idx:>3}/{self.args.iterations}: {lat:.2f} ms"
                         )
                     except (pexpect.TIMEOUT, pexpect.EOF, ValueError) as exc:
                         self.failures.append(
