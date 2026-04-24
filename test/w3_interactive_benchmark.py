@@ -27,10 +27,13 @@ DEFAULT_PROTOCOLS = ["ssh", "ssh3", "mosh"]
 DEFAULT_WORKLOADS = ["interactive_shell", "vim", "nano"]
 DEFAULT_PROMPT    = "__W3_PROMPT__# "
 DEFAULT_SSH3_PATH = "/ssh3-term"
-
 PROBE_CHAR = "x"
 
-_INITIAL_PROMPT_RE = re.compile(r"[#$>]\s*$", re.MULTILINE)
+_ANSI_SEQ   = r"(?:\x1b\[[0-9;]*[a-zA-Z])"
+_INITIAL_PROMPT_RE = re.compile(
+    r"[#$>](?:" + _ANSI_SEQ + r"|\s)*\s*$",
+    re.MULTILINE,
+)
 
 @dataclass
 class SampleRecord:
@@ -123,13 +126,6 @@ class W3Benchmark:
         raise ValueError(f"Unsupported protocol: {protocol}")
 
     def _open_session(self, protocol: str) -> tuple:
-        """Spawn a session and return (child, setup_ms).
-
-        FIX: setup_ms now covers only the protocol establishment window:
-          spawn() ... first remote shell prompt
-        The "export PS1" command is applied AFTER the clock stops so
-        benchmark overhead is excluded from the measurement.
-        """
         child = pexpect.spawn(
             self._session_command(protocol),
             encoding="utf-8",
@@ -144,7 +140,6 @@ class W3Benchmark:
         start_ns = time.perf_counter_ns()
         child.expect(_INITIAL_PROMPT_RE, timeout=self.args.timeout)
         setup_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
-
         child.sendline(f"export PS1='{self.args.prompt}'")
         child.expect_exact(self.args.prompt, timeout=self.args.timeout)
 
@@ -166,16 +161,6 @@ class W3Benchmark:
     def _measure_interactive_shell(
         self, child: pexpect.spawn, _token: str
     ) -> float:
-        """Single-keystroke RTT using 'cat'.
-
-        FIX (was: long token sent as one burst, clock started before
-        sendline(token)).  Now: one character probe, clock bracketing
-        send→expect only.
-
-        'cat' echoes each incoming byte immediately, making it the
-        cleanest baseline: no editor buffering, no terminal line
-        discipline aggregation beyond the single character.
-        """
         child.sendline("cat")
         child.expect_exact("\n", timeout=self.args.timeout)
 
@@ -205,7 +190,7 @@ class W3Benchmark:
         child.send(PROBE_CHAR)
         child.expect_exact(PROBE_CHAR, timeout=self.args.timeout)
         end_ns = time.perf_counter_ns()
-        
+
         child.send("\x08")
         child.send("\x1b")
         child.sendline(":q!")
@@ -230,9 +215,9 @@ class W3Benchmark:
         child.expect_exact(PROBE_CHAR, timeout=self.args.timeout)
         end_ns = time.perf_counter_ns()
 
-        child.send("\x08")       
-        child.sendcontrol("x")    
-        child.send("n")           
+        child.send("\x08")
+        child.sendcontrol("x")   
+        child.send("n")          
         child.expect_exact(self.args.prompt, timeout=self.args.timeout)
 
         return (end_ns - start_ns) / 1_000_000.0
