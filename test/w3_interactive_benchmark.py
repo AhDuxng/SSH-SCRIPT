@@ -8,7 +8,6 @@ import math
 import random
 import re
 import shlex
-import string
 import statistics
 import sys
 import time
@@ -29,8 +28,7 @@ DEFAULT_WORKLOADS = ["interactive_shell", "vim", "nano"]
 DEFAULT_PROMPT    = "__W3_PROMPT__# "
 DEFAULT_SSH3_PATH = "/ssh3-term"
 
-PROBE_TOKEN_PREFIX   = "__W3TOK__"
-PROBE_TOKEN_RAND_LEN = 8
+PROBE_TOKEN = "W3_PROBE_FIXED_Q9J5V2K7M4T8X1"
 
 _ANSI_SEQ   = r"(?:\x1b\[\??[0-9;]*[a-zA-Z])"
 _INITIAL_PROMPT_RE = re.compile(
@@ -78,6 +76,8 @@ class W3Benchmark:
         self.args       = args
         self.target     = f"{args.user}@{args.host}"
         self.started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        self.probe_token = PROBE_TOKEN
+        self.probe_echo_re = self._build_probe_echo_re(self.probe_token)
         self.records:  List[SampleRecord]  = []
         self.failures: List[FailureRecord] = []
         self.results: Dict[str, Dict[str, List[float]]] = {
@@ -87,14 +87,16 @@ class W3Benchmark:
             p: {w: [] for w in args.workloads} for p in args.protocols
         }
 
-    def _new_probe_token(self) -> str:
-        rand = "".join(
-            random.choices(
-                string.ascii_uppercase + string.digits,
-                k=PROBE_TOKEN_RAND_LEN,
-            )
-        )
-        return f"{PROBE_TOKEN_PREFIX}{rand}__"
+    @staticmethod
+    def _build_probe_echo_re(token: str) -> re.Pattern[str]:
+        parts = [re.escape(ch) + f"(?:{_ANSI_SEQ})*" for ch in token]
+        return re.compile("".join(parts))
+
+    def _expect_probe_echo(
+        self,
+        child: pexpect.spawn,
+    ) -> None:
+        child.expect(self.probe_echo_re, timeout=self.args.timeout)
 
     @staticmethod
     def _erase_probe_token(child: pexpect.spawn, token: str) -> None:
@@ -186,16 +188,14 @@ class W3Benchmark:
         child.expect_exact("\n", timeout=self.args.timeout)
 
         for _ in range(warmup):
-            token = self._new_probe_token()
-            child.send(token)
-            child.expect_exact(token, timeout=self.args.timeout)
+            child.send(self.probe_token)
+            self._expect_probe_echo(child)
 
         latencies: List[float] = []
         for i in range(iterations):
-            token = self._new_probe_token()
             start_ns = time.perf_counter_ns()
-            child.send(token)
-            child.expect_exact(token, timeout=self.args.timeout)
+            child.send(self.probe_token)
+            self._expect_probe_echo(child)
             end_ns = time.perf_counter_ns()
             lat = (end_ns - start_ns) / 1_000_000.0
             latencies.append(lat)
@@ -220,19 +220,17 @@ class W3Benchmark:
         child.expect([r"-- INSERT --", r"INSERT"], timeout=self.args.timeout)
 
         for _ in range(warmup):
-            token = self._new_probe_token()
-            child.send(token)
-            child.expect_exact(token, timeout=self.args.timeout)
-            self._erase_probe_token(child, token)
+            child.send(self.probe_token)
+            self._expect_probe_echo(child)
+            self._erase_probe_token(child, self.probe_token)
 
         latencies: List[float] = []
         for i in range(iterations):
-            token = self._new_probe_token()
             start_ns = time.perf_counter_ns()
-            child.send(token)
-            child.expect_exact(token, timeout=self.args.timeout)
+            child.send(self.probe_token)
+            self._expect_probe_echo(child)
             end_ns = time.perf_counter_ns()
-            self._erase_probe_token(child, token)
+            self._erase_probe_token(child, self.probe_token)
             lat = (end_ns - start_ns) / 1_000_000.0
             latencies.append(lat)
             if report_cb:
@@ -255,19 +253,17 @@ class W3Benchmark:
         child.expect([r"GNU nano", r"\^G Help"], timeout=self.args.timeout)
 
         for _ in range(warmup):
-            token = self._new_probe_token()
-            child.send(token)
-            child.expect_exact(token, timeout=self.args.timeout)
-            self._erase_probe_token(child, token)
+            child.send(self.probe_token)
+            self._expect_probe_echo(child)
+            self._erase_probe_token(child, self.probe_token)
 
         latencies: List[float] = []
         for i in range(iterations):
-            token = self._new_probe_token()
             start_ns = time.perf_counter_ns()
-            child.send(token)
-            child.expect_exact(token, timeout=self.args.timeout)
+            child.send(self.probe_token)
+            self._expect_probe_echo(child)
             end_ns = time.perf_counter_ns()
-            self._erase_probe_token(child, token)
+            self._erase_probe_token(child, self.probe_token)
             lat = (end_ns - start_ns) / 1_000_000.0
             latencies.append(lat)
             if report_cb:
@@ -515,16 +511,18 @@ class W3Benchmark:
                 "warmup_rounds":    self.args.warmup_rounds,
                 "timeout_sec":      self.args.timeout,
                 "random_seed":      self.args.seed,
-                "probe_token_prefix": PROBE_TOKEN_PREFIX,
+                "probe_token_mode": "fixed",
+                "probe_token":      self.probe_token,
                 "topology": {
                     "client": "192.168.8.100",
                     "server": self.args.host,
                 },
                 "metric_name": "interactive_keystroke_latency_ms",
                 "metric_note": (
-                    "Unique probe token injected via pexpect. "
-                    "Latency = time from child.send(token) to "
-                    "child.expect_exact(token). "
+                    "Fixed probe token injected via pexpect. "
+                    "Latency = time from child.send(token) to token echo "
+                    "observation. Echo matching tolerates ANSI sequences "
+                    "inserted by TUI redraw. "
                     "This is NOT physical keyboard-to-screen latency."
                 ),
                 "session_setup_note": (
