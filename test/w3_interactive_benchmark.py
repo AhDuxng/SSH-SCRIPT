@@ -29,6 +29,7 @@ DEFAULT_PROMPT    = "__W3_PROMPT__# "
 DEFAULT_SSH3_PATH = "/ssh3-term"
 
 PROBE_TOKEN = "W3_PROBE_FIXED_Q9J5V2K7M4T8X1"
+PROBE_TAIL_LEN = 10
 
 _ANSI_SEQ   = r"(?:\x1b\[\??[0-9;]*[a-zA-Z])"
 _INITIAL_PROMPT_RE = re.compile(
@@ -77,7 +78,9 @@ class W3Benchmark:
         self.target     = f"{args.user}@{args.host}"
         self.started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
         self.probe_token = PROBE_TOKEN
+        self.probe_tail = self.probe_token[-PROBE_TAIL_LEN:]
         self.probe_echo_re = self._build_probe_echo_re(self.probe_token)
+        self.probe_tail_echo_re = self._build_probe_echo_re(self.probe_tail)
         self.records:  List[SampleRecord]  = []
         self.failures: List[FailureRecord] = []
         self.results: Dict[str, Dict[str, List[float]]] = {
@@ -96,7 +99,15 @@ class W3Benchmark:
         self,
         child: pexpect.spawn,
     ) -> None:
-        child.expect(self.probe_echo_re, timeout=self.args.timeout)
+        child.expect(
+            [self.probe_echo_re, self.probe_tail_echo_re],
+            timeout=self.args.timeout,
+        )
+
+    @staticmethod
+    def _ensure_vim_insert_mode(child: pexpect.spawn) -> None:
+        child.send("\x1b")
+        child.send("i")
 
     @staticmethod
     def _erase_probe_token(child: pexpect.spawn, token: str) -> None:
@@ -220,12 +231,14 @@ class W3Benchmark:
         child.expect([r"-- INSERT --", r"INSERT"], timeout=self.args.timeout)
 
         for _ in range(warmup):
+            self._ensure_vim_insert_mode(child)
             child.send(self.probe_token)
             self._expect_probe_echo(child)
             self._erase_probe_token(child, self.probe_token)
 
         latencies: List[float] = []
         for i in range(iterations):
+            self._ensure_vim_insert_mode(child)
             start_ns = time.perf_counter_ns()
             child.send(self.probe_token)
             self._expect_probe_echo(child)
@@ -513,6 +526,7 @@ class W3Benchmark:
                 "random_seed":      self.args.seed,
                 "probe_token_mode": "fixed",
                 "probe_token":      self.probe_token,
+                "probe_tail":       self.probe_tail,
                 "topology": {
                     "client": "192.168.8.100",
                     "server": self.args.host,
@@ -522,7 +536,8 @@ class W3Benchmark:
                     "Fixed probe token injected via pexpect. "
                     "Latency = time from child.send(token) to token echo "
                     "observation. Echo matching tolerates ANSI sequences "
-                    "inserted by TUI redraw. "
+                    "inserted by TUI redraw and falls back to fixed tail "
+                    "matching when only partial redraw is emitted. "
                     "This is NOT physical keyboard-to-screen latency."
                 ),
                 "session_setup_note": (
