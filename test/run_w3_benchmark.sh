@@ -7,7 +7,7 @@ SOURCE_IP="192.168.8.100"
 IDENTITY_FILE="$HOME/.ssh/id_rsa" 
 
 # ── Giao thức & workload ──────────────────────────────────────────────────────
-PROTOCOLS="ssh ssh3"                          # ssh | ssh3 | mosh  (space-separated)
+PROTOCOLS="ssh ssh3 mosh"                          # ssh | ssh3 | mosh  (space-separated)
 WORKLOADS="interactive_shell vim nano"   # interactive_shell | vim | nano
 
 # ── Số vòng đo ───────────────────────────────────────────────────────────────
