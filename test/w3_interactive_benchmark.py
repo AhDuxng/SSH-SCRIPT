@@ -205,6 +205,7 @@ class W3Benchmark:
             child.send(PROBE_CHAR)
             child.expect_exact(PROBE_CHAR, timeout=self.args.timeout)
             child.send("\x08")  
+            time.sleep(0.05)
 
         latencies: List[float] = []
         for i in range(iterations):
@@ -217,6 +218,7 @@ class W3Benchmark:
             latencies.append(lat)
             if report_cb:
                 report_cb(i + 1, lat)
+            time.sleep(0.05)
 
         child.send("\x1b")
         child.sendline(":q!")
@@ -238,6 +240,7 @@ class W3Benchmark:
             child.send(PROBE_CHAR)
             child.expect_exact(PROBE_CHAR, timeout=self.args.timeout)
             child.send("\x08")  
+            time.sleep(0.05)
 
         latencies: List[float] = []
         for i in range(iterations):
@@ -250,6 +253,7 @@ class W3Benchmark:
             latencies.append(lat)
             if report_cb:
                 report_cb(i + 1, lat)
+            time.sleep(0.05)
 
         child.sendcontrol("x")
         child.send("n")
