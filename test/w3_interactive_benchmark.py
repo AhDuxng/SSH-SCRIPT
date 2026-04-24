@@ -1,18 +1,4 @@
 #!/usr/bin/env python3
-"""W3 Interactive Editing benchmark.
-
-This script measures interactive response latency for remote terminal sessions
-across SSHv2, SSHv3, and Mosh.
-
-Topology defaults:
-- Client / AI agent: 192.168.8.100
-- Target host: 192.168.8.102
-
-Important:
-This script measures *interactive response latency* observed through pexpect,
-not physical keyboard-to-screen keystroke latency.
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -20,9 +6,9 @@ import csv
 import json
 import math
 import random
+import re
 import shlex
 import statistics
-import string
 import sys
 import time
 from dataclasses import dataclass, asdict
@@ -33,81 +19,81 @@ from typing import Dict, List, Optional
 try:
     import pexpect
 except ImportError as exc:
-    raise SystemExit("Missing dependency: pexpect. Install with: pip install pexpect") from exc
+    raise SystemExit(
+        "Missing dependency: pexpect.  Install with:  pip install pexpect"
+    ) from exc
 
 DEFAULT_PROTOCOLS = ["ssh", "ssh3", "mosh"]
 DEFAULT_WORKLOADS = ["interactive_shell", "vim", "nano"]
-DEFAULT_PROMPT = "__W3_PROMPT__# "
+DEFAULT_PROMPT    = "__W3_PROMPT__# "
 DEFAULT_SSH3_PATH = "/ssh3-term"
 
+PROBE_CHAR = "x"
+
+_INITIAL_PROMPT_RE = re.compile(r"[#$>]\s*$", re.MULTILINE)
 
 @dataclass
 class SampleRecord:
-    protocol: str
-    workload: str
-    round_id: int
-    sample_id: int
-    token: str
+    protocol:   str
+    workload:   str
+    round_id:   int
+    sample_id:  int
     latency_ms: float
 
 
 @dataclass
 class FailureRecord:
-    protocol: str
-    workload: str
-    round_id: int
-    sample_id: int
-    error_type: str
+    protocol:      str
+    workload:      str
+    round_id:      int
+    sample_id:     int
+    error_type:    str
     error_message: str
 
 
 @dataclass
 class SummaryRow:
-    protocol: str
-    workload: str
-    n: int
-    failures: int
-    success_rate_pct: float
-    min_ms: Optional[float]
-    mean_ms: Optional[float]
-    median_ms: Optional[float]
-    stdev_ms: Optional[float]
-    p95_ms: Optional[float]
-    p99_ms: Optional[float]
-    max_ms: Optional[float]
+    protocol:           str
+    workload:           str
+    n:                  int
+    failures:           int
+    success_rate_pct:   float
+    min_ms:             Optional[float]
+    mean_ms:            Optional[float]
+    median_ms:          Optional[float]
+    stdev_ms:           Optional[float]
+    p95_ms:             Optional[float]
+    p99_ms:             Optional[float]
+    max_ms:             Optional[float]
     ci95_half_width_ms: Optional[float]
 
 
 class W3Benchmark:
     def __init__(self, args: argparse.Namespace) -> None:
-        self.args = args
-        self.target = f"{args.user}@{args.host}"
+        self.args       = args
+        self.target     = f"{args.user}@{args.host}"
         self.started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
-        self.records: List[SampleRecord] = []
+        self.records:  List[SampleRecord]  = []
         self.failures: List[FailureRecord] = []
         self.results: Dict[str, Dict[str, List[float]]] = {
-            protocol: {workload: [] for workload in args.workloads}
-            for protocol in args.protocols
+            p: {w: [] for w in args.workloads} for p in args.protocols
         }
         self.session_setups: Dict[str, Dict[str, List[float]]] = {
-            protocol: {workload: [] for workload in args.workloads}
-            for protocol in args.protocols
+            p: {w: [] for w in args.workloads} for p in args.protocols
         }
 
-    def _token(self, protocol: str, workload: str, round_id: int, sample_id: int) -> str:
-        rand = "".join(random.choices(string.ascii_uppercase + string.digits, k=8))
-        return f"__W3TOK__{protocol}__{workload}__r{round_id}__s{sample_id}__{rand}__"
-
     def _session_command(self, protocol: str) -> str:
-        host = self.args.host
-        target = self.target
+        target     = self.target
         ssh_common = ["ssh", "-tt"]
         if self.args.source_ip:
             ssh_common += ["-b", self.args.source_ip]
         if self.args.strict_host_key_checking:
             ssh_common += ["-o", "StrictHostKeyChecking=yes"]
         else:
-            ssh_common += ["-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null"]
+            ssh_common += [
+                "-o", "StrictHostKeyChecking=no",
+                "-o", "UserKnownHostsFile=/dev/null",
+            ]
         if self.args.identity_file:
             ssh_common += ["-i", self.args.identity_file]
         if self.args.batch_mode:
@@ -118,8 +104,8 @@ class W3Benchmark:
             return shlex.join(ssh_common)
 
         if protocol == "mosh":
-            ssh_cmd = shlex.join(ssh_common[:-1])  
-            mosh_parts = ["mosh", f'--ssh={ssh_cmd}']
+            ssh_cmd    = shlex.join(ssh_common[:-1])
+            mosh_parts = ["mosh", f"--ssh={ssh_cmd}"]
             if self.args.mosh_predict and self.args.mosh_predict != "adaptive":
                 mosh_parts += ["--predict", self.args.mosh_predict]
             mosh_parts += [target]
@@ -131,14 +117,19 @@ class W3Benchmark:
                 parts += ["-privkey", self.args.identity_file]
             if self.args.ssh3_insecure:
                 parts += ["-insecure"]
-            ssh3_target = f"{target}{self.args.ssh3_path}"
-            parts.append(ssh3_target)
+            parts.append(f"{target}{self.args.ssh3_path}")
             return shlex.join(parts)
 
         raise ValueError(f"Unsupported protocol: {protocol}")
 
     def _open_session(self, protocol: str) -> tuple:
-        start_ns = time.perf_counter_ns()
+        """Spawn a session and return (child, setup_ms).
+
+        FIX: setup_ms now covers only the protocol establishment window:
+          spawn() ... first remote shell prompt
+        The "export PS1" command is applied AFTER the clock stops so
+        benchmark overhead is excluded from the measurement.
+        """
         child = pexpect.spawn(
             self._session_command(protocol),
             encoding="utf-8",
@@ -150,9 +141,13 @@ class W3Benchmark:
             log_path.parent.mkdir(parents=True, exist_ok=True)
             child.logfile_read = open(log_path, "a", encoding="utf-8")
 
-        child.sendline(f"export PS1='{self.args.prompt}'")
-        child.expect_exact(self.args.prompt)
+        start_ns = time.perf_counter_ns()
+        child.expect(_INITIAL_PROMPT_RE, timeout=self.args.timeout)
         setup_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
+
+        child.sendline(f"export PS1='{self.args.prompt}'")
+        child.expect_exact(self.args.prompt, timeout=self.args.timeout)
+
         return child, setup_ms
 
     def _close_session(self, child: pexpect.spawn) -> None:
@@ -168,48 +163,94 @@ class W3Benchmark:
             except Exception:
                 pass
 
-    def _measure_interactive_shell(self, child: pexpect.spawn, token: str) -> float:
-        cmd = (
-            "bash -lc 'IFS= read -r line; "
-            "printf \"%s\\n\" \"$line\"'"
-        )
-        child.sendline(cmd)
+    def _measure_interactive_shell(
+        self, child: pexpect.spawn, _token: str
+    ) -> float:
+        """Single-keystroke RTT using 'cat'.
+
+        FIX (was: long token sent as one burst, clock started before
+        sendline(token)).  Now: one character probe, clock bracketing
+        send→expect only.
+
+        'cat' echoes each incoming byte immediately, making it the
+        cleanest baseline: no editor buffering, no terminal line
+        discipline aggregation beyond the single character.
+        """
+        child.sendline("cat")
+        child.expect_exact("\n", timeout=self.args.timeout)
+
         start_ns = time.perf_counter_ns()
-        child.sendline(token)
-        child.expect_exact(token)
+        child.send(PROBE_CHAR)
+        child.expect_exact(PROBE_CHAR, timeout=self.args.timeout)
         end_ns = time.perf_counter_ns()
-        child.expect_exact(self.args.prompt)
+
+        child.sendcontrol("c")
+        child.sendcontrol("c")
+        child.expect_exact(self.args.prompt, timeout=self.args.timeout)
+
         return (end_ns - start_ns) / 1_000_000.0
 
-    def _measure_vim(self, child: pexpect.spawn, token: str) -> float:
+    def _measure_vim(
+        self, child: pexpect.spawn, _token: str
+    ) -> float:
         remote_file = self.args.remote_vim_file
         child.sendline(f"vim -Nu NONE -n {shlex.quote(remote_file)}")
         child.send("i")
-        child.expect([r"-- INSERT --", r"INSERT"], timeout=self.args.timeout)
+        child.expect(
+            [r"-- INSERT --", r"INSERT"],
+            timeout=self.args.timeout,
+        )
+
         start_ns = time.perf_counter_ns()
-        child.send(token)
-        child.expect_exact(token)
+        child.send(PROBE_CHAR)
+        child.expect_exact(PROBE_CHAR, timeout=self.args.timeout)
         end_ns = time.perf_counter_ns()
+        
+        child.send("\x08")
         child.send("\x1b")
         child.sendline(":q!")
-        child.expect_exact(self.args.prompt)
+        child.expect_exact(self.args.prompt, timeout=self.args.timeout)
+
         return (end_ns - start_ns) / 1_000_000.0
 
-    def _measure_nano(self, child: pexpect.spawn, token: str) -> float:
+    def _measure_nano(
+        self, child: pexpect.spawn, _token: str
+    ) -> float:
         remote_file = self.args.remote_nano_file
-        child.sendline(f"nano --ignorercfiles {shlex.quote(remote_file)}")
-        child.expect([r"GNU nano", r"\^G Help"], timeout=self.args.timeout)
+        child.sendline(
+            f"nano --ignorercfiles {shlex.quote(remote_file)}"
+        )
+        child.expect(
+            [r"GNU nano", r"\^G Help"],
+            timeout=self.args.timeout,
+        )
+
         start_ns = time.perf_counter_ns()
-        child.send(token)
-        child.expect_exact(token)
+        child.send(PROBE_CHAR)
+        child.expect_exact(PROBE_CHAR, timeout=self.args.timeout)
         end_ns = time.perf_counter_ns()
-        child.sendcontrol("x")
-        child.send("n")
-        child.expect_exact(self.args.prompt)
+
+        child.send("\x08")       
+        child.sendcontrol("x")    
+        child.send("n")           
+        child.expect_exact(self.args.prompt, timeout=self.args.timeout)
+
         return (end_ns - start_ns) / 1_000_000.0
 
-    def _run_sample(self, child: pexpect.spawn, protocol: str, workload: str, round_id: int, sample_id: int, *, record: bool = True) -> float:
-        token = self._token(protocol, workload, round_id, sample_id)
+    def _run_sample(
+        self,
+        child: pexpect.spawn,
+        protocol: str,
+        workload: str,
+        round_id: int,
+        sample_id: int,
+        *,
+        record: bool = True,
+    ) -> float:
+        token = (
+            f"__W3TOK__{protocol}__{workload}__r{round_id}__s{sample_id}__"
+        )
+
         if workload == "interactive_shell":
             latency = self._measure_interactive_shell(child, token)
         elif workload == "vim":
@@ -221,7 +262,9 @@ class W3Benchmark:
 
         if record:
             self.results[protocol][workload].append(latency)
-            self.records.append(SampleRecord(protocol, workload, round_id, sample_id, token, latency))
+            self.records.append(
+                SampleRecord(protocol, workload, round_id, sample_id, latency)
+            )
         return latency
 
     def _run_session_group(self, protocol: str, workload: str) -> None:
@@ -238,25 +281,35 @@ class W3Benchmark:
 
                 for w_idx in range(1, self.args.warmup_rounds + 1):
                     try:
-                        lat = self._run_sample(child, protocol, workload, 0, w_idx, record=False)
+                        lat = self._run_sample(
+                            child, protocol, workload, 0, w_idx, record=False
+                        )
                         print(
                             f"[{protocol:>4}/{workload:<18}]"
-                            f" trial {trial_id:>2} warmup {w_idx}/{self.args.warmup_rounds}: {lat:.2f} ms"
+                            f" trial {trial_id:>2}"
+                            f" warmup {w_idx}/{self.args.warmup_rounds}:"
+                            f" {lat:.2f} ms"
                         )
                     except (pexpect.TIMEOUT, pexpect.EOF, ValueError) as exc:
                         print(
                             f"[{protocol:>4}/{workload:<18}]"
-                            f" trial {trial_id:>2} warmup {w_idx}: FAIL ({type(exc).__name__}: {exc})"
+                            f" trial {trial_id:>2}"
+                            f" warmup {w_idx}: FAIL"
+                            f" ({type(exc).__name__}: {exc})"
                         )
                         if child is None or not child.isalive():
                             child, setup_ms = self._open_session(protocol)
 
                 for s_idx in range(1, self.args.iterations + 1):
                     try:
-                        lat = self._run_sample(child, protocol, workload, trial_id, s_idx)
+                        lat = self._run_sample(
+                            child, protocol, workload, trial_id, s_idx
+                        )
                         print(
                             f"[{protocol:>4}/{workload:<18}]"
-                            f" trial {trial_id:>2} measure {s_idx:>3}/{self.args.iterations}: {lat:.2f} ms"
+                            f" trial {trial_id:>2}"
+                            f" measure {s_idx:>3}/{self.args.iterations}:"
+                            f" {lat:.2f} ms"
                         )
                     except (pexpect.TIMEOUT, pexpect.EOF, ValueError) as exc:
                         self.failures.append(
@@ -271,7 +324,9 @@ class W3Benchmark:
                         )
                         print(
                             f"[{protocol:>4}/{workload:<18}]"
-                            f" trial {trial_id:>2} measure {s_idx:>3}: FAIL ({type(exc).__name__}: {exc})"
+                            f" trial {trial_id:>2}"
+                            f" measure {s_idx:>3}: FAIL"
+                            f" ({type(exc).__name__}: {exc})"
                         )
                         if self.args.reopen_on_failure:
                             if child is not None:
@@ -285,7 +340,11 @@ class W3Benchmark:
 
     def run(self) -> None:
         random.seed(self.args.seed)
-        pairs = [(p, w) for p in self.args.protocols for w in self.args.workloads]
+        pairs = [
+            (p, w)
+            for p in self.args.protocols
+            for w in self.args.workloads
+        ]
         if self.args.shuffle_pairs:
             random.shuffle(pairs)
         for protocol, workload in pairs:
@@ -297,8 +356,8 @@ class W3Benchmark:
             return None
         if len(values) == 1:
             return values[0]
-        s = sorted(values)
-        k = (len(s) - 1) * (p / 100.0)
+        s     = sorted(values)
+        k     = (len(s) - 1) * (p / 100.0)
         lower = math.floor(k)
         upper = math.ceil(k)
         if lower == upper:
@@ -306,19 +365,25 @@ class W3Benchmark:
         return s[lower] + (s[upper] - s[lower]) * (k - lower)
 
     def _summary_row(self, protocol: str, workload: str) -> SummaryRow:
-        data = self.results[protocol][workload]
-        fail_n = sum(1 for f in self.failures if f.protocol == protocol and f.workload == workload)
-        n = len(data)
+        data   = self.results[protocol][workload]
+        fail_n = sum(
+            1 for f in self.failures
+            if f.protocol == protocol and f.workload == workload
+        )
+        n     = len(data)
         total = n + fail_n
         success_rate = (100.0 * n / total) if total else 0.0
 
         if n == 0:
-            return SummaryRow(protocol, workload, 0, fail_n, success_rate, None, None, None, None, None, None, None, None)
+            return SummaryRow(
+                protocol, workload, 0, fail_n, success_rate,
+                None, None, None, None, None, None, None, None,
+            )
 
-        mean_ms = statistics.mean(data)
+        mean_ms   = statistics.mean(data)
         median_ms = statistics.median(data)
-        stdev_ms = statistics.stdev(data) if n > 1 else 0.0
-        ci95 = (1.96 * stdev_ms / math.sqrt(n)) if n > 1 else 0.0
+        stdev_ms  = statistics.stdev(data) if n > 1 else 0.0
+        ci95      = (1.96 * stdev_ms / math.sqrt(n)) if n > 1 else 0.0
         return SummaryRow(
             protocol=protocol,
             workload=workload,
@@ -336,13 +401,17 @@ class W3Benchmark:
         )
 
     def summaries(self) -> List[SummaryRow]:
-        return [self._summary_row(p, w) for p in self.args.protocols for w in self.args.workloads]
+        return [
+            self._summary_row(p, w)
+            for p in self.args.protocols
+            for w in self.args.workloads
+        ]
 
     def _session_setup_stats(self, protocol: str, workload: str) -> dict:
-        """Return basic stats for session_setup_ms of a (protocol, workload) pair."""
         data = self.session_setups[protocol][workload]
         if not data:
-            return dict(n=0, mean=None, median=None, stdev=None, min=None, max=None)
+            return dict(n=0, mean=None, median=None, stdev=None,
+                        min=None, max=None)
         n = len(data)
         return dict(
             n=n,
@@ -360,33 +429,43 @@ class W3Benchmark:
         width = 146
         print("\n" + "=" * width)
         print(
-            f"{'Protocol':<8} | {'Workload':<18} | {'N':>4} | {'Fail':>4} | {'Success%':>8} | "
-            f"{'Min':>8} | {'Mean':>8} | {'Median':>8} | {'Std':>8} | {'P95':>8} | {'P99':>8} | {'Max':>8} | {'CI95+/-':>9}"
+            f"{'Protocol':<8} | {'Workload':<18} | {'N':>4} | {'Fail':>4} |"
+            f" {'Success%':>8} | {'Min':>8} | {'Mean':>8} | {'Median':>8} |"
+            f" {'Std':>8} | {'P95':>8} | {'P99':>8} | {'Max':>8} |"
+            f" {'CI95+/-':>9}"
         )
         print("-" * width)
         for row in self.summaries():
             print(
-                f"{row.protocol:<8} | {row.workload:<18} | {row.n:>4} | {row.failures:>4} | {row.success_rate_pct:>8.1f} | "
-                f"{fmt(row.min_ms):>8} | {fmt(row.mean_ms):>8} | {fmt(row.median_ms):>8} | {fmt(row.stdev_ms):>8} | "
-                f"{fmt(row.p95_ms):>8} | {fmt(row.p99_ms):>8} | {fmt(row.max_ms):>8} | {fmt(row.ci95_half_width_ms):>9}"
+                f"{row.protocol:<8} | {row.workload:<18} | {row.n:>4} |"
+                f" {row.failures:>4} | {row.success_rate_pct:>8.1f} |"
+                f" {fmt(row.min_ms):>8} | {fmt(row.mean_ms):>8} |"
+                f" {fmt(row.median_ms):>8} | {fmt(row.stdev_ms):>8} |"
+                f" {fmt(row.p95_ms):>8} | {fmt(row.p99_ms):>8} |"
+                f" {fmt(row.max_ms):>8} | {fmt(row.ci95_half_width_ms):>9}"
             )
         print("=" * width)
 
-        ss_width = 90
+        ss_width = 96
         print("\n" + "-" * ss_width)
-        print("SESSION SETUP LATENCY (ms)  [spawn -> first prompt]")
         print(
-            f"{'Protocol':<8} | {'Workload':<18} | {'N':>3} | "
-            f"{'Min':>8} | {'Mean':>8} | {'Median':>8} | {'Std':>8} | {'Max':>8}"
+            "SESSION SETUP LATENCY (ms)  "
+            "[spawn -> first shell prompt, PS1 export excluded]"
+        )
+        print(
+            f"{'Protocol':<8} | {'Workload':<18} | {'N':>3} |"
+            f" {'Min':>8} | {'Mean':>8} | {'Median':>8} | {'Std':>8} |"
+            f" {'Max':>8}"
         )
         print("-" * ss_width)
         for protocol in self.args.protocols:
             for workload in self.args.workloads:
                 s = self._session_setup_stats(protocol, workload)
                 print(
-                    f"{protocol:<8} | {workload:<18} | {s['n']:>3} | "
-                    f"{fmt(s['min']):>8} | {fmt(s['mean']):>8} | {fmt(s['median']):>8} | "
-                    f"{fmt(s['stdev']):>8} | {fmt(s['max']):>8}"
+                    f"{protocol:<8} | {workload:<18} | {s['n']:>3} |"
+                    f" {fmt(s['min']):>8} | {fmt(s['mean']):>8} |"
+                    f" {fmt(s['median']):>8} | {fmt(s['stdev']):>8} |"
+                    f" {fmt(s['max']):>8}"
                 )
         print("-" * ss_width)
 
@@ -401,29 +480,42 @@ class W3Benchmark:
 
         payload = {
             "meta": {
-                "started_at_utc": self.started_at,
-                "target": self.target,
+                "started_at_utc":   self.started_at,
+                "target":           self.target,
                 "client_source_ip": self.args.source_ip,
-                "protocols": self.args.protocols,
-                "workloads": self.args.workloads,
-                "trials": self.args.trials,
-                "iterations": self.args.iterations,
-                "warmup_rounds": self.args.warmup_rounds,
-                "timeout_sec": self.args.timeout,
-                "random_seed": self.args.seed,
+                "protocols":        self.args.protocols,
+                "workloads":        self.args.workloads,
+                "trials":           self.args.trials,
+                "iterations":       self.args.iterations,
+                "warmup_rounds":    self.args.warmup_rounds,
+                "timeout_sec":      self.args.timeout,
+                "random_seed":      self.args.seed,
+                "probe_char":       PROBE_CHAR,
                 "topology": {
                     "client": "192.168.8.100",
                     "server": self.args.host,
                 },
-                "metric_name": "interactive_response_latency_ms",
+                "metric_name": "interactive_keystroke_latency_ms",
                 "metric_note": (
-                    "Measured from input injection by pexpect to output observation in the terminal stream; "
-                    "this is not physical keyboard-to-screen keystroke latency."
+                    "Single-character probe (PROBE_CHAR) injected via pexpect. "
+                    "Latency = time from child.send(probe) to "
+                    "child.expect_exact(probe). "
+                    "Mirrors typometer methodology (Michel & Bonaventure 2023, "
+                    "arXiv:2312.08396): one keystroke injected, wait for server "
+                    "echo.  This is NOT physical keyboard-to-screen latency."
+                ),
+                "session_setup_note": (
+                    "setup_ms = time from pexpect.spawn() to first shell prompt "
+                    "(regex [#$>]\\s*$).  The 'export PS1' command is issued "
+                    "after the clock stops and is excluded from this window."
                 ),
             },
             "summary": [asdict(row) for row in self.summaries()],
             "session_setup": {
-                p: {w: self._session_setup_stats(p, w) for w in self.args.workloads}
+                p: {
+                    w: self._session_setup_stats(p, w)
+                    for w in self.args.workloads
+                }
                 for p in self.args.protocols
             },
         }
@@ -431,22 +523,37 @@ class W3Benchmark:
 
         with raw_csv.open("w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
-            writer.writerow(["protocol", "workload", "round_id", "sample_id", "token", "latency_ms"])
+            writer.writerow(
+                ["protocol", "workload", "round_id", "sample_id", "latency_ms"]
+            )
             for r in self.records:
-                writer.writerow([r.protocol, r.workload, r.round_id, r.sample_id, r.token, f"{r.latency_ms:.6f}"])
+                writer.writerow([
+                    r.protocol, r.workload, r.round_id, r.sample_id,
+                    f"{r.latency_ms:.6f}",
+                ])
 
         with failures_csv.open("w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
-            writer.writerow(["protocol", "workload", "round_id", "sample_id", "error_type", "error_message"])
+            writer.writerow([
+                "protocol", "workload", "round_id", "sample_id",
+                "error_type", "error_message",
+            ])
             for r in self.failures:
-                writer.writerow([r.protocol, r.workload, r.round_id, r.sample_id, r.error_type, r.error_message])
+                writer.writerow([
+                    r.protocol, r.workload, r.round_id, r.sample_id,
+                    r.error_type, r.error_message,
+                ])
 
         with setup_csv.open("w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
-            writer.writerow(["protocol", "workload", "trial_id", "session_setup_ms"])
+            writer.writerow(
+                ["protocol", "workload", "trial_id", "session_setup_ms"]
+            )
             for p in self.args.protocols:
                 for w in self.args.workloads:
-                    for trial_id, ms in enumerate(self.session_setups[p][w], start=1):
+                    for trial_id, ms in enumerate(
+                        self.session_setups[p][w], start=1
+                    ):
                         writer.writerow([p, w, trial_id, f"{ms:.6f}"])
 
         print(f"Saved summary JSON    : {summary_json}")
@@ -454,38 +561,107 @@ class W3Benchmark:
         print(f"Saved failures CSV    : {failures_csv}")
         print(f"Saved session setup   : {setup_csv}")
 
-
 def build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="W3 Interactive Editing benchmark")
-    p.add_argument("--host", default="192.168.8.102", help="Target host IP or hostname")
-    p.add_argument("--user", default="trungnt", help="Remote username")
-    p.add_argument("--source-ip", default="192.168.8.100", help="Client source IP for SSH/Mosh where supported")
-    p.add_argument("--identity-file", default=str(Path.home() / ".ssh" / "id_rsa"), help="SSH private key path")
-    p.add_argument("--protocols", nargs="+", default=DEFAULT_PROTOCOLS, choices=DEFAULT_PROTOCOLS)
-    p.add_argument("--workloads", nargs="+", default=DEFAULT_WORKLOADS, choices=DEFAULT_WORKLOADS)
-    p.add_argument("--trials", type=int, default=15, help="Number of independent sessions per protocol/workload pair")
-    p.add_argument("--iterations", type=int, default=100, help="Recorded samples per trial")
-    p.add_argument("--warmup-rounds", type=int, default=5, help="Warmup samples per trial")
-    p.add_argument("--timeout", type=int, default=20, help="pexpect timeout in seconds")
-    p.add_argument("--seed", type=int, default=42, help="Random seed")
-    p.add_argument("--output-dir", default="w3_results", help="Directory for JSON/CSV outputs")
-    p.add_argument("--prompt", default=DEFAULT_PROMPT, help="Temporary shell prompt marker")
-    p.add_argument("--ssh3-path", default=DEFAULT_SSH3_PATH, help="SSH3 terminal path suffix")
-    p.add_argument("--ssh3-insecure", action="store_true", help="Use -insecure for ssh3")
-    p.add_argument("--batch-mode", action="store_true", help="Enable BatchMode for SSHv2/Mosh bootstrap SSH")
-    p.add_argument("--strict-host-key-checking", action="store_true", help="Keep strict host key checking enabled")
-    p.add_argument("--mosh-predict", default="adaptive", choices=["adaptive", "always", "never"], help="Mosh prediction mode")
-    p.add_argument("--remote-vim-file", default="/tmp/w3_vim_bench.txt", help="Remote file path used for vim workload")
-    p.add_argument("--remote-nano-file", default="/tmp/w3_nano_bench.txt", help="Remote file path used for nano workload")
-    p.add_argument("--shuffle-pairs", action="store_true", help="Shuffle protocol/workload order")
-    p.add_argument("--reopen-on-failure", action="store_true", help="Reopen session after a failed measured sample")
-    p.add_argument("--log-pexpect", action="store_true", help="Save raw pexpect output per protocol")
+    p.add_argument(
+        "--host", default="192.168.8.102",
+        help="Target host IP or hostname",
+    )
+    p.add_argument(
+        "--user", default="trungnt",
+        help="Remote username",
+    )
+    p.add_argument(
+        "--source-ip", default="192.168.8.100",
+        help="Client source IP for SSH / Mosh where supported",
+    )
+    p.add_argument(
+        "--identity-file",
+        default=str(Path.home() / ".ssh" / "id_rsa"),
+        help="SSH private key path",
+    )
+    p.add_argument(
+        "--protocols", nargs="+",
+        default=DEFAULT_PROTOCOLS, choices=DEFAULT_PROTOCOLS,
+    )
+    p.add_argument(
+        "--workloads", nargs="+",
+        default=DEFAULT_WORKLOADS, choices=DEFAULT_WORKLOADS,
+    )
+    p.add_argument(
+        "--trials", type=int, default=15,
+        help="Independent sessions per protocol/workload pair",
+    )
+    p.add_argument(
+        "--iterations", type=int, default=100,
+        help="Recorded samples per trial",
+    )
+    p.add_argument(
+        "--warmup-rounds", type=int, default=5,
+        help="Warmup samples per trial (not recorded)",
+    )
+    p.add_argument(
+        "--timeout", type=int, default=20,
+        help="pexpect timeout in seconds",
+    )
+    p.add_argument(
+        "--seed", type=int, default=42,
+        help="Random seed",
+    )
+    p.add_argument(
+        "--output-dir", default="w3_results",
+        help="Directory for JSON/CSV outputs",
+    )
+    p.add_argument(
+        "--prompt", default=DEFAULT_PROMPT,
+        help="Unique shell prompt marker used after session is ready",
+    )
+    p.add_argument(
+        "--ssh3-path", default=DEFAULT_SSH3_PATH,
+        help="SSH3 terminal path suffix",
+    )
+    p.add_argument(
+        "--ssh3-insecure", action="store_true",
+        help="Pass -insecure to ssh3",
+    )
+    p.add_argument(
+        "--batch-mode", action="store_true",
+        help="Enable BatchMode for SSHv2 / Mosh bootstrap SSH",
+    )
+    p.add_argument(
+        "--strict-host-key-checking", action="store_true",
+        help="Keep strict host key checking enabled",
+    )
+    p.add_argument(
+        "--mosh-predict", default="adaptive",
+        choices=["adaptive", "always", "never"],
+        help="Mosh prediction mode",
+    )
+    p.add_argument(
+        "--remote-vim-file", default="/tmp/w3_vim_bench.txt",
+        help="Remote file path used for the vim workload",
+    )
+    p.add_argument(
+        "--remote-nano-file", default="/tmp/w3_nano_bench.txt",
+        help="Remote file path used for the nano workload",
+    )
+    p.add_argument(
+        "--shuffle-pairs", action="store_true",
+        help="Shuffle protocol/workload execution order",
+    )
+    p.add_argument(
+        "--reopen-on-failure", action="store_true",
+        help="Reopen session after each failed measured sample",
+    )
+    p.add_argument(
+        "--log-pexpect", action="store_true",
+        help="Save raw pexpect terminal output per protocol",
+    )
     return p
-
 
 def main() -> int:
     parser = build_arg_parser()
-    args = parser.parse_args()
+    args   = parser.parse_args()
 
     if args.trials <= 0:
         parser.error("--trials must be > 0")
