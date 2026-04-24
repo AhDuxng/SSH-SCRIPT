@@ -27,6 +27,7 @@ DEFAULT_PROTOCOLS = ["ssh", "ssh3", "mosh"]
 DEFAULT_WORKLOADS = ["interactive_shell", "vim", "nano"]
 DEFAULT_PROMPT    = "__W3_PROMPT__# "
 DEFAULT_SSH3_PATH = "/ssh3-term"
+
 PROBE_CHAR = "x"
 
 _ANSI_SEQ   = r"(?:\x1b\[[0-9;]*[a-zA-Z])"
@@ -69,7 +70,6 @@ class SummaryRow:
     p99_ms:             Optional[float]
     max_ms:             Optional[float]
     ci95_half_width_ms: Optional[float]
-
 
 class W3Benchmark:
     def __init__(self, args: argparse.Namespace) -> None:
@@ -140,6 +140,7 @@ class W3Benchmark:
         start_ns = time.perf_counter_ns()
         child.expect(_INITIAL_PROMPT_RE, timeout=self.args.timeout)
         setup_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
+
         child.sendline(f"export PS1='{self.args.prompt}'")
         child.expect_exact(self.args.prompt, timeout=self.args.timeout)
 
@@ -159,98 +160,131 @@ class W3Benchmark:
                 pass
 
     def _measure_interactive_shell(
-        self, child: pexpect.spawn, _token: str
-    ) -> float:
+        self,
+        child: pexpect.spawn,
+        warmup: int,
+        iterations: int,
+    ) -> List[float]:
         child.sendline("cat")
         child.expect_exact("\n", timeout=self.args.timeout)
 
-        start_ns = time.perf_counter_ns()
-        child.send(PROBE_CHAR)
-        child.expect_exact(PROBE_CHAR, timeout=self.args.timeout)
-        end_ns = time.perf_counter_ns()
+        for _ in range(warmup):
+            child.send(PROBE_CHAR)
+            child.expect_exact(PROBE_CHAR, timeout=self.args.timeout)
+
+        latencies: List[float] = []
+        for _ in range(iterations):
+            start_ns = time.perf_counter_ns()
+            child.send(PROBE_CHAR)
+            child.expect_exact(PROBE_CHAR, timeout=self.args.timeout)
+            end_ns = time.perf_counter_ns()
+            latencies.append((end_ns - start_ns) / 1_000_000.0)
 
         child.sendcontrol("c")
         child.sendcontrol("c")
         child.expect_exact(self.args.prompt, timeout=self.args.timeout)
-
-        return (end_ns - start_ns) / 1_000_000.0
+        return latencies
 
     def _measure_vim(
-        self, child: pexpect.spawn, _token: str
-    ) -> float:
+        self,
+        child: pexpect.spawn,
+        warmup: int,
+        iterations: int,
+    ) -> List[float]:
         remote_file = self.args.remote_vim_file
         child.sendline(f"vim -Nu NONE -n {shlex.quote(remote_file)}")
         child.send("i")
-        child.expect(
-            [r"-- INSERT --", r"INSERT"],
-            timeout=self.args.timeout,
-        )
+        child.expect([r"-- INSERT --", r"INSERT"], timeout=self.args.timeout)
 
-        start_ns = time.perf_counter_ns()
-        child.send(PROBE_CHAR)
-        child.expect_exact(PROBE_CHAR, timeout=self.args.timeout)
-        end_ns = time.perf_counter_ns()
+        for _ in range(warmup):
+            child.send(PROBE_CHAR)
+            child.expect_exact(PROBE_CHAR, timeout=self.args.timeout)
+            child.send("\x08")  
 
-        child.send("\x08")
+        latencies: List[float] = []
+        for _ in range(iterations):
+            start_ns = time.perf_counter_ns()
+            child.send(PROBE_CHAR)
+            child.expect_exact(PROBE_CHAR, timeout=self.args.timeout)
+            end_ns = time.perf_counter_ns()
+            child.send("\x08")
+            latencies.append((end_ns - start_ns) / 1_000_000.0)
+
         child.send("\x1b")
         child.sendline(":q!")
         child.expect_exact(self.args.prompt, timeout=self.args.timeout)
-
-        return (end_ns - start_ns) / 1_000_000.0
+        return latencies
 
     def _measure_nano(
-        self, child: pexpect.spawn, _token: str
-    ) -> float:
+        self,
+        child: pexpect.spawn,
+        warmup: int,
+        iterations: int,
+    ) -> List[float]:
         remote_file = self.args.remote_nano_file
-        child.sendline(
-            f"nano --ignorercfiles {shlex.quote(remote_file)}"
-        )
-        child.expect(
-            [r"GNU nano", r"\^G Help"],
-            timeout=self.args.timeout,
-        )
+        child.sendline(f"nano --ignorercfiles {shlex.quote(remote_file)}")
+        child.expect([r"GNU nano", r"\^G Help"], timeout=self.args.timeout)
 
-        start_ns = time.perf_counter_ns()
-        child.send(PROBE_CHAR)
-        child.expect_exact(PROBE_CHAR, timeout=self.args.timeout)
-        end_ns = time.perf_counter_ns()
+        for _ in range(warmup):
+            child.send(PROBE_CHAR)
+            child.expect_exact(PROBE_CHAR, timeout=self.args.timeout)
+            child.send("\x08")  
 
-        child.send("\x08")
-        child.sendcontrol("x")   
-        child.send("n")          
+        latencies: List[float] = []
+        for _ in range(iterations):
+            start_ns = time.perf_counter_ns()
+            child.send(PROBE_CHAR)
+            child.expect_exact(PROBE_CHAR, timeout=self.args.timeout)
+            end_ns = time.perf_counter_ns()
+            child.send("\x08")
+            latencies.append((end_ns - start_ns) / 1_000_000.0)
+
+        child.sendcontrol("x")
+        child.send("n")
         child.expect_exact(self.args.prompt, timeout=self.args.timeout)
+        return latencies
 
-        return (end_ns - start_ns) / 1_000_000.0
-
-    def _run_sample(
+    def _run_trial(
         self,
         child: pexpect.spawn,
         protocol: str,
         workload: str,
-        round_id: int,
-        sample_id: int,
-        *,
-        record: bool = True,
-    ) -> float:
-        token = (
-            f"__W3TOK__{protocol}__{workload}__r{round_id}__s{sample_id}__"
-        )
-
+        trial_id: int,
+    ) -> List[float]:
         if workload == "interactive_shell":
-            latency = self._measure_interactive_shell(child, token)
+            latencies = self._measure_interactive_shell(
+                child,
+                warmup=self.args.warmup_rounds,
+                iterations=self.args.iterations,
+            )
         elif workload == "vim":
-            latency = self._measure_vim(child, token)
+            latencies = self._measure_vim(
+                child,
+                warmup=self.args.warmup_rounds,
+                iterations=self.args.iterations,
+            )
         elif workload == "nano":
-            latency = self._measure_nano(child, token)
+            latencies = self._measure_nano(
+                child,
+                warmup=self.args.warmup_rounds,
+                iterations=self.args.iterations,
+            )
         else:
             raise ValueError(f"Unsupported workload: {workload}")
 
-        if record:
-            self.results[protocol][workload].append(latency)
+        for s_idx, lat in enumerate(latencies, start=1):
+            self.results[protocol][workload].append(lat)
             self.records.append(
-                SampleRecord(protocol, workload, round_id, sample_id, latency)
+                SampleRecord(protocol, workload, trial_id, s_idx, lat)
             )
-        return latency
+            print(
+                f"[{protocol:>4}/{workload:<18}]"
+                f" trial {trial_id:>2}"
+                f" measure {s_idx:>3}/{self.args.iterations}:"
+                f" {lat:.2f} ms"
+            )
+
+        return latencies
 
     def _run_session_group(self, protocol: str, workload: str) -> None:
         for trial_id in range(1, self.args.trials + 1):
@@ -264,61 +298,29 @@ class W3Benchmark:
                     f" session_setup={setup_ms:.1f} ms"
                 )
 
-                for w_idx in range(1, self.args.warmup_rounds + 1):
-                    try:
-                        lat = self._run_sample(
-                            child, protocol, workload, 0, w_idx, record=False
+                try:
+                    self._run_trial(child, protocol, workload, trial_id)
+                except (pexpect.TIMEOUT, pexpect.EOF, ValueError) as exc:
+                    self.failures.append(
+                        FailureRecord(
+                            protocol=protocol,
+                            workload=workload,
+                            round_id=trial_id,
+                            sample_id=-1,
+                            error_type=type(exc).__name__,
+                            error_message=str(exc),
                         )
-                        print(
-                            f"[{protocol:>4}/{workload:<18}]"
-                            f" trial {trial_id:>2}"
-                            f" warmup {w_idx}/{self.args.warmup_rounds}:"
-                            f" {lat:.2f} ms"
-                        )
-                    except (pexpect.TIMEOUT, pexpect.EOF, ValueError) as exc:
-                        print(
-                            f"[{protocol:>4}/{workload:<18}]"
-                            f" trial {trial_id:>2}"
-                            f" warmup {w_idx}: FAIL"
-                            f" ({type(exc).__name__}: {exc})"
-                        )
-                        if child is None or not child.isalive():
-                            child, setup_ms = self._open_session(protocol)
+                    )
+                    print(
+                        f"[{protocol:>4}/{workload:<18}]"
+                        f" trial {trial_id:>2}: FAIL"
+                        f" ({type(exc).__name__}: {exc})"
+                    )
+                    if self.args.reopen_on_failure:
+                        if child is not None:
+                            self._close_session(child)
+                        child, setup_ms = self._open_session(protocol)
 
-                for s_idx in range(1, self.args.iterations + 1):
-                    try:
-                        lat = self._run_sample(
-                            child, protocol, workload, trial_id, s_idx
-                        )
-                        print(
-                            f"[{protocol:>4}/{workload:<18}]"
-                            f" trial {trial_id:>2}"
-                            f" measure {s_idx:>3}/{self.args.iterations}:"
-                            f" {lat:.2f} ms"
-                        )
-                    except (pexpect.TIMEOUT, pexpect.EOF, ValueError) as exc:
-                        self.failures.append(
-                            FailureRecord(
-                                protocol=protocol,
-                                workload=workload,
-                                round_id=trial_id,
-                                sample_id=s_idx,
-                                error_type=type(exc).__name__,
-                                error_message=str(exc),
-                            )
-                        )
-                        print(
-                            f"[{protocol:>4}/{workload:<18}]"
-                            f" trial {trial_id:>2}"
-                            f" measure {s_idx:>3}: FAIL"
-                            f" ({type(exc).__name__}: {exc})"
-                        )
-                        if self.args.reopen_on_failure:
-                            if child is not None:
-                                self._close_session(child)
-                            child, setup_ms = self._open_session(protocol)
-                        elif child is None or not child.isalive():
-                            child, setup_ms = self._open_session(protocol)
             finally:
                 if child is not None:
                     self._close_session(child)
@@ -545,6 +547,7 @@ class W3Benchmark:
         print(f"Saved raw samples CSV : {raw_csv}")
         print(f"Saved failures CSV    : {failures_csv}")
         print(f"Saved session setup   : {setup_csv}")
+
 
 def build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="W3 Interactive Editing benchmark")
