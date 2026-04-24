@@ -32,6 +32,7 @@ PROBE_TOKEN = "W3_PROBE_FIXED_Q9J5V2K7M4T8X1"
 PROBE_TAIL_LEN = 10
 
 _ANSI_SEQ   = r"(?:\x1b\[\??[0-9;]*[a-zA-Z])"
+_ECHO_GAP   = rf"(?:{_ANSI_SEQ}|[\r\n\b])*"
 _INITIAL_PROMPT_RE = re.compile(
     r"[#$>](?:" + _ANSI_SEQ + r"|\s)*\s*$",
     re.MULTILINE,
@@ -92,7 +93,7 @@ class W3Benchmark:
 
     @staticmethod
     def _build_probe_echo_re(token: str) -> re.Pattern[str]:
-        parts = [re.escape(ch) + f"(?:{_ANSI_SEQ})*" for ch in token]
+        parts = [re.escape(ch) + _ECHO_GAP for ch in token]
         return re.compile("".join(parts))
 
     def _expect_probe_echo(
@@ -113,6 +114,28 @@ class W3Benchmark:
     def _erase_probe_token(child: pexpect.spawn, token: str) -> None:
         if token:
             child.send("\x7f" * len(token))
+
+    @staticmethod
+    def _drain_pending_output(child: pexpect.spawn, max_reads: int = 8) -> None:
+        for _ in range(max_reads):
+            try:
+                child.read_nonblocking(size=4096, timeout=0)
+            except (pexpect.TIMEOUT, pexpect.EOF):
+                break
+
+    def _probe_once(self, child: pexpect.spawn, erase_after_echo: bool = False) -> float:
+        self._drain_pending_output(child)
+        start_ns = time.perf_counter_ns()
+        child.send(self.probe_token)
+        self._expect_probe_echo(child)
+        end_ns = time.perf_counter_ns()
+        if erase_after_echo:
+            self._erase_probe_token(child, self.probe_token)
+        return (end_ns - start_ns) / 1_000_000.0
+
+    @staticmethod
+    def _recover_nano_state(child: pexpect.spawn) -> None:
+        child.sendcontrol("l")
 
     def _session_command(self, protocol: str) -> str:
         target     = self.target
@@ -266,18 +289,19 @@ class W3Benchmark:
         child.expect([r"GNU nano", r"\^G Help"], timeout=self.args.timeout)
 
         for _ in range(warmup):
-            child.send(self.probe_token)
-            self._expect_probe_echo(child)
-            self._erase_probe_token(child, self.probe_token)
+            try:
+                self._probe_once(child, erase_after_echo=True)
+            except pexpect.TIMEOUT:
+                self._recover_nano_state(child)
+                self._probe_once(child, erase_after_echo=True)
 
         latencies: List[float] = []
         for i in range(iterations):
-            start_ns = time.perf_counter_ns()
-            child.send(self.probe_token)
-            self._expect_probe_echo(child)
-            end_ns = time.perf_counter_ns()
-            self._erase_probe_token(child, self.probe_token)
-            lat = (end_ns - start_ns) / 1_000_000.0
+            try:
+                lat = self._probe_once(child, erase_after_echo=True)
+            except pexpect.TIMEOUT:
+                self._recover_nano_state(child)
+                lat = self._probe_once(child, erase_after_echo=True)
             latencies.append(lat)
             if report_cb:
                 report_cb(i + 1, lat)
