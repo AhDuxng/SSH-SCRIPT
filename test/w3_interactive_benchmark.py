@@ -137,6 +137,16 @@ class W3Benchmark:
     def _recover_nano_state(child: pexpect.spawn) -> None:
         child.sendcontrol("l")
 
+    @staticmethod
+    def _recover_vim_state(child: pexpect.spawn) -> None:
+        child.send("\x1b")
+        child.sendcontrol("l")
+        child.send("i")
+
+    def _probe_vim_once(self, child: pexpect.spawn) -> float:
+        self._ensure_vim_insert_mode(child)
+        return self._probe_once(child, erase_after_echo=True)
+
     def _session_command(self, protocol: str) -> str:
         target     = self.target
         ssh_common = ["ssh", "-tt"]
@@ -254,20 +264,19 @@ class W3Benchmark:
         child.expect([r"-- INSERT --", r"INSERT"], timeout=self.args.timeout)
 
         for _ in range(warmup):
-            self._ensure_vim_insert_mode(child)
-            child.send(self.probe_token)
-            self._expect_probe_echo(child)
-            self._erase_probe_token(child, self.probe_token)
+            try:
+                self._probe_vim_once(child)
+            except pexpect.TIMEOUT:
+                self._recover_vim_state(child)
+                self._probe_vim_once(child)
 
         latencies: List[float] = []
         for i in range(iterations):
-            self._ensure_vim_insert_mode(child)
-            start_ns = time.perf_counter_ns()
-            child.send(self.probe_token)
-            self._expect_probe_echo(child)
-            end_ns = time.perf_counter_ns()
-            self._erase_probe_token(child, self.probe_token)
-            lat = (end_ns - start_ns) / 1_000_000.0
+            try:
+                lat = self._probe_vim_once(child)
+            except pexpect.TIMEOUT:
+                self._recover_vim_state(child)
+                lat = self._probe_vim_once(child)
             latencies.append(lat)
             if report_cb:
                 report_cb(i + 1, lat)
