@@ -14,7 +14,7 @@ import time
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 try:
     import pexpect
@@ -30,7 +30,7 @@ DEFAULT_SSH3_PATH = "/ssh3-term"
 
 PROBE_CHAR = "x"
 
-_ANSI_SEQ   = r"(?:\x1b\[[0-9;]*[a-zA-Z])"
+_ANSI_SEQ   = r"(?:\x1b\[\??[0-9;]*[a-zA-Z])"
 _INITIAL_PROMPT_RE = re.compile(
     r"[#$>](?:" + _ANSI_SEQ + r"|\s)*\s*$",
     re.MULTILINE,
@@ -164,6 +164,7 @@ class W3Benchmark:
         child: pexpect.spawn,
         warmup: int,
         iterations: int,
+        report_cb: Optional[Callable[[int, float], None]] = None,
     ) -> List[float]:
         child.sendline("cat")
         child.expect_exact("\n", timeout=self.args.timeout)
@@ -173,12 +174,15 @@ class W3Benchmark:
             child.expect_exact(PROBE_CHAR, timeout=self.args.timeout)
 
         latencies: List[float] = []
-        for _ in range(iterations):
+        for i in range(iterations):
             start_ns = time.perf_counter_ns()
             child.send(PROBE_CHAR)
             child.expect_exact(PROBE_CHAR, timeout=self.args.timeout)
             end_ns = time.perf_counter_ns()
-            latencies.append((end_ns - start_ns) / 1_000_000.0)
+            lat = (end_ns - start_ns) / 1_000_000.0
+            latencies.append(lat)
+            if report_cb:
+                report_cb(i + 1, lat)
 
         child.sendcontrol("c")
         child.sendcontrol("c")
@@ -190,6 +194,7 @@ class W3Benchmark:
         child: pexpect.spawn,
         warmup: int,
         iterations: int,
+        report_cb: Optional[Callable[[int, float], None]] = None,
     ) -> List[float]:
         remote_file = self.args.remote_vim_file
         child.sendline(f"vim -Nu NONE -n {shlex.quote(remote_file)}")
@@ -202,13 +207,16 @@ class W3Benchmark:
             child.send("\x08")  
 
         latencies: List[float] = []
-        for _ in range(iterations):
+        for i in range(iterations):
             start_ns = time.perf_counter_ns()
             child.send(PROBE_CHAR)
             child.expect_exact(PROBE_CHAR, timeout=self.args.timeout)
             end_ns = time.perf_counter_ns()
             child.send("\x08")
-            latencies.append((end_ns - start_ns) / 1_000_000.0)
+            lat = (end_ns - start_ns) / 1_000_000.0
+            latencies.append(lat)
+            if report_cb:
+                report_cb(i + 1, lat)
 
         child.send("\x1b")
         child.sendline(":q!")
@@ -220,6 +228,7 @@ class W3Benchmark:
         child: pexpect.spawn,
         warmup: int,
         iterations: int,
+        report_cb: Optional[Callable[[int, float], None]] = None,
     ) -> List[float]:
         remote_file = self.args.remote_nano_file
         child.sendline(f"nano --ignorercfiles {shlex.quote(remote_file)}")
@@ -231,13 +240,16 @@ class W3Benchmark:
             child.send("\x08")  
 
         latencies: List[float] = []
-        for _ in range(iterations):
+        for i in range(iterations):
             start_ns = time.perf_counter_ns()
             child.send(PROBE_CHAR)
             child.expect_exact(PROBE_CHAR, timeout=self.args.timeout)
             end_ns = time.perf_counter_ns()
             child.send("\x08")
-            latencies.append((end_ns - start_ns) / 1_000_000.0)
+            lat = (end_ns - start_ns) / 1_000_000.0
+            latencies.append(lat)
+            if report_cb:
+                report_cb(i + 1, lat)
 
         child.sendcontrol("x")
         child.send("n")
@@ -251,28 +263,7 @@ class W3Benchmark:
         workload: str,
         trial_id: int,
     ) -> List[float]:
-        if workload == "interactive_shell":
-            latencies = self._measure_interactive_shell(
-                child,
-                warmup=self.args.warmup_rounds,
-                iterations=self.args.iterations,
-            )
-        elif workload == "vim":
-            latencies = self._measure_vim(
-                child,
-                warmup=self.args.warmup_rounds,
-                iterations=self.args.iterations,
-            )
-        elif workload == "nano":
-            latencies = self._measure_nano(
-                child,
-                warmup=self.args.warmup_rounds,
-                iterations=self.args.iterations,
-            )
-        else:
-            raise ValueError(f"Unsupported workload: {workload}")
-
-        for s_idx, lat in enumerate(latencies, start=1):
+        def report_cb(s_idx: int, lat: float) -> None:
             self.results[protocol][workload].append(lat)
             self.records.append(
                 SampleRecord(protocol, workload, trial_id, s_idx, lat)
@@ -281,8 +272,33 @@ class W3Benchmark:
                 f"[{protocol:>4}/{workload:<18}]"
                 f" trial {trial_id:>2}"
                 f" measure {s_idx:>3}/{self.args.iterations}:"
-                f" {lat:.2f} ms"
+                f" {lat:.2f} ms",
+                flush=True
             )
+
+        if workload == "interactive_shell":
+            latencies = self._measure_interactive_shell(
+                child,
+                warmup=self.args.warmup_rounds,
+                iterations=self.args.iterations,
+                report_cb=report_cb,
+            )
+        elif workload == "vim":
+            latencies = self._measure_vim(
+                child,
+                warmup=self.args.warmup_rounds,
+                iterations=self.args.iterations,
+                report_cb=report_cb,
+            )
+        elif workload == "nano":
+            latencies = self._measure_nano(
+                child,
+                warmup=self.args.warmup_rounds,
+                iterations=self.args.iterations,
+                report_cb=report_cb,
+            )
+        else:
+            raise ValueError(f"Unsupported workload: {workload}")
 
         return latencies
 
