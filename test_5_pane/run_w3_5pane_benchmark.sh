@@ -33,8 +33,6 @@ REMOTE_NANO_FILE="/tmp/w3_nano_bench.txt"
 
 SHUFFLE_PAIRS=false
 REOPEN_ON_FAILURE=true
-
-USE_TMUX_LOAD=true              # false = chạy không có tải nền tmux
 TMUX_SESSION="w3bench5"
 TMUX_SETUP_SCRIPT="w3_tmux_setup.sh"    # file local (cùng thư mục)
 REMOTE_TMUX_SETUP="/tmp/w3_tmux_setup.sh"
@@ -67,9 +65,7 @@ $SSH3_INSECURE      && CMD+=(--ssh3-insecure)
 $BATCH_MODE         && CMD+=(--batch-mode)
 $STRICT_HOST_KEY    && CMD+=(--strict-host-key-checking)
 $SHUFFLE_PAIRS      && CMD+=(--shuffle-pairs)
-$REOPEN_ON_FAILURE  && CMD+=(--reopen-on-failure)
 $LOG_PEXPECT        && CMD+=(--log-pexpect)
-$USE_TMUX_LOAD      && CMD+=(--use-tmux-load) || CMD+=(--no-tmux-load)
 
 echo "=== W3 Interactive Benchmark — 5-pane tmux load variant ==="
 echo ""
