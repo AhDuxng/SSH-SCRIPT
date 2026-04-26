@@ -7,7 +7,7 @@ USER_NAME="trungnt"
 SOURCE_IP="192.168.8.100"
 IDENTITY_FILE="$HOME/.ssh/id_rsa"
 
-PROTOCOLS="ssh ssh3 mosh"                         # ssh | ssh3 | mosh
+PROTOCOLS="mosh"                         # ssh | ssh3 | mosh
 WORKLOADS="interactive_shell vim nano"       # interactive_shell | vim | nano
 
 ITERATIONS=100
