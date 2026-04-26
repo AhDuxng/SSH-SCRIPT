@@ -86,6 +86,7 @@ class W35PaneBenchmark:
         self.args = args
         self.target = f"{args.user}@{args.host}"
         self.started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        self.prompt_re = self._build_probe_echo_re(self.args.prompt)
 
         self.probe_token = PROBE_TOKEN
         self.probe_tail = self.probe_token[-PROBE_TAIL_LEN:]
@@ -163,7 +164,7 @@ class W35PaneBenchmark:
         setup_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
 
         child.sendline(f"export PS1='{self.args.prompt}'")
-        child.expect_exact(self.args.prompt, timeout=self.args.timeout)
+        child.expect(self.prompt_re, timeout=self.args.timeout)
 
         return child, setup_ms
 
@@ -182,7 +183,7 @@ class W35PaneBenchmark:
 
     def _run_remote(self, child: pexpect.spawn, command: str) -> str:
         child.sendline(command)
-        child.expect_exact(self.args.prompt, timeout=self.args.timeout)
+        child.expect(self.prompt_re, timeout=self.args.timeout)
         return child.before
 
     def _tmux_target(self) -> str:
