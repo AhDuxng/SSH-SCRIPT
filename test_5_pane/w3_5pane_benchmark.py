@@ -358,7 +358,7 @@ class W35PaneBenchmark:
 
     def _measure_sample(self, child: pexpect.spawn, workload: str) -> float:
         if workload == "interactive_shell":
-            return self._probe_once(child, erase_after_echo=True)
+            return self._probe_once(child, erase_after_echo=False)
 
         if workload == "vim":
             try:
