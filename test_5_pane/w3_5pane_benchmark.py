@@ -92,7 +92,6 @@ class W35PaneBenchmark:
         self.probe_echo_re = self._build_text_echo_re(self.probe_token)
         self.probe_tail_echo_re = self._build_text_echo_re(self.probe_tail)
         self.prompt_echo_re = self._build_text_echo_re(self.args.prompt)
-        self.remote_cmd_counter = 0
 
         self.records: List[SampleRecord] = []
         self.failures: List[FailureRecord] = []
@@ -112,10 +111,6 @@ class W35PaneBenchmark:
         # mosh can inject cursor/control updates between prompt characters.
         # Match the exact prompt text while tolerating those gaps.
         child.expect(self.prompt_echo_re, timeout=self.args.timeout)
-
-    def _next_remote_marker(self) -> str:
-        self.remote_cmd_counter += 1
-        return f"__W3_REMOTE_DONE_{self.remote_cmd_counter}_{time.perf_counter_ns()}__"
 
     def _session_command(self, protocol: str) -> str:
         target = self.target
@@ -192,16 +187,9 @@ class W35PaneBenchmark:
                 pass
 
     def _run_remote(self, child: pexpect.spawn, command: str) -> str:
-        marker = self._next_remote_marker()
         child.sendline(command)
-        child.sendline(f"printf '%s\\n' {shlex.quote(marker)}")
-        marker_line = re.compile(
-            rf"(?:\r\n|\n){re.escape(marker)}(?:\r\n|\n)"
-        )
-        child.expect(marker_line, timeout=self.args.timeout)
-        output = child.before
         self._expect_prompt(child)
-        return output
+        return child.before
 
     def _tmux_target(self) -> str:
         return f"{self.args.tmux_session}:0.0"
