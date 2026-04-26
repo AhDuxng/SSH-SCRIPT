@@ -32,6 +32,7 @@ TMUX_SESSION = "w3bench5"
 TMUX_SETUP_SCRIPT = "w3_tmux_setup.sh"
 REMOTE_TMUX_SETUP = "/tmp/w3_tmux_setup.sh"
 PANE_READY_MARKER = "__W3_5PANE_PANE0_READY__"
+CMD_DONE_MARKER = "__W3_CMD_DONE__"
 PANE_POLL_INTERVAL_SEC = 0.05
 
 PROBE_TOKEN = "W3_PROBE_FIXED_Q9J5V2K7M4T8X1"
@@ -87,6 +88,7 @@ class W35PaneBenchmark:
         self.target = f"{args.user}@{args.host}"
         self.started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
         self.prompt_re = self._build_probe_echo_re(self.args.prompt)
+        self.cmd_done_re = self._build_probe_echo_re(CMD_DONE_MARKER)
 
         self.probe_token = PROBE_TOKEN
         self.probe_tail = self.probe_token[-PROBE_TAIL_LEN:]
@@ -163,8 +165,7 @@ class W35PaneBenchmark:
         child.expect(_INITIAL_PROMPT_RE, timeout=self.args.timeout)
         setup_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
 
-        child.sendline(f"export PS1='{self.args.prompt}'")
-        child.expect(self.prompt_re, timeout=self.args.timeout)
+        self._run_remote(child, f"export PS1='{self.args.prompt}'")
 
         return child, setup_ms
 
@@ -182,8 +183,8 @@ class W35PaneBenchmark:
                 pass
 
     def _run_remote(self, child: pexpect.spawn, command: str) -> str:
-        child.sendline(command)
-        child.expect(self.prompt_re, timeout=self.args.timeout)
+        child.sendline(f"{command}; printf \"{CMD_DONE_MARKER}\\n\"")
+        child.expect(self.cmd_done_re, timeout=self.args.timeout)
         return child.before
 
     def _tmux_target(self) -> str:
@@ -197,12 +198,13 @@ class W35PaneBenchmark:
         script_body = local_script.read_text(encoding="utf-8")
         remote_path = self.args.remote_tmux_setup
 
-        self._run_remote(
-            child,
+        child.sendline(
             f"cat > {shlex.quote(remote_path)} << 'W3TMUXEOF'\n"
             f"{script_body}\n"
-            "W3TMUXEOF",
+            "W3TMUXEOF\n"
+            f"printf \"{CMD_DONE_MARKER}\\n\""
         )
+        child.expect(self.cmd_done_re, timeout=self.args.timeout)
         self._run_remote(child, f"chmod +x {shlex.quote(remote_path)}")
 
     def _start_tmux_session(self, child: pexpect.spawn) -> None:
