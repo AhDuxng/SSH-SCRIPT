@@ -86,6 +86,10 @@ class W35PaneBenchmark:
         self.args = args
         self.target = f"{args.user}@{args.host}"
         self.started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        self.prompt_marker = args.prompt.rstrip()
+        if not self.prompt_marker:
+            raise ValueError("Prompt must contain at least one non-space character")
+        self.prompt_re = self._build_prompt_re(self.prompt_marker)
 
         self.probe_token = PROBE_TOKEN
         self.probe_tail = self.probe_token[-PROBE_TAIL_LEN:]
@@ -105,6 +109,15 @@ class W35PaneBenchmark:
     def _build_probe_echo_re(token: str) -> re.Pattern[str]:
         parts = [re.escape(ch) + _ECHO_GAP for ch in token]
         return re.compile("".join(parts))
+
+    @staticmethod
+    def _build_prompt_re(prompt_marker: str) -> re.Pattern[str]:
+        parts = [re.escape(ch) + _ECHO_GAP for ch in prompt_marker]
+        return re.compile("".join(parts) + rf"(?:{_ANSI_SEQ}|\s)*")
+
+    def _expect_prompt(self, child: pexpect.spawn) -> None:
+        # TUI redraw (especially over mosh) may split prompt bytes with ANSI updates.
+        child.expect(self.prompt_re, timeout=self.args.timeout)
 
     def _session_command(self, protocol: str) -> str:
         target = self.target
@@ -162,8 +175,8 @@ class W35PaneBenchmark:
         child.expect(_INITIAL_PROMPT_RE, timeout=self.args.timeout)
         setup_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
 
-        child.sendline(f"export PS1='{self.args.prompt}'")
-        child.expect_exact(self.args.prompt, timeout=self.args.timeout)
+        child.sendline(f"export PS1={shlex.quote(self.args.prompt)}")
+        self._expect_prompt(child)
 
         return child, setup_ms
 
@@ -182,7 +195,7 @@ class W35PaneBenchmark:
 
     def _run_remote(self, child: pexpect.spawn, command: str) -> str:
         child.sendline(command)
-        child.expect_exact(self.args.prompt, timeout=self.args.timeout)
+        self._expect_prompt(child)
         return child.before
 
     def _tmux_target(self) -> str:
