@@ -564,14 +564,14 @@ class W3Benchmark:
                     "client": "192.168.8.100",
                     "server": self.args.host,
                 },
-                "metric_name": "interactive_echo_latency_ms",
+                "metric_name": "input_to_visible_latency_ms",
                 "metric_note": (
                     "Fixed probe token injected via pexpect. "
-                    "Latency = time from child.send(token) to token echo "
-                    "observation. Echo matching tolerates ANSI sequences "
+                    "Latency = time from child.send(token) to token visible "
+                    "observation. Matching tolerates ANSI sequences "
                     "inserted by TUI redraw and falls back to fixed tail "
                     "matching when only partial redraw is emitted. "
-                    "This is echo latency, NOT physical keyboard-to-screen latency."
+                    "This is input-to-visible latency, NOT physical keyboard-to-screen latency."
                 ),
                 "session_setup_note": (
                     "setup_ms = time from pexpect.spawn() to first shell prompt "

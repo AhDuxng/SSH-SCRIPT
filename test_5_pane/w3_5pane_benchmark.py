@@ -607,11 +607,11 @@ class W35PaneBenchmark:
                     "pane_3": "ls-loop + clear",
                     "pane_4": "background writer + tail -f",
                 },
-                "metric_name": "interactive_echo_latency_ms",
+                "metric_name": "input_to_visible_latency_ms",
                 "metric_note": (
                     "Fixed probe token is sent to tmux pane 0. "
-                    "Latency = time from send-keys(token) to token echo observation "
-                    "via tmux capture-pane polling. This is echo latency, "
+                    "Latency = time from send-keys(token) to token visible observation "
+                    "via tmux capture-pane polling. This is input-to-visible latency, "
                     "NOT physical keyboard-to-screen latency."
                 ),
                 "session_setup_note": (
