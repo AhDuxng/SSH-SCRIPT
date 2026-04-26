@@ -25,7 +25,7 @@ except ImportError as exc:
 
 DEFAULT_PROTOCOLS = ["ssh", "ssh3", "mosh"]
 DEFAULT_WORKLOADS = ["interactive_shell", "vim", "nano"]
-DEFAULT_PROMPT = "__W3_PROMPT__# "
+DEFAULT_PROMPT = "__W3_PROMPT__#"
 DEFAULT_SSH3_PATH = "/ssh3-term"
 
 TMUX_SESSION = "w3bench5"
