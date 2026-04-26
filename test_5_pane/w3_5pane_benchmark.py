@@ -86,13 +86,11 @@ class W35PaneBenchmark:
         self.args = args
         self.target = f"{args.user}@{args.host}"
         self.started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
-        self._remote_cmd_seq = 0
 
         self.probe_token = PROBE_TOKEN
         self.probe_tail = self.probe_token[-PROBE_TAIL_LEN:]
-        self.probe_echo_re = self._build_text_echo_re(self.probe_token)
-        self.probe_tail_echo_re = self._build_text_echo_re(self.probe_tail)
-        self.prompt_echo_re = self._build_text_echo_re(self.args.prompt)
+        self.probe_echo_re = self._build_probe_echo_re(self.probe_token)
+        self.probe_tail_echo_re = self._build_probe_echo_re(self.probe_tail)
 
         self.records: List[SampleRecord] = []
         self.failures: List[FailureRecord] = []
@@ -104,12 +102,9 @@ class W35PaneBenchmark:
         }
 
     @staticmethod
-    def _build_text_echo_re(text: str) -> re.Pattern[str]:
-        parts = [re.escape(ch) + _ECHO_GAP for ch in text]
+    def _build_probe_echo_re(token: str) -> re.Pattern[str]:
+        parts = [re.escape(ch) + _ECHO_GAP for ch in token]
         return re.compile("".join(parts))
-
-    def _expect_prompt(self, child: pexpect.spawn) -> None:
-        child.expect(self.prompt_echo_re, timeout=self.args.timeout)
 
     def _session_command(self, protocol: str) -> str:
         target = self.target
@@ -167,8 +162,8 @@ class W35PaneBenchmark:
         child.expect(_INITIAL_PROMPT_RE, timeout=self.args.timeout)
         setup_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
 
-        child.sendline(f"export PS1={shlex.quote(self.args.prompt)}")
-        self._expect_prompt(child)
+        child.sendline(f"export PS1='{self.args.prompt}'")
+        child.expect_exact(self.args.prompt, timeout=self.args.timeout)
 
         return child, setup_ms
 
@@ -186,18 +181,8 @@ class W35PaneBenchmark:
                 pass
 
     def _run_remote(self, child: pexpect.spawn, command: str) -> str:
-        # Under mosh, prompt rendering can be noisy; for single-line commands,
-        # wait on a unique completion marker instead of the prompt text.
-        if "\n" in command:
-            child.sendline(command)
-            self._expect_prompt(child)
-            return child.before
-
-        marker = f"__W3_CMD_DONE_{self._remote_cmd_seq}__"
-        self._remote_cmd_seq += 1
-        marker_re = self._build_text_echo_re(marker)
-        child.sendline(f"{command}; printf '%s' {shlex.quote(marker)}")
-        child.expect(marker_re, timeout=self.args.timeout)
+        child.sendline(command)
+        child.expect_exact(self.args.prompt, timeout=self.args.timeout)
         return child.before
 
     def _tmux_target(self) -> str:
@@ -616,11 +601,11 @@ class W35PaneBenchmark:
                     "pane_3": "ls-loop + clear",
                     "pane_4": "background writer + tail -f",
                 },
-                "metric_name": "input_to_visible_latency_ms",
+                "metric_name": "interactive_echo_latency_ms",
                 "metric_note": (
                     "Fixed probe token is sent to tmux pane 0. "
-                    "Latency = time from send-keys(token) to token visible observation "
-                    "via tmux capture-pane polling. This is input-to-visible latency, "
+                    "Latency = time from send-keys(token) to token echo observation "
+                    "via tmux capture-pane polling. This is echo latency, "
                     "NOT physical keyboard-to-screen latency."
                 ),
                 "session_setup_note": (
