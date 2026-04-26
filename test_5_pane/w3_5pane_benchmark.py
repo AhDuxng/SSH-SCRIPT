@@ -89,8 +89,9 @@ class W35PaneBenchmark:
 
         self.probe_token = PROBE_TOKEN
         self.probe_tail = self.probe_token[-PROBE_TAIL_LEN:]
-        self.probe_echo_re = self._build_probe_echo_re(self.probe_token)
-        self.probe_tail_echo_re = self._build_probe_echo_re(self.probe_tail)
+        self.probe_echo_re = self._build_text_echo_re(self.probe_token)
+        self.probe_tail_echo_re = self._build_text_echo_re(self.probe_tail)
+        self.prompt_echo_re = self._build_text_echo_re(self.args.prompt)
 
         self.records: List[SampleRecord] = []
         self.failures: List[FailureRecord] = []
@@ -102,9 +103,14 @@ class W35PaneBenchmark:
         }
 
     @staticmethod
-    def _build_probe_echo_re(token: str) -> re.Pattern[str]:
-        parts = [re.escape(ch) + _ECHO_GAP for ch in token]
+    def _build_text_echo_re(text: str) -> re.Pattern[str]:
+        parts = [re.escape(ch) + _ECHO_GAP for ch in text]
         return re.compile("".join(parts))
+
+    def _expect_prompt(self, child: pexpect.spawn) -> None:
+        # mosh can inject cursor/control updates between prompt characters.
+        # Match the exact prompt text while tolerating those gaps.
+        child.expect(self.prompt_echo_re, timeout=self.args.timeout)
 
     def _session_command(self, protocol: str) -> str:
         target = self.target
@@ -162,8 +168,8 @@ class W35PaneBenchmark:
         child.expect(_INITIAL_PROMPT_RE, timeout=self.args.timeout)
         setup_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
 
-        child.sendline(f"export PS1='{self.args.prompt}'")
-        child.expect_exact(self.args.prompt, timeout=self.args.timeout)
+        child.sendline(f"export PS1={shlex.quote(self.args.prompt)}")
+        self._expect_prompt(child)
 
         return child, setup_ms
 
@@ -182,7 +188,7 @@ class W35PaneBenchmark:
 
     def _run_remote(self, child: pexpect.spawn, command: str) -> str:
         child.sendline(command)
-        child.expect_exact(self.args.prompt, timeout=self.args.timeout)
+        self._expect_prompt(child)
         return child.before
 
     def _tmux_target(self) -> str:
