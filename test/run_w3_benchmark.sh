@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-HOST="192.168.8.102"
-USER_NAME="trungnt"
-SOURCE_IP="192.168.8.100"
+HOST="100.66.79.93"
+USER_NAME="pi"
+SOURCE_IP="100.70.166.91"
 IDENTITY_FILE="$HOME/.ssh/id_ed25519" 
 
 # ── Giao thức & workload ──────────────────────────────────────────────────────
@@ -25,7 +25,7 @@ LOG_PEXPECT=true       # true = ghi raw pexpect log ra file
 PROMPT="__W3_PROMPT__# "
 
 # ── SSH3 ─────────────────────────────────────────────────────────────────────
-SSH3_PATH="/ssh3-term"
+SSH3_PATH=":4433/ssh3-term"
 SSH3_INSECURE=true     # true = thêm -insecure cho ssh3
 
 # ── SSH / Mosh tuning ────────────────────────────────────────────────────────
