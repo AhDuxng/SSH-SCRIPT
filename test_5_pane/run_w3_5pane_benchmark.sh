@@ -12,7 +12,7 @@ WORKLOADS="interactive_shell vim nano"       # interactive_shell | vim | nano
 
 ITERATIONS=100
 WARMUP_ROUNDS=10
-TRIALS=1      
+TRIALS=15      
 TIMEOUT=20
 SEED=42
 
