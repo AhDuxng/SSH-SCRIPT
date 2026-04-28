@@ -31,7 +31,7 @@ SSH3_INSECURE=true     # true = thêm -insecure cho ssh3
 # ── SSH / Mosh tuning ────────────────────────────────────────────────────────
 BATCH_MODE=false               # true = BatchMode=yes (tắt password prompt)
 STRICT_HOST_KEY=false          # true = bật StrictHostKeyChecking
-MOSH_PREDICT="adaptive"           # adaptive | always | never
+MOSH_PREDICT="never"           # adaptive | always | never
 
 REMOTE_VIM_FILE="/tmp/w3_vim_bench.txt"
 REMOTE_NANO_FILE="/tmp/w3_nano_bench.txt"
