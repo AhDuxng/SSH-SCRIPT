@@ -33,7 +33,12 @@ DEFAULT_COMMANDS = [
     "ps aux",
     "grep -n root /etc/passwd",
 ]
-_INITIAL_PROMPT_RE = re.compile(r"[#$>](?:\\x1b\\[[0-9;?]*[a-zA-Z]|\\s)*\\s*$", re.MULTILINE)
+_ANSI_SEQ = r"(?:\x1b\[\??[0-9;]*[a-zA-Z])"
+_ECHO_GAP = rf"(?:{_ANSI_SEQ}|[\r\n\b])*"
+_INITIAL_PROMPT_RE = re.compile(
+    r"[#$>](?:" + _ANSI_SEQ + r"|\s)*\s*$",
+    re.MULTILINE,
+)
 
 
 @dataclass
@@ -85,7 +90,8 @@ class W1Benchmark:
         self.prompt_marker = args.prompt.rstrip()
         if not self.prompt_marker:
             raise ValueError("Prompt must contain at least one non-space character")
-        self.prompt_re = re.compile(re.escape(self.prompt_marker) + r"(?:\\x1b\\[[0-9;?]*[a-zA-Z]|\\s)*")
+        # Prompt bytes can be split by ANSI redraw sequences (esp. over mosh).
+        self.prompt_re = self._build_prompt_re(self.prompt_marker)
 
         self.records: List[SampleRecord] = []
         self.failures: List[FailureRecord] = []
@@ -99,6 +105,11 @@ class W1Benchmark:
 
     def _expect_prompt(self, child: pexpect.spawn) -> None:
         child.expect(self.prompt_re, timeout=self.args.timeout)
+
+    @staticmethod
+    def _build_prompt_re(prompt_marker: str) -> re.Pattern[str]:
+        parts = [re.escape(ch) + _ECHO_GAP for ch in prompt_marker]
+        return re.compile("".join(parts) + rf"(?:{_ANSI_SEQ}|\s)*")
 
     def _session_command(self, protocol: str) -> str:
         target = self.target
