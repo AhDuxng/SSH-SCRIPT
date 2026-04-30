@@ -111,6 +111,11 @@ class W1Benchmark:
         parts = [re.escape(ch) + _ECHO_GAP for ch in prompt_marker]
         return re.compile("".join(parts) + rf"(?:{_ANSI_SEQ}|\s)*")
 
+    @staticmethod
+    def _build_token_re(token: str) -> re.Pattern[str]:
+        parts = [re.escape(ch) + _ECHO_GAP for ch in token]
+        return re.compile("".join(parts))
+
     def _session_command(self, protocol: str) -> str:
         target = self.target
         ssh_common = ["ssh", "-tt"]
@@ -184,11 +189,11 @@ class W1Benchmark:
 
     def _measure_command_completion(self, child: pexpect.spawn, command: str, marker: str) -> float:
         wrapped = f"{{ {command}; }}; __w1_ec=$?; echo {marker} $__w1_ec"
+        marker_re = self._build_token_re(marker)
         start_ns = time.perf_counter_ns()
         child.sendline(wrapped)
-        child.expect_exact(marker, timeout=self.args.timeout)
-        child.expect(r"\s+[0-9]+", timeout=self.args.timeout)
-        self._expect_prompt(child)
+        child.expect(marker_re, timeout=self.args.timeout)
+        child.expect(rf"(?:{_ANSI_SEQ}|\s)+[0-9]+", timeout=self.args.timeout)
         end_ns = time.perf_counter_ns()
         return (end_ns - start_ns) / 1_000_000.0
 
@@ -370,8 +375,9 @@ class W1Benchmark:
                 },
                 "metric_name": "command_completion_latency_ms",
                 "metric_note": (
-                    "For each command, latency = time from sendline(command) to prompt visible again after command output. "
-                    "Measured via command wrapper with unique completion marker."
+                    "For each command, latency = time from sendline(command) to "
+                    "unique completion marker plus exit-code visibility. "
+                    "Marker matching tolerates ANSI insertion."
                 ),
                 "session_setup_note": (
                     "setup_ms = time from pexpect.spawn() to first shell prompt ([#$>] regex). "
