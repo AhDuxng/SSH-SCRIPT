@@ -382,8 +382,8 @@ class W1Benchmark:
             for c in self.args.commands
         ]
 
-    def _session_setup_stats(self, protocol: str, workload: str) -> dict:
-        data = self.session_setups[protocol][workload]
+    def _session_setup_stats(self, protocol: str, command: str) -> dict:
+        data = self.session_setups[protocol][command]
         if not data:
             return dict(n=0, mean=None, median=None, stdev=None, min=None, max=None)
         n = len(data)
@@ -414,6 +414,28 @@ class W1Benchmark:
                 f"{fmt(row.stdev_ms):>8} | {fmt(row.p95_ms):>8} | {fmt(row.p99_ms):>8} | {fmt(row.max_ms):>8} | {fmt(row.ci95_half_width_ms):>9}"
             )
         print("=" * width)
+
+        ss_width = 98
+        print("\n" + "-" * ss_width)
+        print(
+            "SESSION SETUP LATENCY (ms)  "
+            "[spawn -> first shell prompt, PS1 export excluded]"
+        )
+        print(
+            f"{'Protocol':<8} | {'Command':<26} | {'N':>3} |"
+            f" {'Min':>8} | {'Mean':>8} | {'Median':>8} | {'Std':>8} | {'Max':>8}"
+        )
+        print("-" * ss_width)
+        for protocol in self.args.protocols:
+            for command in self.args.commands:
+                s = self._session_setup_stats(protocol, command)
+                print(
+                    f"{protocol:<8} | {command:<26} | {s['n']:>3} |"
+                    f" {fmt(s['min']):>8} | {fmt(s['mean']):>8} |"
+                    f" {fmt(s['median']):>8} | {fmt(s['stdev']):>8} |"
+                    f" {fmt(s['max']):>8}"
+                )
+        print("-" * ss_width)
 
     def export(self) -> None:
         outdir = Path(self.args.output_dir)
@@ -482,11 +504,11 @@ class W1Benchmark:
 
         with setup_csv.open("w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
-            writer.writerow(["protocol", "workload", "trial_id", "session_setup_ms"])
+            writer.writerow(["protocol", "command", "trial_id", "session_setup_ms"])
             for p in self.args.protocols:
-                for w in self.args.commands:
-                    for trial_id, ms in enumerate(self.session_setups[p][w], start=1):
-                        writer.writerow([p, w, trial_id, f"{ms:.6f}"])
+                for c in self.args.commands:
+                    for trial_id, ms in enumerate(self.session_setups[p][c], start=1):
+                        writer.writerow([p, c, trial_id, f"{ms:.6f}"])
 
         print(f"Saved summary JSON    : {summary_json}")
         print(f"Saved raw samples CSV : {raw_csv}")
