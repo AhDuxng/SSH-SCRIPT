@@ -95,12 +95,11 @@ class W1Benchmark:
 
         self.records: List[SampleRecord] = []
         self.failures: List[FailureRecord] = []
-        self.results: Dict[str, Dict[str, Dict[str, List[float]]]] = {
-            p: {w: {c: [] for c in args.commands} for w in args.workloads}
-            for p in args.protocols
+        self.results: Dict[str, Dict[str, List[float]]] = {
+            p: {c: [] for c in args.commands} for p in args.protocols
         }
         self.session_setups: Dict[str, Dict[str, List[float]]] = {
-            p: {w: [] for w in args.workloads} for p in args.protocols
+            p: {c: [] for c in args.commands} for p in args.protocols
         }
 
     def _expect_prompt(self, child: pexpect.spawn) -> None:
@@ -197,52 +196,75 @@ class W1Benchmark:
         end_ns = time.perf_counter_ns()
         return (end_ns - start_ns) / 1_000_000.0
 
-    def _run_trial(self, child: pexpect.spawn, protocol: str, workload: str, trial_id: int) -> None:
+    def _run_trial(
+        self,
+        child: pexpect.spawn,
+        protocol: str,
+        workload: str,
+        command: str,
+        command_id: int,
+        trial_id: int,
+    ) -> None:
         for sample_id in range(1, self.args.iterations + 1):
-            for command_id, command in enumerate(self.args.commands, start=1):
-                marker = f"__W1_DONE_{trial_id}_{sample_id}_{command_id}_{random.randint(100000, 999999)}__"
-                try:
-                    lat = self._measure_command_completion(child, command, marker)
-                    self.results[protocol][workload][command].append(lat)
-                    self.records.append(
-                        SampleRecord(protocol, workload, trial_id, sample_id, command_id, command, lat)
+            marker = f"__W1_DONE_{trial_id}_{sample_id}_{command_id}_{random.randint(100000, 999999)}__"
+            try:
+                lat = self._measure_command_completion(child, command, marker)
+                self.results[protocol][command].append(lat)
+                self.records.append(
+                    SampleRecord(protocol, workload, trial_id, sample_id, command_id, command, lat)
+                )
+                print(
+                    f"[{protocol:>4}/{command:<18}] trial {trial_id:>2}/{self.args.trials}"
+                    f" measure {sample_id:>3}/{self.args.iterations}: {lat:.2f} ms",
+                    flush=True,
+                )
+            except (pexpect.TIMEOUT, pexpect.EOF, ValueError) as exc:
+                self.failures.append(
+                    FailureRecord(
+                        protocol=protocol,
+                        workload=workload,
+                        round_id=trial_id,
+                        sample_id=sample_id,
+                        command_id=command_id,
+                        command=command,
+                        error_type=type(exc).__name__,
+                        error_message=str(exc),
                     )
-                    print(
-                        f"[{protocol:>4}/{workload:<12}] trial {trial_id:>2}/{self.args.trials} "
-                        f"sample {sample_id:>3}/{self.args.iterations} cmd {command_id}: {lat:.2f} ms"
-                    )
-                except (pexpect.TIMEOUT, pexpect.EOF, ValueError) as exc:
-                    self.failures.append(
-                        FailureRecord(
-                            protocol=protocol,
-                            workload=workload,
-                            round_id=trial_id,
-                            sample_id=sample_id,
-                            command_id=command_id,
-                            command=command,
-                            error_type=type(exc).__name__,
-                            error_message=str(exc),
-                        )
-                    )
-                    print(
-                        f"[{protocol:>4}/{workload:<12}] trial {trial_id:>2} "
-                        f"sample {sample_id:>3} cmd {command_id}: FAIL ({type(exc).__name__}: {exc})"
-                    )
-                    if self.args.reopen_on_failure:
-                        raise
+                )
+                print(
+                    f"[{protocol:>4}/{command:<18}] trial {trial_id:>2}"
+                    f" measure {sample_id:>3}: FAIL ({type(exc).__name__}: {exc})",
+                    flush=True,
+                )
+                if self.args.reopen_on_failure:
+                    raise
 
-    def _run_session_group(self, protocol: str, workload: str) -> None:
+    def _run_session_group(
+        self,
+        protocol: str,
+        workload: str,
+        command: str,
+        command_id: int,
+    ) -> None:
         for trial_id in range(1, self.args.trials + 1):
             child: Optional[pexpect.spawn] = None
             try:
                 child, setup_ms = self._open_session(protocol)
-                self.session_setups[protocol][workload].append(setup_ms)
+                self.session_setups[protocol][command].append(setup_ms)
                 print(
-                    f"[{protocol:>4}/{workload:<12}] trial {trial_id:>2}/{self.args.trials} "
-                    f"session_setup={setup_ms:.1f} ms"
+                    f"[{protocol:>4}/{command:<18}] trial {trial_id:>2}/{self.args.trials}"
+                    f" session_setup={setup_ms:.1f} ms",
+                    flush=True,
                 )
                 try:
-                    self._run_trial(child, protocol, workload, trial_id)
+                    self._run_trial(
+                        child,
+                        protocol,
+                        workload,
+                        command,
+                        command_id,
+                        trial_id,
+                    )
                 except (pexpect.TIMEOUT, pexpect.EOF):
                     if self.args.reopen_on_failure:
                         continue
@@ -252,11 +274,16 @@ class W1Benchmark:
 
     def run(self) -> None:
         random.seed(self.args.seed)
-        pairs = [(p, w) for p in self.args.protocols for w in self.args.workloads]
+        sequence = [
+            (p, w, c, command_id)
+            for p in self.args.protocols
+            for w in self.args.workloads
+            for command_id, c in enumerate(self.args.commands, start=1)
+        ]
         if self.args.shuffle_pairs:
-            random.shuffle(pairs)
-        for protocol, workload in pairs:
-            self._run_session_group(protocol, workload)
+            random.shuffle(sequence)
+        for protocol, workload, command, command_id in sequence:
+            self._run_session_group(protocol, workload, command, command_id)
 
     @staticmethod
     def _percentile(values: List[float], p: float) -> Optional[float]:
@@ -273,7 +300,7 @@ class W1Benchmark:
         return s[lo] + (s[hi] - s[lo]) * (k - lo)
 
     def _summary_row(self, protocol: str, workload: str, command: str) -> SummaryRow:
-        data = self.results[protocol][workload][command]
+        data = self.results[protocol][command]
         fail_n = sum(
             1
             for f in self.failures
@@ -386,7 +413,7 @@ class W1Benchmark:
             },
             "summary": [asdict(row) for row in self.summaries()],
             "session_setup": {
-                p: {w: self._session_setup_stats(p, w) for w in self.args.workloads}
+                p: {c: self._session_setup_stats(p, c) for c in self.args.commands}
                 for p in self.args.protocols
             },
         }
@@ -417,7 +444,7 @@ class W1Benchmark:
             writer = csv.writer(f)
             writer.writerow(["protocol", "workload", "trial_id", "session_setup_ms"])
             for p in self.args.protocols:
-                for w in self.args.workloads:
+                for w in self.args.commands:
                     for trial_id, ms in enumerate(self.session_setups[p][w], start=1):
                         writer.writerow([p, w, trial_id, f"{ms:.6f}"])
 
