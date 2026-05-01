@@ -453,48 +453,74 @@ class W4Benchmark:
             max=max(data),
         )
 
+    @staticmethod
+    def _display_command(command: str, width: int) -> str:
+        if len(command) <= width:
+            return command
+        if width <= 3:
+            return command[:width]
+        if width <= 12:
+            return command[: width - 3] + "..."
+        right = 6
+        left = width - 3 - right
+        return f"{command[:left]}...{command[-right:]}"
+
     def print_report(self) -> None:
         def fmt(v: Optional[float]) -> str:
             return f"{v:.2f}" if v is not None else "N/A"
 
-        width = 196
-        print("\n" + "=" * width)
-        print(
-            f"{'Protocol':<8} | {'Workload':<12} | {'Command':<36} | {'N':>4} | {'Fail':>4} | {'Success%':>8} | "
-            f"{'Min':>8} | {'Mean':>8} | {'Median':>8} | {'Std':>8} | {'P95':>8} | {'P99':>8} | {'Max':>8} | "
-            f"{'CI95+/-':>9} | {'Out(KiB)':>9} | {'KiB/s':>10}"
+        proto_w = 8
+        workload_w = 11
+        command_w = 24
+        command_labels = {
+            c: self._display_command(c, command_w) for c in self.args.commands
+        }
+
+        summary_header = (
+            f"{'Protocol':<{proto_w}} | {'Workload':<{workload_w}} | {'Command':<{command_w}} | "
+            f"{'N':>4} | {'Fail':>4} | {'Succ%':>6} | {'Min':>7} | {'Mean':>7} | {'Med':>7} | "
+            f"{'Std':>7} | {'P95':>7} | {'P99':>7} | {'Max':>7} | {'CI95':>7} | {'OutKB':>7} | {'KB/s':>7}"
         )
+        width = len(summary_header)
+        print("\n" + "=" * width)
+        print(summary_header)
         print("-" * width)
         for row in self.summaries():
             print(
-                f"{row.protocol:<8} | {row.workload:<12} | {row.command:<36} | {row.n:>4} | {row.failures:>4} | "
-                f"{row.success_rate_pct:>8.1f} | {fmt(row.min_ms):>8} | {fmt(row.mean_ms):>8} | {fmt(row.median_ms):>8} | "
-                f"{fmt(row.stdev_ms):>8} | {fmt(row.p95_ms):>8} | {fmt(row.p99_ms):>8} | {fmt(row.max_ms):>8} | "
-                f"{fmt(row.ci95_half_width_ms):>9} | {fmt(row.mean_output_kib):>9} | {fmt(row.mean_throughput_kib_s):>10}"
+                f"{row.protocol:<{proto_w}} | {row.workload:<{workload_w}} | {command_labels[row.command]:<{command_w}} | "
+                f"{row.n:>4} | {row.failures:>4} | {row.success_rate_pct:>6.1f} | {fmt(row.min_ms):>7} | {fmt(row.mean_ms):>7} | "
+                f"{fmt(row.median_ms):>7} | {fmt(row.stdev_ms):>7} | {fmt(row.p95_ms):>7} | {fmt(row.p99_ms):>7} | "
+                f"{fmt(row.max_ms):>7} | {fmt(row.ci95_half_width_ms):>7} | {fmt(row.mean_output_kib):>7} | "
+                f"{fmt(row.mean_throughput_kib_s):>7}"
             )
         print("=" * width)
 
-        ss_width = 106
+        setup_header = (
+            f"{'Protocol':<{proto_w}} | {'Command':<{command_w}} | {'N':>3} |"
+            f" {'Min':>7} | {'Mean':>7} | {'Median':>7} | {'Std':>7} | {'Max':>7}"
+        )
+        ss_width = len(setup_header)
         print("\n" + "-" * ss_width)
         print(
             "SESSION SETUP LATENCY (ms)  "
             "[spawn -> first shell prompt, PS1 export excluded]"
         )
-        print(
-            f"{'Protocol':<8} | {'Command':<36} | {'N':>3} |"
-            f" {'Min':>8} | {'Mean':>8} | {'Median':>8} | {'Std':>8} | {'Max':>8}"
-        )
+        print(setup_header)
         print("-" * ss_width)
         for protocol in self.args.protocols:
             for command in self.args.commands:
                 s = self._session_setup_stats(protocol, command)
                 print(
-                    f"{protocol:<8} | {command:<36} | {s['n']:>3} |"
-                    f" {fmt(s['min']):>8} | {fmt(s['mean']):>8} |"
-                    f" {fmt(s['median']):>8} | {fmt(s['stdev']):>8} |"
-                    f" {fmt(s['max']):>8}"
+                    f"{protocol:<{proto_w}} | {command_labels[command]:<{command_w}} | {s['n']:>3} |"
+                    f" {fmt(s['min']):>7} | {fmt(s['mean']):>7} |"
+                    f" {fmt(s['median']):>7} | {fmt(s['stdev']):>7} |"
+                    f" {fmt(s['max']):>7}"
                 )
         print("-" * ss_width)
+        print("Command map:")
+        for command in self.args.commands:
+            label = command_labels[command]
+            print(f"  {label:<{command_w}} -> {command}")
 
     def export(self) -> None:
         outdir = Path(self.args.output_dir)
