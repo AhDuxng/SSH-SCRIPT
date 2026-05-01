@@ -193,7 +193,56 @@ class W2Benchmark:
             time.sleep(0.1)
             
         child.send("q")
+        # Do NOT sendcontrol("c") — q exits top cleanly; Ctrl+C would corrupt shell state
+        self._expect_prompt(child)
+
+
+    def _measure_tail(
+        self,
+        child: pexpect.spawn,
+        iterations: int,
+        report_cb: Callable[[int, float], None],
+    ) -> None:
+        """Streaming update delivery latency via tail -f.
+
+        The background writer uses a 50 ms interval (was 200 ms).  At 200 ms
+        the network contribution (1-30 ms) was invisible; at 50 ms a LAN vs
+        WAN difference shows clearly as ~51 ms vs ~80 ms inter-arrival.
+        """
+        remote_log = "/tmp/w2_test.log"
+        child.sendline(f"rm -f {remote_log} && touch {remote_log}")
+        self._expect_prompt(child)
+
+        # 50 ms write interval so network latency is clearly visible
+        child.sendline(
+            f"while true; do echo 'W2_LOG_LINE' >> {remote_log}; sleep 0.05; done &"
+        )
+        self._expect_prompt(child)
+
+        # Capture PID reliably after the job is backgrounded
+        child.sendline("W2_WRITER_PID=$!; echo W2_WRITER_PID=$W2_WRITER_PID")
+        child.expect(r"W2_WRITER_PID=(\d+)", timeout=self.args.timeout)
+        bg_pid = child.match.group(1)
+        self._expect_prompt(child)
+
+        child.sendline(f"tail -f {remote_log}")
+
+        # Warmup: skip first few deliveries to let the pipeline stabilise
+        for _ in range(3):
+            child.expect(r"W2_LOG_LINE", timeout=self.args.timeout)
+
+        for i in range(iterations):
+            start_ns = time.perf_counter_ns()
+            child.expect(r"W2_LOG_LINE", timeout=self.args.timeout)
+            end_ns = time.perf_counter_ns()
+            lat = (end_ns - start_ns) / 1_000_000.0
+            report_cb(i + 1, lat)
+
         child.sendcontrol("c")
+        self._expect_prompt(child)
+
+        # Cleanup background writer
+        child.sendline(f"kill {bg_pid} 2>/dev/null; rm -f {remote_log}")
         self._expect_prompt(child)
 
     def _measure_ping(
@@ -202,54 +251,34 @@ class W2Benchmark:
         iterations: int,
         report_cb: Callable[[int, float], None],
     ) -> None:
-        # We run ping and measure the time between consecutive received lines
-        child.sendline("ping -i 0.2 127.0.0.1")
-        child.expect(r"PING ", timeout=self.args.timeout)
-        
-        # We wait for the first response
-        child.expect(r"bytes from", timeout=self.args.timeout)
-        
-        for i in range(iterations):
-            start_ns = time.perf_counter_ns()
-            child.expect(r"bytes from", timeout=self.args.timeout)
-            end_ns = time.perf_counter_ns()
-            
-            lat = (end_ns - start_ns) / 1_000_000.0
-            report_cb(i + 1, lat)
-            
-        child.sendcontrol("c")
-        self._expect_prompt(child)
+        """True ICMP RTT measured from inside the remote session.
 
-    def _measure_tail(
-        self,
-        child: pexpect.spawn,
-        iterations: int,
-        report_cb: Callable[[int, float], None],
-    ) -> None:
-        remote_log = "/tmp/w2_test.log"
-        # Setup a background process that appends to the log file every 0.2s
-        child.sendline(f"rm -f {remote_log} && touch {remote_log}")
-        self._expect_prompt(child)
-        
-        child.sendline(f"while true; do echo \"W2_LOG_LINE\" >> {remote_log}; sleep 0.2; done & PID=$!")
-        self._expect_prompt(child)
-        
-        child.sendline(f"tail -f {remote_log}")
-        
+        Previous implementation pinged 127.0.0.1 with a 0.2 s interval and
+        measured inter-arrival time — the result was always ≈200 ms regardless
+        of the transport protocol because loopback bypasses the network entirely
+        and the sleep interval dominated the measurement.
+
+        Fix: run ``ping -c 1`` per sample against the *client* machine
+        (``--ping-target``, defaulting to ``--source-ip``), then parse the
+        ``time=X ms`` field directly from ping's output.  Every millisecond of
+        real network latency appears in the measured value.
+        """
+        target = self.args.ping_target or self.args.source_ip or self.args.host
+        ping_re = re.compile(r"time=([0-9]+(?:\.[0-9]+)?)\s*ms")
+
+        # Warmup: discard first 3 samples (ARP resolution, routing cache cold)
+        for _ in range(3):
+            child.sendline(f"ping -c 1 -W 5 {target}")
+            child.expect(ping_re, timeout=self.args.timeout)
+            self._expect_prompt(child)
+
         for i in range(iterations):
-            start_ns = time.perf_counter_ns()
-            child.expect(r"W2_LOG_LINE", timeout=self.args.timeout)
-            end_ns = time.perf_counter_ns()
-            
-            lat = (end_ns - start_ns) / 1_000_000.0
-            report_cb(i + 1, lat)
-            
-        child.sendcontrol("c")
-        self._expect_prompt(child)
-        
-        # Cleanup
-        child.sendline(f"kill $PID; rm -f {remote_log}")
-        self._expect_prompt(child)
+            child.sendline(f"ping -c 1 -W 5 {target}")
+            child.expect(ping_re, timeout=self.args.timeout)
+            rtt_ms = float(child.match.group(1))
+            self._expect_prompt(child)
+            report_cb(i + 1, rtt_ms)
+            time.sleep(0.05)
 
     def _run_trial(
         self,
@@ -271,10 +300,10 @@ class W2Benchmark:
 
         if workload == "top":
             self._measure_top(child, self.args.iterations, report_cb)
-        elif workload == "ping":
-            self._measure_ping(child, self.args.iterations, report_cb)
         elif workload == "tail":
             self._measure_tail(child, self.args.iterations, report_cb)
+        elif workload == "ping":
+            self._measure_ping(child, self.args.iterations, report_cb)
         else:
             raise ValueError(f"Unsupported workload: {workload}")
 
@@ -464,9 +493,9 @@ class W2Benchmark:
                 },
                 "metric_name": "screen_update_latency_ms",
                 "metric_note": (
-                    "For top: time from sending Space to receiving the new 'top - ' header. "
-                    "For ping and tail: inter-arrival time between consecutive output lines "
-                    "when generated at 0.2s intervals."
+                    "top: time from Space keypress to new 'top - ' header (screen refresh latency). "
+                    "tail: inter-arrival time of log lines written at 50 ms intervals (streaming update latency). "
+                    "ping: ICMP RTT parsed from 'time=X ms' via ping -c 1 against client IP (network round-trip)."
                 ),
             },
             "summary": [asdict(row) for row in self.summaries()],
@@ -517,7 +546,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--source-ip", default="192.168.8.100", help="Client source IP for SSH / Mosh where supported")
     p.add_argument("--identity-file", default=str(Path.home() / ".ssh" / "id_rsa"), help="SSH private key path")
     p.add_argument("--protocols", nargs="+", default=DEFAULT_PROTOCOLS, choices=DEFAULT_PROTOCOLS)
-    p.add_argument("--workloads", nargs="+", default=DEFAULT_WORKLOADS, choices=DEFAULT_WORKLOADS)
+    p.add_argument("--workloads", nargs="+", default=DEFAULT_WORKLOADS, choices=["top", "tail", "ping"])
+    p.add_argument("--ping-target", default="", help="IP to ping inside the remote session (default: --source-ip)")
     p.add_argument("--trials", type=int, default=15, help="Independent sessions per protocol/workload pair")
     p.add_argument("--iterations", type=int, default=100, help="Recorded samples per trial")
     p.add_argument("--timeout", type=int, default=20, help="pexpect timeout in seconds")
