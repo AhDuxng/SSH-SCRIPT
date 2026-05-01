@@ -29,6 +29,7 @@ DEFAULT_PROMPT = "__W2_PROMPT__#"
 DEFAULT_SSH3_PATH = "/ssh3-term"
 
 _ANSI_SEQ = r"(?:\x1b\[\??[0-9;]*[a-zA-Z])"
+_ECHO_GAP = rf"(?:{_ANSI_SEQ}|[\r\n\b])*"
 _INITIAL_PROMPT_RE = re.compile(
     r"[#$>](?:" + _ANSI_SEQ + r"|\s)*\s*$",
     re.MULTILINE,
@@ -88,8 +89,8 @@ class W2Benchmark:
 
     @staticmethod
     def _build_prompt_re(prompt_marker: str) -> re.Pattern[str]:
-        parts = [re.escape(ch) for ch in prompt_marker]
-        return re.compile(".*".join(parts) + rf"(?:{_ANSI_SEQ}|\s)*")
+        parts = [re.escape(ch) + _ECHO_GAP for ch in prompt_marker]
+        return re.compile("".join(parts) + rf"(?:{_ANSI_SEQ}|\s)*")
 
     def _expect_prompt(self, child: pexpect.spawn) -> None:
         child.expect(self.prompt_re, timeout=self.args.timeout)
@@ -192,6 +193,7 @@ class W2Benchmark:
             time.sleep(0.1)
             
         child.send("q")
+        child.sendcontrol("c")
         self._expect_prompt(child)
 
     def _measure_ping(
