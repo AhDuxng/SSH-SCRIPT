@@ -17,7 +17,9 @@ COMMANDS=(
 
 ITERATIONS=20
 TRIALS=10
-TIMEOUT=120
+TIMEOUT=300
+MAXREAD=65535
+SEARCH_WINDOW_SIZE=8192
 SEED=42
 
 OUTPUT_DIR="w4_results"
@@ -46,6 +48,8 @@ CMD=(
   --iterations "$ITERATIONS"
   --trials "$TRIALS"
   --timeout "$TIMEOUT"
+  --maxread "$MAXREAD"
+  --search-window-size "$SEARCH_WINDOW_SIZE"
   --seed "$SEED"
   --output-dir "$OUTPUT_DIR"
   --prompt "$PROMPT"

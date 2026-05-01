@@ -184,11 +184,16 @@ class W4Benchmark:
         raise ValueError(f"Unsupported protocol: {protocol}")
 
     def _open_session(self, protocol: str) -> tuple[pexpect.spawn, float]:
+        search_window = (
+            self.args.search_window_size if self.args.search_window_size > 0 else None
+        )
         child = pexpect.spawn(
             self._session_command(protocol),
             encoding="utf-8",
             codec_errors="ignore",
             timeout=self.args.timeout,
+            maxread=self.args.maxread,
+            searchwindowsize=search_window,
         )
 
         if self.args.log_pexpect:
@@ -231,13 +236,23 @@ class W4Benchmark:
         self._drain_pending_output(child)
         start_ns = time.perf_counter_ns()
         child.sendline(wrapped)
-        child.expect([marker_re, marker_tail_re], timeout=self.args.timeout)
+        child.expect([marker, marker_tail, marker_re, marker_tail_re], timeout=self.args.timeout)
         end_ns = time.perf_counter_ns()
 
         output = child.before or ""
         output_bytes = len(output.encode("utf-8", errors="ignore"))
         latency_ms = (end_ns - start_ns) / 1_000_000.0
         return latency_ms, output_bytes
+
+    def _recover_after_timeout(self, child: pexpect.spawn) -> bool:
+        # If a large-output command exceeds timeout, interrupt it and recover prompt.
+        try:
+            child.sendcontrol("c")
+            child.expect(self.prompt_re, timeout=min(10, self.args.timeout))
+            self._drain_pending_output(child)
+            return True
+        except Exception:
+            return False
 
     def _run_trial(
         self,
@@ -285,6 +300,9 @@ class W4Benchmark:
                     flush=True,
                 )
             except (pexpect.TIMEOUT, pexpect.EOF, ValueError) as exc:
+                recovered = True
+                if isinstance(exc, pexpect.TIMEOUT):
+                    recovered = self._recover_after_timeout(child)
                 self.failures.append(
                     FailureRecord(
                         protocol=protocol,
@@ -299,10 +317,11 @@ class W4Benchmark:
                 )
                 print(
                     f"[{protocol:>4}/{command:<36}] trial {trial_id:>2}"
-                    f" sample {sample_id:>3}: FAIL ({type(exc).__name__}: {exc})",
+                    f" sample {sample_id:>3}: FAIL ({type(exc).__name__}: {exc})"
+                    f"{'' if recovered else ' [session not recovered]'}",
                     flush=True,
                 )
-                if self.args.reopen_on_failure:
+                if self.args.reopen_on_failure or not recovered:
                     raise
 
     def _run_session_group(
@@ -497,6 +516,8 @@ class W4Benchmark:
                 "trials": self.args.trials,
                 "iterations": self.args.iterations,
                 "timeout_sec": self.args.timeout,
+                "maxread_bytes": self.args.maxread,
+                "search_window_size": self.args.search_window_size,
                 "random_seed": self.args.seed,
                 "topology": {
                     "client": "192.168.8.100",
@@ -609,7 +630,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--commands", nargs="+", default=DEFAULT_COMMANDS, help="Large-output commands executed in each sample")
     p.add_argument("--trials", type=int, default=10, help="Independent sessions per protocol/workload pair")
     p.add_argument("--iterations", type=int, default=20, help="Recorded command samples per trial")
-    p.add_argument("--timeout", type=int, default=120, help="pexpect timeout in seconds")
+    p.add_argument("--timeout", type=int, default=300, help="pexpect timeout in seconds")
+    p.add_argument("--maxread", type=int, default=65535, help="pexpect maxread bytes")
+    p.add_argument("--search-window-size", type=int, default=8192, help="pexpect search window size (0 = unlimited)")
     p.add_argument("--seed", type=int, default=42, help="Random seed")
     p.add_argument("--output-dir", default="w4_results", help="Directory for JSON/CSV outputs")
     p.add_argument("--prompt", default=DEFAULT_PROMPT, help="Unique shell prompt marker used after session is ready")
@@ -632,6 +655,12 @@ def main() -> int:
         parser.error("--trials must be > 0")
     if args.iterations <= 0:
         parser.error("--iterations must be > 0")
+    if args.timeout <= 0:
+        parser.error("--timeout must be > 0")
+    if args.maxread <= 0:
+        parser.error("--maxread must be > 0")
+    if args.search_window_size < 0:
+        parser.error("--search-window-size must be >= 0")
 
     bench = W4Benchmark(args)
     bench.run()
