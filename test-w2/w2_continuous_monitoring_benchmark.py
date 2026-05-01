@@ -237,22 +237,21 @@ class W2Benchmark:
         iterations: int,
         report_cb: Callable[[int, float], None],
     ) -> None:
-        target = self.args.ping_target or self.args.source_ip or self.args.host
-        ping_re = re.compile(r"time=([0-9]+(?:\.[0-9]+)?)\s*ms")
+        child.sendline("ping -i 0.1 127.0.0.1")
+        child.expect(r"PING ", timeout=self.args.timeout)
 
-        # Warmup: discard first 3 samples (ARP resolution, routing cache cold)
-        for _ in range(3):
-            child.sendline(f"ping -c 1 -W 5 {target}")
-            child.expect(ping_re, timeout=self.args.timeout)
-            self._expect_prompt(child)
+        for _ in range(5):
+            child.expect(r"bytes from", timeout=self.args.timeout)
 
         for i in range(iterations):
-            child.sendline(f"ping -c 1 -W 5 {target}")
-            child.expect(ping_re, timeout=self.args.timeout)
-            rtt_ms = float(child.match.group(1))
-            self._expect_prompt(child)
-            report_cb(i + 1, rtt_ms)
-            time.sleep(0.05)
+            start_ns = time.perf_counter_ns()
+            child.expect(r"bytes from", timeout=self.args.timeout)
+            end_ns = time.perf_counter_ns()
+            lat = (end_ns - start_ns) / 1_000_000.0
+            report_cb(i + 1, lat)
+
+        child.sendcontrol("c")
+        self._expect_prompt(child)
 
     def _run_trial(
         self,
@@ -467,9 +466,10 @@ class W2Benchmark:
                 },
                 "metric_name": "screen_update_latency_ms",
                 "metric_note": (
-                    "top: time from Space keypress to new 'top - ' header (screen refresh latency). "
+                    "top: time from sendline('top -bn1 | head -20') to prompt reappearing (command RTT). "
                     "tail: inter-arrival time of log lines written at 50 ms intervals (streaming update latency). "
-                    "ping: ICMP RTT parsed from 'time=X ms' via ping -c 1 against client IP (network round-trip)."
+                    "ping: inter-arrival time of 'bytes from' lines from 'ping -i 0.1 127.0.0.1' "
+                    "(screen update latency for continuous streaming output; loopback ensures reachability in all network scenarios)."
                 ),
             },
             "summary": [asdict(row) for row in self.summaries()],
