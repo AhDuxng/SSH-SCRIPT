@@ -172,30 +172,22 @@ class W2Benchmark:
         iterations: int,
         report_cb: Callable[[int, float], None],
     ) -> None:
-        # Run top with a long delay, we will force updates via Spacebar
-        child.sendline("top -d 100")
-        child.expect(r"top - ", timeout=self.args.timeout)
-        
-        # Warmup
-        for _ in range(2):
-            child.send(" ")
-            child.expect(r"top - ", timeout=self.args.timeout)
-            
+        CMD = "top -bn1 2>/dev/null | head -20"
+
+        # Warmup: prime routing caches and let the protocol settle
+        for _ in range(3):
+            child.sendline(CMD)
+            self._expect_prompt(child)
+
         for i in range(iterations):
             start_ns = time.perf_counter_ns()
-            child.send(" ")
-            # We measure how long it takes to see the header of the next frame
-            child.expect(r"top - ", timeout=self.args.timeout)
+            child.sendline(CMD)
+            # Stop the clock when the prompt re-appears (command finished)
+            self._expect_prompt(child)
             end_ns = time.perf_counter_ns()
-            
             lat = (end_ns - start_ns) / 1_000_000.0
             report_cb(i + 1, lat)
             time.sleep(0.1)
-            
-        child.send("q")
-        # Do NOT sendcontrol("c") — q exits top cleanly; Ctrl+C would corrupt shell state
-        self._expect_prompt(child)
-
 
     def _measure_tail(
         self,
@@ -203,12 +195,6 @@ class W2Benchmark:
         iterations: int,
         report_cb: Callable[[int, float], None],
     ) -> None:
-        """Streaming update delivery latency via tail -f.
-
-        The background writer uses a 50 ms interval (was 200 ms).  At 200 ms
-        the network contribution (1-30 ms) was invisible; at 50 ms a LAN vs
-        WAN difference shows clearly as ~51 ms vs ~80 ms inter-arrival.
-        """
         remote_log = "/tmp/w2_test.log"
         child.sendline(f"rm -f {remote_log} && touch {remote_log}")
         self._expect_prompt(child)
@@ -251,18 +237,6 @@ class W2Benchmark:
         iterations: int,
         report_cb: Callable[[int, float], None],
     ) -> None:
-        """True ICMP RTT measured from inside the remote session.
-
-        Previous implementation pinged 127.0.0.1 with a 0.2 s interval and
-        measured inter-arrival time — the result was always ≈200 ms regardless
-        of the transport protocol because loopback bypasses the network entirely
-        and the sleep interval dominated the measurement.
-
-        Fix: run ``ping -c 1`` per sample against the *client* machine
-        (``--ping-target``, defaulting to ``--source-ip``), then parse the
-        ``time=X ms`` field directly from ping's output.  Every millisecond of
-        real network latency appears in the measured value.
-        """
         target = self.args.ping_target or self.args.source_ip or self.args.host
         ping_re = re.compile(r"time=([0-9]+(?:\.[0-9]+)?)\s*ms")
 
