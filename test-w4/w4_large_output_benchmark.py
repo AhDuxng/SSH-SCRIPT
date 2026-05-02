@@ -30,7 +30,7 @@ DEFAULT_SSH3_PATH = "/ssh3-term"
 MARKER_TAIL_LEN = 12
 _TAIL_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 DEFAULT_COMMANDS = [
-    "find /",
+    "find /usr -type f 2>/dev/null | head -n 5000",
     "git status",
     "docker logs $(docker ps -q | head -n 1)",
 ]
@@ -41,6 +41,7 @@ _INITIAL_PROMPT_RE = re.compile(
     r"[#$>](?:" + _ANSI_SEQ + r"|\s)*\s*$",
     re.MULTILINE,
 )
+_ANSI_STRIP_RE = re.compile(_ANSI_SEQ)
 
 
 @dataclass
@@ -122,6 +123,10 @@ class W4Benchmark:
         return re.compile("".join(parts))
 
     @staticmethod
+    def _strip_ansi_keep_newlines(text: str) -> str:
+        return _ANSI_STRIP_RE.sub("", text).replace("\r", "").replace("\b", "")
+
+    @staticmethod
     def _drain_pending_output(child: pexpect.spawn, max_reads: int = 8) -> None:
         for _ in range(max_reads):
             try:
@@ -131,6 +136,64 @@ class W4Benchmark:
 
     def _expect_prompt(self, child: pexpect.spawn) -> None:
         child.expect(self.prompt_re, timeout=self.args.timeout)
+
+    def _wait_for_marker_line(self, child: pexpect.spawn, marker: str) -> int:
+        deadline = time.monotonic() + float(self.args.timeout)
+        idle_timeout = float(self.args.command_idle_timeout)
+        last_data_at = time.monotonic()
+        clean_buffer = ""
+        max_buffer_chars = 262_144
+        output_bytes = 0
+
+        while True:
+            now = time.monotonic()
+            if now >= deadline:
+                tail = clean_buffer[-500:]
+                raise pexpect.TIMEOUT(
+                    f"Marker not received within {self.args.timeout:.1f}s: {marker!r}. "
+                    f"clean_tail={tail!r}"
+                )
+
+            if idle_timeout > 0 and (now - last_data_at) >= idle_timeout:
+                tail = clean_buffer[-500:]
+                raise pexpect.TIMEOUT(
+                    f"No output for {idle_timeout:.1f}s while waiting for marker {marker!r}. "
+                    f"clean_tail={tail!r}"
+                )
+
+            read_timeout = min(0.5, max(0.05, deadline - now))
+            if idle_timeout > 0:
+                idle_left = idle_timeout - (now - last_data_at)
+                read_timeout = min(read_timeout, max(0.05, idle_left))
+
+            try:
+                chunk = child.read_nonblocking(size=4096, timeout=read_timeout)
+            except pexpect.TIMEOUT:
+                continue
+            except pexpect.EOF as exc:
+                raise pexpect.EOF(
+                    f"EOF while waiting for marker {marker!r}. "
+                    f"buffer_tail={clean_buffer[-500:]!r}"
+                ) from exc
+
+            if not chunk:
+                continue
+
+            last_data_at = time.monotonic()
+            clean_chunk = self._strip_ansi_keep_newlines(chunk)
+            if not clean_chunk:
+                continue
+
+            clean_buffer += clean_chunk
+            if len(clean_buffer) > max_buffer_chars:
+                clean_buffer = clean_buffer[-max_buffer_chars:]
+
+            lines = clean_buffer.split("\n")
+            clean_buffer = lines.pop() if lines else ""
+            for line in lines:
+                if line.strip() == marker:
+                    return output_bytes
+                output_bytes += len((line + "\n").encode("utf-8", errors="ignore"))
 
     def _next_marker_tail(self) -> str:
         if self.prev_marker_tail is None:
@@ -229,18 +292,19 @@ class W4Benchmark:
         marker: str,
         marker_tail: str,
     ) -> tuple[float, int]:
-        marker_re = self._build_token_re(marker)
-        marker_tail_re = self._build_token_re(marker_tail)
-        wrapped = f"{{ {command}; }} 2>&1; echo {marker}"
+        _ = marker_tail
+        set_marker_var = f"W4_MARKER={shlex.quote(marker)}"
+        wrapped = f"{{ {command}; }} 2>&1; echo \"$W4_MARKER\""
 
         self._drain_pending_output(child)
+        child.sendline(set_marker_var)
+        self._expect_prompt(child)
+
         start_ns = time.perf_counter_ns()
         child.sendline(wrapped)
-        child.expect([marker, marker_tail, marker_re, marker_tail_re], timeout=self.args.timeout)
+        output_bytes = self._wait_for_marker_line(child, marker)
         end_ns = time.perf_counter_ns()
 
-        output = child.before or ""
-        output_bytes = len(output.encode("utf-8", errors="ignore"))
         latency_ms = (end_ns - start_ns) / 1_000_000.0
         return latency_ms, output_bytes
 
@@ -542,6 +606,7 @@ class W4Benchmark:
                 "trials": self.args.trials,
                 "iterations": self.args.iterations,
                 "timeout_sec": self.args.timeout,
+                "command_idle_timeout_sec": self.args.command_idle_timeout,
                 "maxread_bytes": self.args.maxread,
                 "search_window_size": self.args.search_window_size,
                 "random_seed": self.args.seed,
@@ -657,6 +722,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--trials", type=int, default=10, help="Independent sessions per protocol/workload pair")
     p.add_argument("--iterations", type=int, default=20, help="Recorded command samples per trial")
     p.add_argument("--timeout", type=int, default=300, help="pexpect timeout in seconds")
+    p.add_argument("--command-idle-timeout", type=float, default=30.0, help="Fail command only if no output is observed for this many seconds (0 = disable idle timeout)")
     p.add_argument("--maxread", type=int, default=65535, help="pexpect maxread bytes")
     p.add_argument("--search-window-size", type=int, default=8192, help="pexpect search window size (0 = unlimited)")
     p.add_argument("--seed", type=int, default=42, help="Random seed")
@@ -683,6 +749,8 @@ def main() -> int:
         parser.error("--iterations must be > 0")
     if args.timeout <= 0:
         parser.error("--timeout must be > 0")
+    if args.command_idle_timeout < 0:
+        parser.error("--command-idle-timeout must be >= 0")
     if args.maxread <= 0:
         parser.error("--maxread must be > 0")
     if args.search_window_size < 0:

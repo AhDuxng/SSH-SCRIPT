@@ -10,7 +10,7 @@ PROTOCOLS="ssh ssh3 mosh"
 WORKLOADS="large_output"
 
 COMMANDS=(
-  "find /"
+  "find /usr -type f 2>/dev/null | head -n 5000"
   "git status"
   "docker logs \$(docker ps -q | head -n 1)"
 )
@@ -18,6 +18,7 @@ COMMANDS=(
 ITERATIONS=20
 TRIALS=10
 TIMEOUT=300
+COMMAND_IDLE_TIMEOUT=30
 MAXREAD=65535
 SEARCH_WINDOW_SIZE=8192
 SEED=42
@@ -48,6 +49,7 @@ CMD=(
   --iterations "$ITERATIONS"
   --trials "$TRIALS"
   --timeout "$TIMEOUT"
+  --command-idle-timeout "$COMMAND_IDLE_TIMEOUT"
   --maxread "$MAXREAD"
   --search-window-size "$SEARCH_WINDOW_SIZE"
   --seed "$SEED"
