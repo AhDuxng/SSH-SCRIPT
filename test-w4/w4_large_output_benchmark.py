@@ -30,7 +30,7 @@ DEFAULT_SSH3_PATH = "/ssh3-term"
 MARKER_TAIL_LEN = 12
 _TAIL_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 DEFAULT_COMMANDS = [
-    "find /usr -type f 2>/dev/null | head -n 5000",
+    "find /",
     "git status",
     "docker logs $(docker ps -q | head -n 1)",
 ]
@@ -42,6 +42,7 @@ _INITIAL_PROMPT_RE = re.compile(
     re.MULTILINE,
 )
 _ANSI_STRIP_RE = re.compile(_ANSI_SEQ)
+_MARKER_SCAN_STRIP_RE = re.compile(r"[^A-Za-z0-9_]+")
 
 
 @dataclass
@@ -127,6 +128,16 @@ class W4Benchmark:
         return _ANSI_STRIP_RE.sub("", text).replace("\r", "").replace("\b", "")
 
     @staticmethod
+    def _normalize_marker_scan(text: str) -> str:
+        return _MARKER_SCAN_STRIP_RE.sub("", text).upper()
+
+    def _marker_seen(self, text: str, marker_norm: str, tail_norm: str) -> bool:
+        normalized = self._normalize_marker_scan(text)
+        if marker_norm in normalized:
+            return True
+        return bool(tail_norm and tail_norm in normalized)
+
+    @staticmethod
     def _drain_pending_output(child: pexpect.spawn, max_reads: int = 8) -> None:
         for _ in range(max_reads):
             try:
@@ -137,29 +148,34 @@ class W4Benchmark:
     def _expect_prompt(self, child: pexpect.spawn) -> None:
         child.expect(self.prompt_re, timeout=self.args.timeout)
 
-    def _wait_for_marker_line(self, child: pexpect.spawn, marker: str) -> int:
+    def _wait_for_marker_line(self, child: pexpect.spawn, marker: str, marker_tail: str) -> int:
         deadline = time.monotonic() + float(self.args.timeout)
         idle_timeout = float(self.args.command_idle_timeout)
         last_data_at = time.monotonic()
         clean_buffer = ""
         max_buffer_chars = 262_144
         output_bytes = 0
+        marker_norm = self._normalize_marker_scan(marker)
+        tail_norm = self._normalize_marker_scan(marker_tail)
+
+        def raise_timeout(reason: str) -> None:
+            tail = clean_buffer[-500:]
+            if "command not found" in tail.lower():
+                raise ValueError(
+                    f"Remote command failed before marker ({reason}): command not found. "
+                    f"clean_tail={tail!r}"
+                )
+            raise pexpect.TIMEOUT(
+                f"{reason} while waiting for marker {marker!r}. clean_tail={tail!r}"
+            )
 
         while True:
             now = time.monotonic()
             if now >= deadline:
-                tail = clean_buffer[-500:]
-                raise pexpect.TIMEOUT(
-                    f"Marker not received within {self.args.timeout:.1f}s: {marker!r}. "
-                    f"clean_tail={tail!r}"
-                )
+                raise_timeout(f"Marker not received within {self.args.timeout:.1f}s")
 
             if idle_timeout > 0 and (now - last_data_at) >= idle_timeout:
-                tail = clean_buffer[-500:]
-                raise pexpect.TIMEOUT(
-                    f"No output for {idle_timeout:.1f}s while waiting for marker {marker!r}. "
-                    f"clean_tail={tail!r}"
-                )
+                raise_timeout(f"No output for {idle_timeout:.1f}s")
 
             read_timeout = min(0.5, max(0.05, deadline - now))
             if idle_timeout > 0:
@@ -188,10 +204,24 @@ class W4Benchmark:
             if len(clean_buffer) > max_buffer_chars:
                 clean_buffer = clean_buffer[-max_buffer_chars:]
 
+            if self._marker_seen(clean_buffer[-4096:], marker_norm, tail_norm):
+                return output_bytes
+
             lines = clean_buffer.split("\n")
             clean_buffer = lines.pop() if lines else ""
             for line in lines:
-                if line.strip() == marker:
+                stripped = line.strip()
+                if stripped == marker:
+                    return output_bytes
+                marker_pos = line.find(marker)
+                if marker_pos >= 0:
+                    output_bytes += len(line[:marker_pos].encode("utf-8", errors="ignore"))
+                    return output_bytes
+                tail_pos = line.find(marker_tail)
+                if tail_pos >= 0:
+                    output_bytes += len(line[:tail_pos].encode("utf-8", errors="ignore"))
+                    return output_bytes
+                if self._marker_seen(line, marker_norm, tail_norm):
                     return output_bytes
                 output_bytes += len((line + "\n").encode("utf-8", errors="ignore"))
 
@@ -302,7 +332,7 @@ class W4Benchmark:
 
         start_ns = time.perf_counter_ns()
         child.sendline(wrapped)
-        output_bytes = self._wait_for_marker_line(child, marker)
+        output_bytes = self._wait_for_marker_line(child, marker, marker_tail)
         end_ns = time.perf_counter_ns()
 
         latency_ms = (end_ns - start_ns) / 1_000_000.0

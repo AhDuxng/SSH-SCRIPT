@@ -10,13 +10,13 @@ PROTOCOLS="ssh ssh3 mosh"
 WORKLOADS="large_output"
 
 COMMANDS=(
-  "find /usr -type f 2>/dev/null | head -n 5000"
+  "find /"
   "git status"
   "docker logs \$(docker ps -q | head -n 1)"
 )
 
 ITERATIONS=20
-TRIALS=10
+TRIALS=15
 TIMEOUT=300
 COMMAND_IDLE_TIMEOUT=30
 MAXREAD=65535
