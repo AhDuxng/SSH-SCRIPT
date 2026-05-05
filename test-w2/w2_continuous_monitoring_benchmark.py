@@ -132,38 +132,89 @@ class W2Benchmark:
 
         raise ValueError(f"Unsupported protocol: {protocol}")
 
-    def _open_session(self, protocol: str) -> tuple[pexpect.spawn, float]:
-        child = pexpect.spawn(
-            self._session_command(protocol),
-            encoding="utf-8",
-            codec_errors="ignore",
-            timeout=self.args.timeout,
-        )
+    def _open_session(self, protocol: str, max_retries: int = 3) -> tuple[pexpect.spawn, float]:
+        """Open a remote session with retry logic.
 
-        if self.args.log_pexpect:
-            log_path = Path(self.args.output_dir) / f"pexpect_{protocol}.log"
-            log_path.parent.mkdir(parents=True, exist_ok=True)
-            child.logfile_read = open(log_path, "a", encoding="utf-8")
+        Mosh sessions on degraded networks may need extra time to establish.
+        We retry up to max_retries times, with an increasing timeout multiplier.
+        """
+        last_exc: Exception | None = None
+        # Mosh needs more generous timeouts on medium/high-loss networks
+        base_timeout = self.args.timeout
+        if protocol == "mosh":
+            base_timeout = max(base_timeout, 30)
 
-        start_ns = time.perf_counter_ns()
-        child.expect(_INITIAL_PROMPT_RE, timeout=self.args.timeout)
-        setup_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
+        for attempt in range(1, max_retries + 1):
+            child: pexpect.spawn | None = None
+            try:
+                child = pexpect.spawn(
+                    self._session_command(protocol),
+                    encoding="utf-8",
+                    codec_errors="ignore",
+                    timeout=base_timeout,
+                )
 
-        child.sendline(f"export PS1={shlex.quote(self.args.prompt)}")
-        self._expect_prompt(child)
-        return child, setup_ms
+                if self.args.log_pexpect:
+                    log_path = Path(self.args.output_dir) / f"pexpect_{protocol}.log"
+                    log_path.parent.mkdir(parents=True, exist_ok=True)
+                    child.logfile_read = open(log_path, "a", encoding="utf-8")
 
-    def _close_session(self, child: pexpect.spawn) -> None:
+                # Use escalating timeout for each retry attempt
+                connect_timeout = base_timeout * attempt
+
+                start_ns = time.perf_counter_ns()
+                child.expect(_INITIAL_PROMPT_RE, timeout=connect_timeout)
+                setup_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
+
+                child.sendline(f"export PS1={shlex.quote(self.args.prompt)}")
+                self._expect_prompt(child)
+                return child, setup_ms
+
+            except (pexpect.TIMEOUT, pexpect.EOF) as exc:
+                last_exc = exc
+                print(
+                    f"  [WARN] _open_session({protocol}) attempt {attempt}/{max_retries} failed: {type(exc).__name__}",
+                    flush=True,
+                )
+                if child is not None:
+                    self._close_session(child, protocol)
+                # Brief pause before retry
+                time.sleep(2 * attempt)
+
+        raise last_exc  # type: ignore[misc]
+
+    def _close_session(self, child: pexpect.spawn, protocol: str = "") -> None:
+        """Close the pexpect session, forcefully killing any running processes first."""
         try:
+            # Send Ctrl+C multiple times to break out of any running foreground
+            # process (top loop, tail -f, ping, etc.) that may still be active
+            for _ in range(3):
+                child.sendcontrol("c")
+                time.sleep(0.3)
+
+            # Try to send 'exit' cleanly
             child.sendline("exit")
-            child.expect(pexpect.EOF)
+            child.expect(pexpect.EOF, timeout=5)
         except Exception:
-            child.close(force=True)
+            pass
         finally:
+            # Always force-close the child process
+            try:
+                child.close(force=True)
+            except Exception:
+                pass
             try:
                 if getattr(child, "logfile_read", None) is not None:
                     child.logfile_read.close()
             except Exception:
+                pass
+
+        # For Mosh: also kill any lingering mosh-client processes for this session
+        if protocol == "mosh" and hasattr(child, "pid") and child.pid:
+            try:
+                import os, signal
+                os.kill(child.pid, signal.SIGKILL)
+            except (ProcessLookupError, OSError):
                 pass
 
     def _measure_top(
@@ -172,22 +223,42 @@ class W2Benchmark:
         iterations: int,
         report_cb: Callable[[int, float], None],
     ) -> None:
-        CMD = "top -bn1 2>/dev/null | head -20"
+        interval = self.args.top_interval
+        # Continuous top: loop top -bn1 every <interval>s with a detectable marker,
+        # simulating a sysadmin running `top` in continuous monitoring mode.
+        TOP_LOOP = (
+            f"while true; do "
+            f"echo 'W2_TOP_REFRESH'; "
+            f"top -bn1 2>/dev/null | head -20; "
+            f"sleep {interval}; "
+            f"done"
+        )
+        child.sendline(TOP_LOOP)
 
-        # Warmup: prime routing caches and let the protocol settle
+        # Warmup: skip first few refresh cycles to let the pipeline stabilise
         for _ in range(3):
-            child.sendline(CMD)
-            self._expect_prompt(child)
+            child.expect(r"W2_TOP_REFRESH", timeout=self.args.timeout)
 
         for i in range(iterations):
             start_ns = time.perf_counter_ns()
-            child.sendline(CMD)
-            # Stop the clock when the prompt re-appears (command finished)
-            self._expect_prompt(child)
+            child.expect(r"W2_TOP_REFRESH", timeout=self.args.timeout)
             end_ns = time.perf_counter_ns()
             lat = (end_ns - start_ns) / 1_000_000.0
             report_cb(i + 1, lat)
-            time.sleep(0.1)
+
+        # Send Ctrl+C multiple times to reliably break the while-loop,
+        # especially over high-latency / lossy Mosh connections.
+        for _ in range(3):
+            child.sendcontrol("c")
+            time.sleep(0.5)
+        # Drain any remaining output and wait for the prompt
+        try:
+            self._expect_prompt(child)
+        except pexpect.TIMEOUT:
+            # If prompt still not found, send one more Ctrl+C and try again
+            child.sendcontrol("c")
+            time.sleep(1)
+            self._expect_prompt(child)
 
     def _measure_tail(
         self,
@@ -199,9 +270,14 @@ class W2Benchmark:
         child.sendline(f"rm -f {remote_log} && touch {remote_log}")
         self._expect_prompt(child)
 
-        # 50 ms write interval so network latency is clearly visible
+        # Use unique sequential counter per line so we can skip stale buffered
+        # lines and only measure the NEXT fresh arrival.  Write interval = 50 ms.
         child.sendline(
-            f"while true; do echo 'W2_LOG_LINE' >> {remote_log}; sleep 0.05; done &"
+            f"W2_SEQ=0; while true; do "
+            f"W2_SEQ=$((W2_SEQ+1)); "
+            f"echo \"W2_TAIL_$W2_SEQ\" >> {remote_log}; "
+            f"sleep 0.05; "
+            f"done &"
         )
         self._expect_prompt(child)
 
@@ -213,13 +289,14 @@ class W2Benchmark:
 
         child.sendline(f"tail -f {remote_log}")
 
-        # Warmup: skip first few deliveries to let the pipeline stabilise
-        for _ in range(3):
-            child.expect(r"W2_LOG_LINE", timeout=self.args.timeout)
+        # Warmup: skip first 10 deliveries to drain initial burst and let
+        # the pipeline stabilise (TCP Nagle can batch early lines).
+        for _ in range(10):
+            child.expect(r"W2_TAIL_\d+", timeout=self.args.timeout)
 
         for i in range(iterations):
             start_ns = time.perf_counter_ns()
-            child.expect(r"W2_LOG_LINE", timeout=self.args.timeout)
+            child.expect(r"W2_TAIL_\d+", timeout=self.args.timeout)
             end_ns = time.perf_counter_ns()
             lat = (end_ns - start_ns) / 1_000_000.0
             report_cb(i + 1, lat)
@@ -237,7 +314,8 @@ class W2Benchmark:
         iterations: int,
         report_cb: Callable[[int, float], None],
     ) -> None:
-        child.sendline("ping -i 0.1 127.0.0.1")
+        ping_target = self.args.ping_target or "127.0.0.1"
+        child.sendline(f"ping -i 0.1 {ping_target}")
         child.expect(r"PING ", timeout=self.args.timeout)
 
         for _ in range(5):
@@ -305,18 +383,45 @@ class W2Benchmark:
                             round_id=trial_id,
                             sample_id=-1,
                             error_type=type(exc).__name__,
-                            error_message=str(exc),
+                            error_message=str(exc)[:500],
                         )
                     )
                     print(
-                        f"[{protocol:>4}/{workload:<18}] trial {trial_id:>2}: FAIL ({type(exc).__name__}: {exc})",
+                        f"[{protocol:>4}/{workload:<18}] trial {trial_id:>2}: FAIL ({type(exc).__name__})",
                         flush=True,
                     )
                     if self.args.reopen_on_failure:
+                        # Force-close the broken session before reopening
+                        if child is not None:
+                            self._close_session(child, protocol)
+                            child = None
+                        # Cooldown: let the network / remote side settle
+                        time.sleep(3)
                         continue
+            except (pexpect.TIMEOUT, pexpect.EOF) as exc:
+                # _open_session itself failed after all retries
+                self.failures.append(
+                    FailureRecord(
+                        protocol=protocol,
+                        workload=workload,
+                        round_id=trial_id,
+                        sample_id=-1,
+                        error_type=type(exc).__name__,
+                        error_message=f"session_open_failed: {str(exc)[:300]}",
+                    )
+                )
+                print(
+                    f"[{protocol:>4}/{workload:<18}] trial {trial_id:>2}: FAIL (session open failed: {type(exc).__name__})",
+                    flush=True,
+                )
+                time.sleep(3)
+                continue
             finally:
                 if child is not None:
-                    self._close_session(child)
+                    self._close_session(child, protocol)
+                # Brief pause between trials for Mosh to release UDP ports
+                if protocol == "mosh":
+                    time.sleep(2)
 
     def run(self) -> None:
         random.seed(self.args.seed)
@@ -461,15 +566,19 @@ class W2Benchmark:
                 "timeout_sec": self.args.timeout,
                 "random_seed": self.args.seed,
                 "topology": {
-                    "client": "192.168.8.100",
+                    "client": self.args.source_ip or "unknown",
                     "server": self.args.host,
                 },
                 "metric_name": "screen_update_latency_ms",
                 "metric_note": (
-                    "top: time from sendline('top -bn1 | head -20') to prompt reappearing (command RTT). "
-                    "tail: inter-arrival time of log lines written at 50 ms intervals (streaming update latency). "
-                    "ping: inter-arrival time of 'bytes from' lines from 'ping -i 0.1 127.0.0.1' "
-                    "(screen update latency for continuous streaming output; loopback ensures reachability in all network scenarios)."
+                    f"All workloads measure inter-arrival time of streaming output (screen update latency). "
+                    f"top: continuous loop of 'top -bn1 | head -20' every {self.args.top_interval}s with W2_TOP_REFRESH marker "
+                    f"(expected inter-arrival ≈ {self.args.top_interval * 1000:.0f} ms + network delay). "
+                    f"tail: background writer at 50 ms intervals with tail -f "
+                    f"(expected inter-arrival ≈ 50 ms + network delay). "
+                    f"ping: 'ping -i 0.1 {self.args.ping_target or '127.0.0.1'}' "
+                    f"(expected inter-arrival ≈ 100 ms + network delay). "
+                    f"Deviation from expected interval reflects protocol overhead + network-induced screen update delay."
                 ),
             },
             "summary": [asdict(row) for row in self.summaries()],
@@ -521,7 +630,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--identity-file", default=str(Path.home() / ".ssh" / "id_rsa"), help="SSH private key path")
     p.add_argument("--protocols", nargs="+", default=DEFAULT_PROTOCOLS, choices=DEFAULT_PROTOCOLS)
     p.add_argument("--workloads", nargs="+", default=DEFAULT_WORKLOADS, choices=["top", "tail", "ping"])
-    p.add_argument("--ping-target", default="", help="IP to ping inside the remote session (default: --source-ip)")
+    p.add_argument("--ping-target", default="", help="IP to ping inside the remote session (default: 127.0.0.1 loopback)")
+    p.add_argument("--top-interval", type=float, default=1.0, help="Interval in seconds between top refreshes (default: 1.0)")
     p.add_argument("--trials", type=int, default=15, help="Independent sessions per protocol/workload pair")
     p.add_argument("--iterations", type=int, default=100, help="Recorded samples per trial")
     p.add_argument("--timeout", type=int, default=20, help="pexpect timeout in seconds")
