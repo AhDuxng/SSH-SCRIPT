@@ -1,29 +1,30 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-HOST="192.168.8.102"
-USER_NAME="trungnt"
-SOURCE_IP="192.168.8.100"
-IDENTITY_FILE="$HOME/.ssh/id_rsa"
+HOST="100.66.79.93"
+USER_NAME="pi"
+SOURCE_IP="100.70.166.91"
+IDENTITY_FILE="$HOME/.ssh/id_ed25519"
 
 PROTOCOLS="ssh ssh3 mosh"
 WORKLOADS="top tail ping"
 
 ITERATIONS=100
 TRIALS=15
-TIMEOUT=20
+TIMEOUT=30
 SEED=42
 
 OUTPUT_DIR="w2_results"
 LOG_PEXPECT=true
 PROMPT="__W2_PROMPT__# "
 
-SSH3_PATH="/ssh3-term"
+SSH3_PATH=":4433/ssh3-term"
 SSH3_INSECURE=true
 
 BATCH_MODE=false
 STRICT_HOST_KEY=false
 MOSH_PREDICT="never"
+TOP_INTERVAL=1.0
 
 CMD=(
   python w2_continuous_monitoring_benchmark.py
@@ -41,12 +42,16 @@ CMD=(
   --prompt "$PROMPT"
   --ssh3-path "$SSH3_PATH"
   --mosh-predict "$MOSH_PREDICT"
+  --top-interval "$TOP_INTERVAL"
 )
 
 $SSH3_INSECURE     && CMD+=(--ssh3-insecure)
 $BATCH_MODE        && CMD+=(--batch-mode)
 $STRICT_HOST_KEY   && CMD+=(--strict-host-key-checking)
 $LOG_PEXPECT       && CMD+=(--log-pexpect)
+
+# Always reopen session on failure to continue remaining trials
+CMD+=(--reopen-on-failure)
 
 echo "=== W2 Continuous Monitoring Benchmark ==="
 echo "Command:"
