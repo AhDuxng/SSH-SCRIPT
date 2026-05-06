@@ -18,7 +18,7 @@ OUTPUT_DIR="w2_results"
 LOG_PEXPECT=true
 PROMPT="__W2_PROMPT__# "
 
-SSH3_PATH=":4433/ssh3-term"
+SSH3_PATH=":443/ssh3-term"
 SSH3_INSECURE=true
 
 BATCH_MODE=false
