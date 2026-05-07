@@ -26,7 +26,7 @@ BATCH_MODE=false
 STRICT_HOST_KEY=false
 MOSH_PREDICT="never"
 TOP_INTERVAL=0.2
-TOP_REFRESHES_PER_SAMPLE=5
+TOP_REFRESHES_PER_SAMPLE=1
 
 CMD=(
   python w2_continuous_monitoring_benchmark.py
