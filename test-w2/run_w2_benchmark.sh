@@ -26,6 +26,7 @@ BATCH_MODE=false
 STRICT_HOST_KEY=false
 MOSH_PREDICT="never"
 TOP_INTERVAL=0.2
+TOP_REFRESHES_PER_SAMPLE=5
 
 CMD=(
   python w2_continuous_monitoring_benchmark.py
@@ -44,6 +45,7 @@ CMD=(
   --ssh3-path "$SSH3_PATH"
   --mosh-predict "$MOSH_PREDICT"
   --top-interval "$TOP_INTERVAL"
+  --top-refreshes-per-sample "$TOP_REFRESHES_PER_SAMPLE"
 )
 
 $SSH3_INSECURE     && CMD+=(--ssh3-insecure)

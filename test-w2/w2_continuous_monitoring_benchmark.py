@@ -211,12 +211,16 @@ class W2Benchmark:
         report_cb: Callable[[int, float], None],
     ) -> None:
         interval = max(0.1, float(self.args.top_interval))
+        refreshes_per_sample = max(1, int(self.args.top_refreshes_per_sample))
         warmup = 3
-        total_frames = iterations + warmup
+        total_frames = (iterations * refreshes_per_sample) + warmup
 
         marker = f"W2_TOP_{random.randrange(1_000_000_000):09d}"
         frame_re = re.compile(rf"{re.escape(marker)}_(\d{{6}})")
-        expect_timeout = max(self.args.timeout, int(interval * 5 + 10))
+        expect_timeout = max(
+            self.args.timeout,
+            int(interval * refreshes_per_sample * 5 + 10),
+        )
 
         awk_script = (
             "BEGIN { frame=0; line=0 } "
@@ -233,12 +237,12 @@ class W2Benchmark:
         for _ in range(warmup):
             child.expect(frame_re, timeout=expect_timeout)
 
-        prev_ns = time.perf_counter_ns()
         for i in range(iterations):
-            child.expect(frame_re, timeout=expect_timeout)
-            now_ns = time.perf_counter_ns()
-            lat = (now_ns - prev_ns) / 1_000_000.0
-            prev_ns = now_ns
+            start_ns = time.perf_counter_ns()
+            for _ in range(refreshes_per_sample):
+                child.expect(frame_re, timeout=expect_timeout)
+            end_ns = time.perf_counter_ns()
+            lat = (end_ns - start_ns) / 1_000_000.0
             report_cb(i + 1, lat)
 
         self._expect_prompt(child)
@@ -540,6 +544,7 @@ class W2Benchmark:
                 "workloads": self.args.workloads,
                 "trials": self.args.trials,
                 "iterations": self.args.iterations,
+                "top_refreshes_per_sample": self.args.top_refreshes_per_sample,
                 "timeout_sec": self.args.timeout,
                 "random_seed": self.args.seed,
                 "topology": {
@@ -550,11 +555,12 @@ class W2Benchmark:
                 "metric_note": (
                     f"All workloads measure inter-arrival time of streaming output (screen update latency). "
                     f"top: real continuous 'top -b -d {self.args.top_interval}' with a unique marker per frame "
-                    f"(expected inter-arrival ≈ {self.args.top_interval * 1000:.0f} ms + network/protocol jitter). "
+                    f"Each recorded top sample groups {self.args.top_refreshes_per_sample} consecutive refreshes "
+                    f"(expected grouped latency ~ {self.args.top_interval * self.args.top_refreshes_per_sample * 1000:.0f} ms + network/protocol jitter). "
                     f"tail: background writer at 50 ms intervals with tail -f "
-                    f"(expected inter-arrival ≈ 50 ms + network delay). "
+                    f"(expected inter-arrival ~ 50 ms + network delay). "
                     f"ping: 'ping -i 0.1 {self.args.ping_target or '127.0.0.1'}' "
-                    f"(expected inter-arrival ≈ 100 ms + network delay). "
+                    f"(expected inter-arrival ~ 100 ms + network delay). "
                     f"Deviation from expected interval reflects protocol overhead + network-induced screen update delay."
                 ),
             },
@@ -609,6 +615,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--workloads", nargs="+", default=DEFAULT_WORKLOADS, choices=["top", "tail", "ping"])
     p.add_argument("--ping-target", default="", help="IP to ping inside the remote session (default: 127.0.0.1 loopback)")
     p.add_argument("--top-interval", type=float, default=1.0, help="Interval in seconds between top refreshes (default: 1.0)")
+    p.add_argument(
+        "--top-refreshes-per-sample",
+        type=int,
+        default=5,
+        help="Number of consecutive top refreshes grouped into one latency sample (default: 5)",
+    )
     p.add_argument("--trials", type=int, default=15, help="Independent sessions per protocol/workload pair")
     p.add_argument("--iterations", type=int, default=100, help="Recorded samples per trial")
     p.add_argument("--timeout", type=int, default=20, help="pexpect timeout in seconds")
@@ -634,6 +646,8 @@ def main() -> int:
         parser.error("--trials must be > 0")
     if args.iterations <= 0:
         parser.error("--iterations must be > 0")
+    if args.top_refreshes_per_sample <= 0:
+        parser.error("--top-refreshes-per-sample must be > 0")
 
     bench = W2Benchmark(args)
     bench.run()
@@ -644,3 +658,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
