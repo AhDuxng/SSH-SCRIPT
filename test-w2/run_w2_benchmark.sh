@@ -8,7 +8,7 @@ SOURCE_IP="192.168.8.100"
 IDENTITY_FILE="$HOME/.ssh/id_rsa"
 
 PROTOCOLS="ssh ssh3 mosh"
-WORKLOADS="top"
+WORKLOADS="top tail ping"
 
 ITERATIONS=100
 TRIALS=5
