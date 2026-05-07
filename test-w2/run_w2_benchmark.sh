@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 set -euo pipefail
-SCENARIO="${1:-default}"
 
 HOST="192.168.8.102"
 USER_NAME="trungnt"
@@ -11,11 +10,11 @@ PROTOCOLS="ssh ssh3 mosh"
 WORKLOADS="top tail ping"
 
 ITERATIONS=100
-TRIALS=1
+TRIALS=15
 TIMEOUT=30
 SEED=42
 
-OUTPUT_DIR="w2_results_${SCENARIO}_top"
+OUTPUT_DIR="w2_results"
 LOG_PEXPECT=true
 PROMPT="__W2_PROMPT__# "
 
@@ -25,8 +24,7 @@ SSH3_INSECURE=true
 BATCH_MODE=false
 STRICT_HOST_KEY=false
 MOSH_PREDICT="never"
-TOP_INTERVAL=0.2
-TOP_REFRESHES_PER_SAMPLE=5
+TOP_INTERVAL=1.0
 
 CMD=(
   python w2_continuous_monitoring_benchmark.py
@@ -45,7 +43,6 @@ CMD=(
   --ssh3-path "$SSH3_PATH"
   --mosh-predict "$MOSH_PREDICT"
   --top-interval "$TOP_INTERVAL"
-  --top-refreshes-per-sample "$TOP_REFRESHES_PER_SAMPLE"
 )
 
 $SSH3_INSECURE     && CMD+=(--ssh3-insecure)
@@ -55,7 +52,7 @@ $LOG_PEXPECT       && CMD+=(--log-pexpect)
 
 CMD+=(--reopen-on-failure)
 
-echo "=== W2 TOP Benchmark: $SCENARIO ==="
+echo "=== W2 Continuous Monitoring Benchmark ==="
 echo "Command:"
 printf '  %s \\\n' "${CMD[@]}"
 echo ""

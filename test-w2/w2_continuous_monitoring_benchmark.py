@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 from __future__ import annotations
 
 import argparse
@@ -133,7 +133,13 @@ class W2Benchmark:
         raise ValueError(f"Unsupported protocol: {protocol}")
 
     def _open_session(self, protocol: str, max_retries: int = 3) -> tuple[pexpect.spawn, float]:
+        """Open a remote session with retry logic.
+
+        Mosh sessions on degraded networks may need extra time to establish.
+        We retry up to max_retries times, with an increasing timeout multiplier.
+        """
         last_exc: Exception | None = None
+        # Mosh needs more generous timeouts on medium/high-loss networks
         base_timeout = self.args.timeout
         if protocol == "mosh":
             base_timeout = max(base_timeout, 30)
@@ -153,6 +159,7 @@ class W2Benchmark:
                     log_path.parent.mkdir(parents=True, exist_ok=True)
                     child.logfile_read = open(log_path, "a", encoding="utf-8")
 
+                # Use escalating timeout for each retry attempt
                 connect_timeout = base_timeout * attempt
 
                 start_ns = time.perf_counter_ns()
@@ -171,22 +178,27 @@ class W2Benchmark:
                 )
                 if child is not None:
                     self._close_session(child, protocol)
+                # Brief pause before retry
                 time.sleep(2 * attempt)
 
-        raise last_exc  
+        raise last_exc  # type: ignore[misc]
 
     def _close_session(self, child: pexpect.spawn, protocol: str = "") -> None:
         """Close the pexpect session, forcefully killing any running processes first."""
         try:
+            # Send Ctrl+C multiple times to break out of any running foreground
+            # process (top loop, tail -f, ping, etc.) that may still be active
             for _ in range(3):
                 child.sendcontrol("c")
                 time.sleep(0.3)
 
+            # Try to send 'exit' cleanly
             child.sendline("exit")
             child.expect(pexpect.EOF, timeout=5)
         except Exception:
             pass
         finally:
+            # Always force-close the child process
             try:
                 child.close(force=True)
             except Exception:
@@ -197,6 +209,7 @@ class W2Benchmark:
             except Exception:
                 pass
 
+        # For Mosh: also kill any lingering mosh-client processes for this session
         if protocol == "mosh" and hasattr(child, "pid") and child.pid:
             try:
                 import os, signal
@@ -207,83 +220,45 @@ class W2Benchmark:
     def _measure_top(
         self,
         child: pexpect.spawn,
-        protocol: str,
         iterations: int,
         report_cb: Callable[[int, float], None],
     ) -> None:
-        interval = max(0.1, float(self.args.top_interval))
-        refreshes_per_sample = max(1, int(self.args.top_refreshes_per_sample))
-        warmup = 3
-        total_frames = (iterations * refreshes_per_sample) + warmup
-
-        marker = f"W2_TOP_{random.randrange(1_000_000_000):09d}"
-        frame_re = re.compile(rf"{re.escape(marker)}_(\d{{6}})")
-        if protocol == "mosh":
-            expect_timeout = max(
-                self.args.timeout * 4,
-                int(interval * refreshes_per_sample * 20 + 20),
-            )
-        else:
-            expect_timeout = max(
-                self.args.timeout,
-                int(interval * refreshes_per_sample * 5 + 10),
-            )
-
-        awk_script = (
-            "BEGIN { frame=0; line=0 } "
-            f'/^top -/ {{ frame++; line=0; printf("{marker}_%06d\\n", frame); fflush(); }} '
-            "frame > 0 && line < 20 { print; fflush(); line++; }"
+        interval = self.args.top_interval
+        # Continuous top: loop top -bn1 every <interval>s with a detectable marker,
+        # simulating a sysadmin running `top` in continuous monitoring mode.
+        TOP_LOOP = (
+            f"while true; do "
+            f"echo 'W2_TOP_REFRESH'; "
+            f"top -bn1 2>/dev/null | head -20; "
+            f"sleep {interval}; "
+            f"done"
         )
-        TOP_CMD = (
-            f"COLUMNS=120 LINES=40 "
-            f"top -b -d {shlex.quote(str(interval))} -n {total_frames} "
-            f"| awk {shlex.quote(awk_script)}"
-        )
-        child.sendline(TOP_CMD)
+        child.sendline(TOP_LOOP)
 
-        def wait_next_frame(last_frame: int) -> int:
-            idx = child.expect(
-                [frame_re, self.prompt_re, pexpect.EOF],
-                timeout=expect_timeout,
-            )
-            if idx == 0:
-                return int(child.match.group(1))
-
-            before = (child.before or "").strip()
-            tail = " | ".join(before.splitlines()[-3:])[:300]
-            if idx == 1:
-                raise ValueError(
-                    f"top exited before enough frames were observed "
-                    f"(last_frame={last_frame}/{total_frames}). "
-                    f"tail='{tail}'"
-                )
-            raise ValueError(
-                f"top session closed unexpectedly "
-                f"(last_frame={last_frame}/{total_frames}). tail='{tail}'"
-            )
-
-        last_frame = 0
-        warmed = 0
-        while warmed < warmup:
-            frame_no = wait_next_frame(last_frame)
-            if frame_no <= last_frame:
-                continue
-            last_frame = frame_no
-            warmed += 1
+        # Warmup: skip first few refresh cycles to let the pipeline stabilise
+        for _ in range(3):
+            child.expect(r"W2_TOP_REFRESH", timeout=self.args.timeout)
 
         for i in range(iterations):
-            target_frame = last_frame + refreshes_per_sample
             start_ns = time.perf_counter_ns()
-            while last_frame < target_frame:
-                frame_no = wait_next_frame(last_frame)
-                if frame_no <= last_frame:
-                    continue
-                last_frame = frame_no
+            child.expect(r"W2_TOP_REFRESH", timeout=self.args.timeout)
             end_ns = time.perf_counter_ns()
             lat = (end_ns - start_ns) / 1_000_000.0
             report_cb(i + 1, lat)
 
-        child.expect(self.prompt_re, timeout=expect_timeout)
+        # Send Ctrl+C multiple times to reliably break the while-loop,
+        # especially over high-latency / lossy Mosh connections.
+        for _ in range(3):
+            child.sendcontrol("c")
+            time.sleep(0.5)
+        # Drain any remaining output and wait for the prompt
+        try:
+            self._expect_prompt(child)
+        except pexpect.TIMEOUT:
+            # If prompt still not found, send one more Ctrl+C and try again
+            child.sendcontrol("c")
+            time.sleep(1)
+            self._expect_prompt(child)
 
     def _measure_tail(
         self,
@@ -295,6 +270,8 @@ class W2Benchmark:
         child.sendline(f"rm -f {remote_log} && touch {remote_log}")
         self._expect_prompt(child)
 
+        # Use unique sequential counter per line so we can skip stale buffered
+        # lines and only measure the NEXT fresh arrival.  Write interval = 50 ms.
         child.sendline(
             f"W2_SEQ=0; while true; do "
             f"W2_SEQ=$((W2_SEQ+1)); "
@@ -304,6 +281,7 @@ class W2Benchmark:
         )
         self._expect_prompt(child)
 
+        # Capture PID reliably after the job is backgrounded
         child.sendline("W2_WRITER_PID=$!; echo W2_WRITER_PID=$W2_WRITER_PID")
         child.expect(r"W2_WRITER_PID=(\d+)", timeout=self.args.timeout)
         bg_pid = child.match.group(1)
@@ -311,6 +289,8 @@ class W2Benchmark:
 
         child.sendline(f"tail -f {remote_log}")
 
+        # Warmup: skip first 10 deliveries to drain initial burst and let
+        # the pipeline stabilise (TCP Nagle can batch early lines).
         for _ in range(10):
             child.expect(r"W2_TAIL_\d+", timeout=self.args.timeout)
 
@@ -324,6 +304,7 @@ class W2Benchmark:
         child.sendcontrol("c")
         self._expect_prompt(child)
 
+        # Cleanup background writer
         child.sendline(f"kill {bg_pid} 2>/dev/null; rm -f {remote_log}")
         self._expect_prompt(child)
 
@@ -369,7 +350,7 @@ class W2Benchmark:
             )
 
         if workload == "top":
-            self._measure_top(child, protocol, self.args.iterations, report_cb)
+            self._measure_top(child, self.args.iterations, report_cb)
         elif workload == "tail":
             self._measure_tail(child, self.args.iterations, report_cb)
         elif workload == "ping":
@@ -582,7 +563,6 @@ class W2Benchmark:
                 "workloads": self.args.workloads,
                 "trials": self.args.trials,
                 "iterations": self.args.iterations,
-                "top_refreshes_per_sample": self.args.top_refreshes_per_sample,
                 "timeout_sec": self.args.timeout,
                 "random_seed": self.args.seed,
                 "topology": {
@@ -592,13 +572,12 @@ class W2Benchmark:
                 "metric_name": "screen_update_latency_ms",
                 "metric_note": (
                     f"All workloads measure inter-arrival time of streaming output (screen update latency). "
-                    f"top: real continuous 'top -b -d {self.args.top_interval}' with a unique marker per frame "
-                    f"Each recorded top sample groups {self.args.top_refreshes_per_sample} consecutive refreshes "
-                    f"(expected grouped latency ~ {self.args.top_interval * self.args.top_refreshes_per_sample * 1000:.0f} ms + network/protocol jitter). "
+                    f"top: continuous loop of 'top -bn1 | head -20' every {self.args.top_interval}s with W2_TOP_REFRESH marker "
+                    f"(expected inter-arrival ≈ {self.args.top_interval * 1000:.0f} ms + network delay). "
                     f"tail: background writer at 50 ms intervals with tail -f "
-                    f"(expected inter-arrival ~ 50 ms + network delay). "
+                    f"(expected inter-arrival ≈ 50 ms + network delay). "
                     f"ping: 'ping -i 0.1 {self.args.ping_target or '127.0.0.1'}' "
-                    f"(expected inter-arrival ~ 100 ms + network delay). "
+                    f"(expected inter-arrival ≈ 100 ms + network delay). "
                     f"Deviation from expected interval reflects protocol overhead + network-induced screen update delay."
                 ),
             },
@@ -653,12 +632,6 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--workloads", nargs="+", default=DEFAULT_WORKLOADS, choices=["top", "tail", "ping"])
     p.add_argument("--ping-target", default="", help="IP to ping inside the remote session (default: 127.0.0.1 loopback)")
     p.add_argument("--top-interval", type=float, default=1.0, help="Interval in seconds between top refreshes (default: 1.0)")
-    p.add_argument(
-        "--top-refreshes-per-sample",
-        type=int,
-        default=5,
-        help="Number of consecutive top refreshes grouped into one latency sample (default: 5)",
-    )
     p.add_argument("--trials", type=int, default=15, help="Independent sessions per protocol/workload pair")
     p.add_argument("--iterations", type=int, default=100, help="Recorded samples per trial")
     p.add_argument("--timeout", type=int, default=20, help="pexpect timeout in seconds")
@@ -684,8 +657,6 @@ def main() -> int:
         parser.error("--trials must be > 0")
     if args.iterations <= 0:
         parser.error("--iterations must be > 0")
-    if args.top_refreshes_per_sample <= 0:
-        parser.error("--top-refreshes-per-sample must be > 0")
 
     bench = W2Benchmark(args)
     bench.run()
@@ -696,4 +667,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-
