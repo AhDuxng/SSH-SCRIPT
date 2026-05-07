@@ -207,6 +207,7 @@ class W2Benchmark:
     def _measure_top(
         self,
         child: pexpect.spawn,
+        protocol: str,
         iterations: int,
         report_cb: Callable[[int, float], None],
     ) -> None:
@@ -217,10 +218,16 @@ class W2Benchmark:
 
         marker = f"W2_TOP_{random.randrange(1_000_000_000):09d}"
         frame_re = re.compile(rf"{re.escape(marker)}_(\d{{6}})")
-        expect_timeout = max(
-            self.args.timeout,
-            int(interval * refreshes_per_sample * 5 + 10),
-        )
+        if protocol == "mosh":
+            expect_timeout = max(
+                self.args.timeout * 4,
+                int(interval * refreshes_per_sample * 20 + 20),
+            )
+        else:
+            expect_timeout = max(
+                self.args.timeout,
+                int(interval * refreshes_per_sample * 5 + 10),
+            )
 
         awk_script = (
             "BEGIN { frame=0; line=0 } "
@@ -229,23 +236,54 @@ class W2Benchmark:
         )
         TOP_CMD = (
             f"COLUMNS=120 LINES=40 "
-            f"top -b -d {shlex.quote(str(interval))} -n {total_frames} 2>/dev/null "
+            f"top -b -d {shlex.quote(str(interval))} -n {total_frames} "
             f"| awk {shlex.quote(awk_script)}"
         )
         child.sendline(TOP_CMD)
 
-        for _ in range(warmup):
-            child.expect(frame_re, timeout=expect_timeout)
+        def wait_next_frame(last_frame: int) -> int:
+            idx = child.expect(
+                [frame_re, self.prompt_re, pexpect.EOF],
+                timeout=expect_timeout,
+            )
+            if idx == 0:
+                return int(child.match.group(1))
+
+            before = (child.before or "").strip()
+            tail = " | ".join(before.splitlines()[-3:])[:300]
+            if idx == 1:
+                raise ValueError(
+                    f"top exited before enough frames were observed "
+                    f"(last_frame={last_frame}/{total_frames}). "
+                    f"tail='{tail}'"
+                )
+            raise ValueError(
+                f"top session closed unexpectedly "
+                f"(last_frame={last_frame}/{total_frames}). tail='{tail}'"
+            )
+
+        last_frame = 0
+        warmed = 0
+        while warmed < warmup:
+            frame_no = wait_next_frame(last_frame)
+            if frame_no <= last_frame:
+                continue
+            last_frame = frame_no
+            warmed += 1
 
         for i in range(iterations):
+            target_frame = last_frame + refreshes_per_sample
             start_ns = time.perf_counter_ns()
-            for _ in range(refreshes_per_sample):
-                child.expect(frame_re, timeout=expect_timeout)
+            while last_frame < target_frame:
+                frame_no = wait_next_frame(last_frame)
+                if frame_no <= last_frame:
+                    continue
+                last_frame = frame_no
             end_ns = time.perf_counter_ns()
             lat = (end_ns - start_ns) / 1_000_000.0
             report_cb(i + 1, lat)
 
-        self._expect_prompt(child)
+        child.expect(self.prompt_re, timeout=expect_timeout)
 
     def _measure_tail(
         self,
@@ -331,7 +369,7 @@ class W2Benchmark:
             )
 
         if workload == "top":
-            self._measure_top(child, self.args.iterations, report_cb)
+            self._measure_top(child, protocol, self.args.iterations, report_cb)
         elif workload == "tail":
             self._measure_tail(child, self.args.iterations, report_cb)
         elif workload == "ping":
