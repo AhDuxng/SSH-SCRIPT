@@ -200,6 +200,10 @@ class W4Benchmark:
                 stripped = line.strip()
                 if stripped == marker:
                     return output_bytes
+                if self.prompt_marker and self.prompt_marker in line:
+                    prompt_pos = line.find(self.prompt_marker)
+                    output_bytes += len(line[:prompt_pos].encode("utf-8", errors="ignore"))
+                    return output_bytes
                 marker_pos = line.find(marker)
                 if marker_pos >= 0:
                     output_bytes += len(line[:marker_pos].encode("utf-8", errors="ignore"))
@@ -210,6 +214,11 @@ class W4Benchmark:
             if marker_pos >= 0:
                 output_bytes += len(clean_buffer[:marker_pos].encode("utf-8", errors="ignore"))
                 return output_bytes
+            if self.prompt_marker:
+                prompt_pos = clean_buffer.find(self.prompt_marker)
+                if prompt_pos >= 0:
+                    output_bytes += len(clean_buffer[:prompt_pos].encode("utf-8", errors="ignore"))
+                    return output_bytes
 
     def _next_marker_tail(self) -> str:
         if self.prev_marker_tail is None:
@@ -632,9 +641,10 @@ class W4Benchmark:
                 },
                 "metric_name": "output_delivery_latency_ms",
                 "metric_note": (
-                    "Latency = time from sendline(command) to unique completion marker "
-                    "visibility after command output flush. Commands are wrapped as "
-                    "'{ command; } 2>&1; echo <marker>'."
+                    "Latency = time from sendline(command) to command completion visibility. "
+                    "Primary stop condition is unique completion marker; fallback stop "
+                    "condition is benchmark prompt re-appearance. Commands are wrapped as "
+                    "'{ command; } 2>&1; printf %s\\\\n <marker>'."
                 ),
                 "additional_fields": {
                     "output_bytes": "Byte length observed before completion marker",
