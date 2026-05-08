@@ -170,7 +170,6 @@ class W4Benchmark:
         child.expect(self.prompt_re, timeout=self.args.timeout)
 
     def _wait_for_marker_line(self, child: pexpect.spawn, marker: str, marker_tail: str) -> int:
-        _ = marker_tail
         deadline = time.monotonic() + float(self.args.timeout)
         idle_timeout = float(self.args.command_idle_timeout)
         last_data_at = time.monotonic()
@@ -179,6 +178,7 @@ class W4Benchmark:
         output_bytes = 0
         saw_activity = False
         marker_norm = self._normalize_marker_scan(marker)
+        marker_tail_norm = self._normalize_marker_scan(marker_tail)
 
         def raise_timeout(reason: str) -> None:
             tail = clean_buffer[-500:]
@@ -232,9 +232,11 @@ class W4Benchmark:
                 clean_buffer = clean_buffer[-max_buffer_chars:]
 
             # Mosh can fragment marker bytes with control traffic; match full marker
-            # on a normalized sliding window (no tail/partial marker fallback).
+            # on a normalized sliding window with tail fallback.
             normalized_window = self._normalize_marker_scan(clean_buffer[-8192:])
             if marker_norm in normalized_window:
+                return output_bytes
+            if marker_tail_norm and marker_tail_norm in normalized_window:
                 return output_bytes
 
             lines = clean_buffer.split("\n")
@@ -365,24 +367,11 @@ class W4Benchmark:
     ) -> tuple[float, int]:
         self._drain_pending_output(child)
 
-        if protocol == "mosh":
-            # Mosh syncs visible terminal state (not raw byte stream), so marker
-            # lines can be skipped/coalesced under heavy redraw. For mosh, stop
-            # at prompt re-appearance to avoid marker-only false timeouts.
-            wrapped = f"{{ {command}; }} 2>&1"
-            start_ns = time.perf_counter_ns()
-            child.sendline(wrapped)
-            self._expect_prompt(child)
-            end_ns = time.perf_counter_ns()
-            clean = self._strip_ansi_keep_newlines(child.before or "")
-            output_bytes = len(clean.encode("utf-8", errors="ignore"))
-        else:
-            _ = marker_tail
-            wrapped = f"{{ {command}; }} 2>&1; printf '%s\\n' {shlex.quote(marker)}"
-            start_ns = time.perf_counter_ns()
-            child.sendline(wrapped)
-            output_bytes = self._wait_for_marker_line(child, marker, marker_tail)
-            end_ns = time.perf_counter_ns()
+        wrapped = f"{{ {command}; }} 2>&1; printf '%s\\n' {shlex.quote(marker)}"
+        start_ns = time.perf_counter_ns()
+        child.sendline(wrapped)
+        output_bytes = self._wait_for_marker_line(child, marker, marker_tail)
+        end_ns = time.perf_counter_ns()
 
         latency_ms = (end_ns - start_ns) / 1_000_000.0
         return latency_ms, output_bytes
@@ -696,9 +685,9 @@ class W4Benchmark:
                 "metric_name": "output_delivery_latency_ms",
                 "metric_note": (
                     "Latency = time from sendline(command) to command completion visibility. "
-                    "For SSH/SSH3, stop condition is unique completion marker from "
-                    "'{ command; } 2>&1; printf %s\\\\n <marker>'. For MOSH, stop "
-                    "condition is benchmark prompt re-appearance (state-sync behavior)."
+                    "For SSH/SSH3/MOSH, stop condition is unique completion marker from "
+                    "'{ command; } 2>&1; printf %s\\n <marker>'. For MOSH, prompt "
+                    "re-appearance is a fallback if marker delivery is skipped."
                 ),
                 "additional_fields": {
                     "output_bytes": "Byte length observed before completion condition",
