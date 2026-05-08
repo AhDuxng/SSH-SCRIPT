@@ -18,7 +18,8 @@ COMMANDS=(
 ITERATIONS=20
 TRIALS=1
 TIMEOUT=300
-COMMAND_IDLE_TIMEOUT=30
+# Keep disabled for fairness: mosh can have long silent windows while still progressing.
+COMMAND_IDLE_TIMEOUT=0
 MAXREAD=65535
 SEARCH_WINDOW_SIZE=8192
 SEED=42

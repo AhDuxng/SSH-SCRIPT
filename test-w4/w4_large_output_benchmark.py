@@ -42,7 +42,6 @@ _INITIAL_PROMPT_RE = re.compile(
     re.MULTILINE,
 )
 _ANSI_STRIP_RE = re.compile(_ANSI_SEQ)
-_MARKER_SCAN_STRIP_RE = re.compile(r"[^A-Za-z0-9_]+")
 
 
 @dataclass
@@ -128,16 +127,6 @@ class W4Benchmark:
         return _ANSI_STRIP_RE.sub("", text).replace("\r", "").replace("\b", "")
 
     @staticmethod
-    def _normalize_marker_scan(text: str) -> str:
-        return _MARKER_SCAN_STRIP_RE.sub("", text).upper()
-
-    def _marker_seen(self, text: str, marker_norm: str, tail_norm: str) -> bool:
-        normalized = self._normalize_marker_scan(text)
-        if marker_norm in normalized:
-            return True
-        return bool(tail_norm and tail_norm in normalized)
-
-    @staticmethod
     def _drain_pending_output(child: pexpect.spawn, max_reads: int = 8) -> None:
         for _ in range(max_reads):
             try:
@@ -149,14 +138,14 @@ class W4Benchmark:
         child.expect(self.prompt_re, timeout=self.args.timeout)
 
     def _wait_for_marker_line(self, child: pexpect.spawn, marker: str, marker_tail: str) -> int:
+        _ = marker_tail
         deadline = time.monotonic() + float(self.args.timeout)
         idle_timeout = float(self.args.command_idle_timeout)
         last_data_at = time.monotonic()
         clean_buffer = ""
         max_buffer_chars = 262_144
         output_bytes = 0
-        marker_norm = self._normalize_marker_scan(marker)
-        tail_norm = self._normalize_marker_scan(marker_tail)
+        saw_activity = False
 
         def raise_timeout(reason: str) -> None:
             tail = clean_buffer[-500:]
@@ -174,11 +163,11 @@ class W4Benchmark:
             if now >= deadline:
                 raise_timeout(f"Marker not received within {self.args.timeout:.1f}s")
 
-            if idle_timeout > 0 and (now - last_data_at) >= idle_timeout:
+            if idle_timeout > 0 and saw_activity and (now - last_data_at) >= idle_timeout:
                 raise_timeout(f"No output for {idle_timeout:.1f}s")
 
             read_timeout = min(0.5, max(0.05, deadline - now))
-            if idle_timeout > 0:
+            if idle_timeout > 0 and saw_activity:
                 idle_left = idle_timeout - (now - last_data_at)
                 read_timeout = min(read_timeout, max(0.05, idle_left))
 
@@ -200,12 +189,10 @@ class W4Benchmark:
             if not clean_chunk:
                 continue
 
+            saw_activity = True
             clean_buffer += clean_chunk
             if len(clean_buffer) > max_buffer_chars:
                 clean_buffer = clean_buffer[-max_buffer_chars:]
-
-            if self._marker_seen(clean_buffer[-4096:], marker_norm, tail_norm):
-                return output_bytes
 
             lines = clean_buffer.split("\n")
             clean_buffer = lines.pop() if lines else ""
@@ -217,13 +204,12 @@ class W4Benchmark:
                 if marker_pos >= 0:
                     output_bytes += len(line[:marker_pos].encode("utf-8", errors="ignore"))
                     return output_bytes
-                tail_pos = line.find(marker_tail)
-                if tail_pos >= 0:
-                    output_bytes += len(line[:tail_pos].encode("utf-8", errors="ignore"))
-                    return output_bytes
-                if self._marker_seen(line, marker_norm, tail_norm):
-                    return output_bytes
                 output_bytes += len((line + "\n").encode("utf-8", errors="ignore"))
+
+            marker_pos = clean_buffer.find(marker)
+            if marker_pos >= 0:
+                output_bytes += len(clean_buffer[:marker_pos].encode("utf-8", errors="ignore"))
+                return output_bytes
 
     def _next_marker_tail(self) -> str:
         if self.prev_marker_tail is None:
