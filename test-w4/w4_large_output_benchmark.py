@@ -286,10 +286,14 @@ class W4Benchmark:
 
         child.sendline(f"export PS1={shlex.quote(self.args.prompt)}")
         self._expect_prompt(child)
+        child.sendline("stty -echo")
+        self._expect_prompt(child)
+    
         return child, setup_ms
 
     def _close_session(self, child: pexpect.spawn) -> None:
         try:
+            child.sendline("stty echo >/dev/null 2>&1 || true")
             child.sendline("exit")
             child.expect(pexpect.EOF)
         except Exception:
@@ -309,12 +313,9 @@ class W4Benchmark:
         marker_tail: str,
     ) -> tuple[float, int]:
         _ = marker_tail
-        set_marker_var = f"W4_MARKER={shlex.quote(marker)}"
-        wrapped = f"{{ {command}; }} 2>&1; echo \"$W4_MARKER\""
+        wrapped = f"{{ {command}; }} 2>&1; printf '%s\\n' {shlex.quote(marker)}"
 
         self._drain_pending_output(child)
-        child.sendline(set_marker_var)
-        self._expect_prompt(child)
 
         start_ns = time.perf_counter_ns()
         child.sendline(wrapped)
@@ -325,7 +326,6 @@ class W4Benchmark:
         return latency_ms, output_bytes
 
     def _recover_after_timeout(self, child: pexpect.spawn) -> bool:
-        # If a large-output command exceeds timeout, interrupt it and recover prompt.
         try:
             child.sendcontrol("c")
             child.expect(self.prompt_re, timeout=min(10, self.args.timeout))
