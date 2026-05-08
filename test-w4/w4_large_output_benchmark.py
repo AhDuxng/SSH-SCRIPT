@@ -325,6 +325,7 @@ class W4Benchmark:
             timeout=self.args.timeout,
             maxread=self.args.maxread,
             searchwindowsize=search_window,
+            echo=False,
         )
 
         if self.args.log_pexpect:
@@ -338,14 +339,11 @@ class W4Benchmark:
 
         child.sendline(f"export PS1={shlex.quote(self.args.prompt)}")
         self._expect_prompt(child)
-        child.sendline("stty -echo")
-        self._expect_prompt(child)
-    
+
         return child, setup_ms
 
     def _close_session(self, child: pexpect.spawn) -> None:
         try:
-            child.sendline("stty echo >/dev/null 2>&1 || true")
             child.sendline("exit")
             child.expect(pexpect.EOF)
         except Exception:
