@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import errno
 import json
 import math
 import random
@@ -133,6 +134,32 @@ class W4Benchmark:
                 child.read_nonblocking(size=4096, timeout=0)
             except (pexpect.TIMEOUT, pexpect.EOF):
                 break
+            except OSError as exc:
+                if exc.errno == errno.ENOSPC:
+                    try:
+                        if getattr(child, "logfile_read", None) is not None:
+                            child.logfile_read.close()
+                            child.logfile_read = None
+                    except Exception:
+                        pass
+                    continue
+                raise
+
+    @staticmethod
+    def _handle_enospc_logging(child: pexpect.spawn, exc: OSError) -> bool:
+        if exc.errno != errno.ENOSPC:
+            return False
+        try:
+            if getattr(child, "logfile_read", None) is not None:
+                child.logfile_read.close()
+                child.logfile_read = None
+        except Exception:
+            pass
+        print(
+            "[warn] pexpect log disabled: no space left on device",
+            flush=True,
+        )
+        return True
 
     def _expect_prompt(self, child: pexpect.spawn) -> None:
         child.expect(self.prompt_re, timeout=self.args.timeout)
@@ -180,6 +207,10 @@ class W4Benchmark:
                     f"EOF while waiting for marker {marker!r}. "
                     f"buffer_tail={clean_buffer[-500:]!r}"
                 ) from exc
+            except OSError as exc:
+                if self._handle_enospc_logging(child, exc):
+                    continue
+                raise
 
             if not chunk:
                 continue
