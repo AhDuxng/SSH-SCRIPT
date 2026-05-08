@@ -26,7 +26,7 @@ except ImportError as exc:
 
 DEFAULT_PROTOCOLS = ["ssh", "ssh3", "mosh"]
 DEFAULT_WORKLOADS = ["large_output"]
-DEFAULT_PROMPT = "__W4_PROMPT__#"
+DEFAULT_PROMPT = "W4PROMPT#"
 DEFAULT_SSH3_PATH = "/ssh3-term"
 MARKER_TAIL_LEN = 12
 _TAIL_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
@@ -358,19 +358,31 @@ class W4Benchmark:
     def _measure_output_delivery(
         self,
         child: pexpect.spawn,
+        protocol: str,
         command: str,
         marker: str,
         marker_tail: str,
     ) -> tuple[float, int]:
-        _ = marker_tail
-        wrapped = f"{{ {command}; }} 2>&1; printf '%s\\n' {shlex.quote(marker)}"
-
         self._drain_pending_output(child)
 
-        start_ns = time.perf_counter_ns()
-        child.sendline(wrapped)
-        output_bytes = self._wait_for_marker_line(child, marker, marker_tail)
-        end_ns = time.perf_counter_ns()
+        if protocol == "mosh":
+            # Mosh syncs visible terminal state (not raw byte stream), so marker
+            # lines can be skipped/coalesced under heavy redraw. For mosh, stop
+            # at prompt re-appearance to avoid marker-only false timeouts.
+            wrapped = f"{{ {command}; }} 2>&1"
+            start_ns = time.perf_counter_ns()
+            child.sendline(wrapped)
+            self._expect_prompt(child)
+            end_ns = time.perf_counter_ns()
+            clean = self._strip_ansi_keep_newlines(child.before or "")
+            output_bytes = len(clean.encode("utf-8", errors="ignore"))
+        else:
+            _ = marker_tail
+            wrapped = f"{{ {command}; }} 2>&1; printf '%s\\n' {shlex.quote(marker)}"
+            start_ns = time.perf_counter_ns()
+            child.sendline(wrapped)
+            output_bytes = self._wait_for_marker_line(child, marker, marker_tail)
+            end_ns = time.perf_counter_ns()
 
         latency_ms = (end_ns - start_ns) / 1_000_000.0
         return latency_ms, output_bytes
@@ -399,6 +411,7 @@ class W4Benchmark:
             try:
                 lat, output_bytes = self._measure_output_delivery(
                     child,
+                    protocol,
                     command,
                     marker,
                     marker_tail,
@@ -683,12 +696,12 @@ class W4Benchmark:
                 "metric_name": "output_delivery_latency_ms",
                 "metric_note": (
                     "Latency = time from sendline(command) to command completion visibility. "
-                    "Primary stop condition is unique completion marker; fallback stop "
-                    "condition is benchmark prompt re-appearance. Commands are wrapped as "
-                    "'{ command; } 2>&1; printf %s\\\\n <marker>'."
+                    "For SSH/SSH3, stop condition is unique completion marker from "
+                    "'{ command; } 2>&1; printf %s\\\\n <marker>'. For MOSH, stop "
+                    "condition is benchmark prompt re-appearance (state-sync behavior)."
                 ),
                 "additional_fields": {
-                    "output_bytes": "Byte length observed before completion marker",
+                    "output_bytes": "Byte length observed before completion condition",
                     "throughput_kib_s": "output_bytes / latency window",
                 },
                 "session_setup_note": (

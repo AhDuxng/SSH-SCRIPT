@@ -25,7 +25,7 @@ SEED=42
 
 OUTPUT_DIR="w4_results"
 LOG_PEXPECT=false
-PROMPT="__W4_PROMPT__# "
+PROMPT="W4PROMPT# "
 
 SSH3_PATH="/ssh3-term"
 SSH3_INSECURE=true
