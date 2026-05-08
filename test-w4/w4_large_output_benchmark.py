@@ -43,6 +43,7 @@ _INITIAL_PROMPT_RE = re.compile(
     re.MULTILINE,
 )
 _ANSI_STRIP_RE = re.compile(_ANSI_SEQ)
+_MARKER_SCAN_STRIP_RE = re.compile(r"[^A-Za-z0-9_]+")
 
 
 @dataclass
@@ -128,6 +129,10 @@ class W4Benchmark:
         return _ANSI_STRIP_RE.sub("", text).replace("\r", "").replace("\b", "")
 
     @staticmethod
+    def _normalize_marker_scan(text: str) -> str:
+        return _MARKER_SCAN_STRIP_RE.sub("", text).upper()
+
+    @staticmethod
     def _drain_pending_output(child: pexpect.spawn, max_reads: int = 8) -> None:
         for _ in range(max_reads):
             try:
@@ -173,6 +178,7 @@ class W4Benchmark:
         max_buffer_chars = 262_144
         output_bytes = 0
         saw_activity = False
+        marker_norm = self._normalize_marker_scan(marker)
 
         def raise_timeout(reason: str) -> None:
             tail = clean_buffer[-500:]
@@ -224,6 +230,12 @@ class W4Benchmark:
             clean_buffer += clean_chunk
             if len(clean_buffer) > max_buffer_chars:
                 clean_buffer = clean_buffer[-max_buffer_chars:]
+
+            # Mosh can fragment marker bytes with control traffic; match full marker
+            # on a normalized sliding window (no tail/partial marker fallback).
+            normalized_window = self._normalize_marker_scan(clean_buffer[-8192:])
+            if marker_norm in normalized_window:
+                return output_bytes
 
             lines = clean_buffer.split("\n")
             clean_buffer = lines.pop() if lines else ""
