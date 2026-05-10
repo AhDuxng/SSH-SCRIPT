@@ -1,0 +1,114 @@
+{
+  "meta": {
+    "started_at_utc": "2026-04-29T15:20:01+00:00",
+    "target": "pi@100.66.79.93",
+    "client_source_ip": "100.70.166.91",
+    "protocols": [
+      "mosh"
+    ],
+    "workloads": [
+      "interactive_shell",
+      "vim",
+      "nano"
+    ],
+    "trials": 15,
+    "iterations": 100,
+    "warmup_rounds": 10,
+    "timeout_sec": 20,
+    "random_seed": 42,
+    "probe_token_mode": "fixed",
+    "probe_token": "W3_PROBE_FIXED_Q9J5V2K7M4T8X1",
+    "probe_tail": "V2K7M4T8X1",
+    "topology": {
+      "client": "192.168.8.100",
+      "server": "100.66.79.93"
+    },
+    "load_environment": {
+      "type": "tmux_5_pane",
+      "tmux_session": "w3bench5",
+      "pane_0": "interactive measurement target",
+      "pane_1": "heartbeat ~5 lines/s",
+      "pane_2": "burst stdout ~750 lines/s",
+      "pane_3": "ls-loop + clear",
+      "pane_4": "background writer + tail -f"
+    },
+    "metric_name": "interactive_echo_latency_ms",
+    "metric_note": "Fixed probe token is sent to tmux pane 0. Latency = time from send-keys(token) to token echo observation via tmux capture-pane polling. This is echo latency, NOT physical keyboard-to-screen latency.",
+    "session_setup_note": "setup_ms = time from pexpect.spawn() to first shell prompt (regex [#$>]\\s*$). The tmux 5-pane bootstrapping is done after this timing window."
+  },
+  "summary": [
+    {
+      "protocol": "mosh",
+      "workload": "interactive_shell",
+      "n": 131,
+      "failures": 15,
+      "success_rate_pct": 89.72602739726027,
+      "min_ms": 101.033274,
+      "mean_ms": 342.12680509160305,
+      "median_ms": 283.702962,
+      "stdev_ms": 227.4887335151188,
+      "p95_ms": 684.7748355,
+      "p99_ms": 988.3163037999989,
+      "max_ms": 1176.042457,
+      "ci95_half_width_ms": 38.956534546100855
+    },
+    {
+      "protocol": "mosh",
+      "workload": "vim",
+      "n": 1490,
+      "failures": 1,
+      "success_rate_pct": 99.93293091884641,
+      "min_ms": 347.959826,
+      "mean_ms": 787.7235100308725,
+      "median_ms": 710.9898085,
+      "stdev_ms": 278.4487375927833,
+      "p95_ms": 1311.50408085,
+      "p99_ms": 1631.3025570499913,
+      "max_ms": 2516.160397,
+      "ci95_half_width_ms": 14.138658031126221
+    },
+    {
+      "protocol": "mosh",
+      "workload": "nano",
+      "n": 1500,
+      "failures": 0,
+      "success_rate_pct": 100.0,
+      "min_ms": 275.238683,
+      "mean_ms": 795.2291603233333,
+      "median_ms": 714.9768575,
+      "stdev_ms": 277.59734694777757,
+      "p95_ms": 1369.8973128999999,
+      "p99_ms": 1677.73651082,
+      "max_ms": 2415.707261,
+      "ci95_half_width_ms": 14.048364048620037
+    }
+  ],
+  "session_setup": {
+    "mosh": {
+      "interactive_shell": {
+        "n": 15,
+        "mean": 4066.9338761333333,
+        "median": 3633.73643,
+        "stdev": 1599.7033281498332,
+        "min": 3021.331495,
+        "max": 9213.152486
+      },
+      "vim": {
+        "n": 15,
+        "mean": 3926.744624666667,
+        "median": 3278.729515,
+        "stdev": 1302.4363551860727,
+        "min": 2812.621908,
+        "max": 7669.352647
+      },
+      "nano": {
+        "n": 15,
+        "mean": 3666.4298115333336,
+        "median": 3534.162606,
+        "stdev": 660.2363877323515,
+        "min": 2896.522554,
+        "max": 5125.503244
+      }
+    }
+  }
+}

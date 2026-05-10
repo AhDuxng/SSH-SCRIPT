@@ -1,0 +1,258 @@
+{
+  "meta": {
+    "started_at_utc": "2026-05-01T08:40:07+00:00",
+    "target": "pi@100.66.79.93",
+    "client_source_ip": "100.70.166.91",
+    "protocols": [
+      "ssh",
+      "ssh3",
+      "mosh"
+    ],
+    "workloads": [
+      "interactive_shell",
+      "vim",
+      "nano"
+    ],
+    "trials": 15,
+    "iterations": 100,
+    "warmup_rounds": 10,
+    "timeout_sec": 20,
+    "random_seed": 42,
+    "probe_token_mode": "fixed",
+    "probe_token": "W3_PROBE_FIXED_Q9J5V2K7M4T8X1",
+    "probe_tail": "V2K7M4T8X1",
+    "topology": {
+      "client": "192.168.8.100",
+      "server": "100.66.79.93"
+    },
+    "load_environment": {
+      "type": "tmux_5_pane",
+      "tmux_session": "w3bench5",
+      "pane_0": "interactive measurement target",
+      "pane_1": "heartbeat ~5 lines/s",
+      "pane_2": "burst stdout ~750 lines/s",
+      "pane_3": "ls-loop + clear",
+      "pane_4": "background writer + tail -f"
+    },
+    "metric_name": "interactive_echo_latency_ms",
+    "metric_note": "Fixed probe token is sent to tmux pane 0. Latency = time from send-keys(token) to token echo observation via tmux capture-pane polling. This is echo latency, NOT physical keyboard-to-screen latency.",
+    "session_setup_note": "setup_ms = time from pexpect.spawn() to first shell prompt (regex [#$>]\\s*$). The tmux 5-pane bootstrapping is done after this timing window."
+  },
+  "summary": [
+    {
+      "protocol": "ssh",
+      "workload": "interactive_shell",
+      "n": 1500,
+      "failures": 0,
+      "success_rate_pct": 100.0,
+      "min_ms": 305.97463,
+      "mean_ms": 656.181869416,
+      "median_ms": 584.6477665,
+      "stdev_ms": 270.45510887655576,
+      "p95_ms": 1141.43196535,
+      "p99_ms": 1563.9920740500002,
+      "max_ms": 2677.050746,
+      "ci95_half_width_ms": 13.686916932321358
+    },
+    {
+      "protocol": "ssh",
+      "workload": "vim",
+      "n": 102,
+      "failures": 14,
+      "success_rate_pct": 87.93103448275862,
+      "min_ms": 313.897729,
+      "mean_ms": 544.407127372549,
+      "median_ms": 479.51199499999996,
+      "stdev_ms": 202.9969032006839,
+      "p95_ms": 930.9859077499998,
+      "p99_ms": 1143.8179135899998,
+      "max_ms": 1383.801103,
+      "ci95_half_width_ms": 39.395389447462065
+    },
+    {
+      "protocol": "ssh",
+      "workload": "nano",
+      "n": 1300,
+      "failures": 2,
+      "success_rate_pct": 99.84639016897081,
+      "min_ms": 298.929876,
+      "mean_ms": 556.31128782,
+      "median_ms": 491.1010705,
+      "stdev_ms": 199.96872040791357,
+      "p95_ms": 970.9094853,
+      "p99_ms": 1219.28227896,
+      "max_ms": 1525.792987,
+      "ci95_half_width_ms": 10.870423468019409
+    },
+    {
+      "protocol": "ssh3",
+      "workload": "interactive_shell",
+      "n": 1500,
+      "failures": 0,
+      "success_rate_pct": 100.0,
+      "min_ms": 267.303759,
+      "mean_ms": 445.1725783233333,
+      "median_ms": 356.0895775,
+      "stdev_ms": 169.2044834883189,
+      "p95_ms": 804.8585489,
+      "p99_ms": 1049.60938838,
+      "max_ms": 1267.72514,
+      "ci95_half_width_ms": 8.562928316277457
+    },
+    {
+      "protocol": "ssh3",
+      "workload": "vim",
+      "n": 1500,
+      "failures": 0,
+      "success_rate_pct": 100.0,
+      "min_ms": 240.844803,
+      "mean_ms": 408.95779996933334,
+      "median_ms": 336.689479,
+      "stdev_ms": 436.04337632474954,
+      "p95_ms": 758.40479075,
+      "p99_ms": 997.14004895,
+      "max_ms": 16074.069523,
+      "ci95_half_width_ms": 22.066839467136163
+    },
+    {
+      "protocol": "ssh3",
+      "workload": "nano",
+      "n": 1500,
+      "failures": 0,
+      "success_rate_pct": 100.0,
+      "min_ms": 266.328509,
+      "mean_ms": 394.06421776866665,
+      "median_ms": 336.64963850000004,
+      "stdev_ms": 152.31438630065236,
+      "p95_ms": 729.42443135,
+      "p99_ms": 971.21942446,
+      "max_ms": 1523.285386,
+      "ci95_half_width_ms": 7.708171465328335
+    },
+    {
+      "protocol": "mosh",
+      "workload": "interactive_shell",
+      "n": 135,
+      "failures": 15,
+      "success_rate_pct": 90.0,
+      "min_ms": 101.176635,
+      "mean_ms": 358.05330168148146,
+      "median_ms": 261.584774,
+      "stdev_ms": 275.04820333067283,
+      "p95_ms": 838.5977158,
+      "p99_ms": 1026.2920334199998,
+      "max_ms": 2148.595179,
+      "ci95_half_width_ms": 46.39786527492836
+    },
+    {
+      "protocol": "mosh",
+      "workload": "vim",
+      "n": 1400,
+      "failures": 1,
+      "success_rate_pct": 99.92862241256246,
+      "min_ms": 443.9156,
+      "mean_ms": 740.7370736585714,
+      "median_ms": 660.2668624999999,
+      "stdev_ms": 252.24189483783587,
+      "p95_ms": 1350.5603661500002,
+      "p99_ms": 1621.4292017,
+      "max_ms": 1882.658728,
+      "ci95_half_width_ms": 13.21323848703382
+    },
+    {
+      "protocol": "mosh",
+      "workload": "nano",
+      "n": 1439,
+      "failures": 1,
+      "success_rate_pct": 99.93055555555556,
+      "min_ms": 362.151627,
+      "mean_ms": 759.4192926636554,
+      "median_ms": 677.859364,
+      "stdev_ms": 260.21196751824203,
+      "p95_ms": 1411.1070625999998,
+      "p99_ms": 1620.381198559999,
+      "max_ms": 1957.622331,
+      "ci95_half_width_ms": 13.444756494906995
+    }
+  ],
+  "session_setup": {
+    "ssh": {
+      "interactive_shell": {
+        "n": 15,
+        "mean": 5014.804211533334,
+        "median": 4338.922165,
+        "stdev": 1951.442233438726,
+        "min": 3657.301589,
+        "max": 11427.182869
+      },
+      "vim": {
+        "n": 6,
+        "mean": 8300.9779075,
+        "median": 8540.040272,
+        "stdev": 3759.5728054007,
+        "min": 3775.282494,
+        "max": 13925.620143
+      },
+      "nano": {
+        "n": 13,
+        "mean": 4163.056534076923,
+        "median": 4100.116099,
+        "stdev": 650.4944991724238,
+        "min": 3291.218369,
+        "max": 5778.432214
+      }
+    },
+    "ssh3": {
+      "interactive_shell": {
+        "n": 15,
+        "mean": 973.1966945333334,
+        "median": 882.983168,
+        "stdev": 258.7131066042825,
+        "min": 828.765699,
+        "max": 1822.834375
+      },
+      "vim": {
+        "n": 15,
+        "mean": 1107.24288,
+        "median": 1064.397742,
+        "stdev": 291.9280370457955,
+        "min": 802.925786,
+        "max": 1805.711888
+      },
+      "nano": {
+        "n": 15,
+        "mean": 1146.2627312,
+        "median": 893.605217,
+        "stdev": 511.01004388881915,
+        "min": 798.597247,
+        "max": 2378.296415
+      }
+    },
+    "mosh": {
+      "interactive_shell": {
+        "n": 15,
+        "mean": 4181.361932933333,
+        "median": 4213.563122,
+        "stdev": 325.1803917195301,
+        "min": 3728.004718,
+        "max": 4867.071582
+      },
+      "vim": {
+        "n": 15,
+        "mean": 4478.2749091333335,
+        "median": 4126.131143,
+        "stdev": 889.2106686711786,
+        "min": 3756.217058,
+        "max": 7051.207702
+      },
+      "nano": {
+        "n": 15,
+        "mean": 4562.2270996,
+        "median": 4454.994571,
+        "stdev": 615.8978606340349,
+        "min": 3729.915664,
+        "max": 5753.635587
+      }
+    }
+  }
+}

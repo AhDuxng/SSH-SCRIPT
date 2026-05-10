@@ -1,0 +1,244 @@
+{
+  "meta": {
+    "started_at_utc": "2026-05-07T13:46:51+00:00",
+    "target": "pi@100.66.79.93",
+    "client_source_ip": "100.70.166.91",
+    "protocols": [
+      "ssh",
+      "ssh3",
+      "mosh"
+    ],
+    "workloads": [
+      "top",
+      "tail",
+      "ping"
+    ],
+    "trials": 15,
+    "iterations": 100,
+    "timeout_sec": 30,
+    "random_seed": 42,
+    "topology": {
+      "client": "100.70.166.91",
+      "server": "100.66.79.93"
+    },
+    "metric_name": "screen_update_latency_ms",
+    "metric_note": "All workloads measure inter-arrival time of streaming output (screen update latency). top: continuous loop of 'top -bn1 | head -20' every 1.0s with W2_TOP_REFRESH marker (expected inter-arrival \u2248 1000 ms + network delay). tail: background writer at 50 ms intervals with tail -f (expected inter-arrival \u2248 50 ms + network delay). ping: 'ping -i 0.1 127.0.0.1' (expected inter-arrival \u2248 100 ms + network delay). Deviation from expected interval reflects protocol overhead + network-induced screen update delay."
+  },
+  "summary": [
+    {
+      "protocol": "ssh",
+      "workload": "top",
+      "n": 1500,
+      "failures": 0,
+      "success_rate_pct": 100.0,
+      "min_ms": 0.011868,
+      "mean_ms": 1160.4801641673334,
+      "median_ms": 1228.4536125,
+      "stdev_ms": 414.5087868148252,
+      "p95_ms": 1330.3423943,
+      "p99_ms": 1641.40126136,
+      "max_ms": 12710.537955,
+      "ci95_half_width_ms": 20.97703887502199
+    },
+    {
+      "protocol": "ssh",
+      "workload": "tail",
+      "n": 1500,
+      "failures": 0,
+      "success_rate_pct": 100.0,
+      "min_ms": 0.006363,
+      "mean_ms": 50.079762077333335,
+      "median_ms": 38.870016,
+      "stdev_ms": 68.90130549563655,
+      "p95_ms": 169.43647929999997,
+      "p99_ms": 353.82325784,
+      "max_ms": 561.996252,
+      "ci95_half_width_ms": 3.486887153896252
+    },
+    {
+      "protocol": "ssh",
+      "workload": "ping",
+      "n": 1500,
+      "failures": 0,
+      "success_rate_pct": 100.0,
+      "min_ms": 0.012348,
+      "mean_ms": 104.404956562,
+      "median_ms": 101.464474,
+      "stdev_ms": 75.94114020166295,
+      "p95_ms": 190.82473065,
+      "p99_ms": 446.66953706,
+      "max_ms": 798.862758,
+      "ci95_half_width_ms": 3.8431519448957636
+    },
+    {
+      "protocol": "ssh3",
+      "workload": "top",
+      "n": 1500,
+      "failures": 0,
+      "success_rate_pct": 100.0,
+      "min_ms": 355.006239,
+      "mean_ms": 1213.8758034853333,
+      "median_ms": 1228.4917679999999,
+      "stdev_ms": 119.56908601442713,
+      "p95_ms": 1330.0936694499999,
+      "p99_ms": 1675.5595629099998,
+      "max_ms": 2043.146737,
+      "ci95_half_width_ms": 6.051030630373547
+    },
+    {
+      "protocol": "ssh3",
+      "workload": "tail",
+      "n": 1500,
+      "failures": 0,
+      "success_rate_pct": 100.0,
+      "min_ms": 0.009065,
+      "mean_ms": 50.73107886533333,
+      "median_ms": 47.2286995,
+      "stdev_ms": 48.25981594031033,
+      "p95_ms": 90.11530984999999,
+      "p99_ms": 309.15886357,
+      "max_ms": 487.76076,
+      "ci95_half_width_ms": 2.4422836554573335
+    },
+    {
+      "protocol": "ssh3",
+      "workload": "ping",
+      "n": 1500,
+      "failures": 0,
+      "success_rate_pct": 100.0,
+      "min_ms": 0.010316,
+      "mean_ms": 104.20410795733333,
+      "median_ms": 101.309342,
+      "stdev_ms": 69.88376189626278,
+      "p95_ms": 154.7822582,
+      "p99_ms": 453.55913236,
+      "max_ms": 710.168411,
+      "ci95_half_width_ms": 3.536606307662123
+    },
+    {
+      "protocol": "mosh",
+      "workload": "top",
+      "n": 1500,
+      "failures": 0,
+      "success_rate_pct": 100.0,
+      "min_ms": 0.065127,
+      "mean_ms": 1170.7913266933333,
+      "median_ms": 1228.371419,
+      "stdev_ms": 250.20977837352726,
+      "p95_ms": 1330.82180105,
+      "p99_ms": 1901.7040009899997,
+      "max_ms": 2457.085302,
+      "ci95_half_width_ms": 12.662361848065885
+    },
+    {
+      "protocol": "mosh",
+      "workload": "tail",
+      "n": 1500,
+      "failures": 0,
+      "success_rate_pct": 100.0,
+      "min_ms": 0.0038,
+      "mean_ms": 68.41390559133333,
+      "median_ms": 0.101699,
+      "stdev_ms": 91.33288778397123,
+      "p95_ms": 240.57456709999997,
+      "p99_ms": 372.37425484999994,
+      "max_ms": 629.585662,
+      "ci95_half_width_ms": 4.622081843751792
+    },
+    {
+      "protocol": "mosh",
+      "workload": "ping",
+      "n": 1500,
+      "failures": 0,
+      "success_rate_pct": 100.0,
+      "min_ms": 0.008589,
+      "mean_ms": 104.75547487333333,
+      "median_ms": 97.4749465,
+      "stdev_ms": 81.70727872858208,
+      "p95_ms": 195.43128049999999,
+      "p99_ms": 545.08566539,
+      "max_ms": 680.617483,
+      "ci95_half_width_ms": 4.134958815788418
+    }
+  ],
+  "session_setup": {
+    "ssh": {
+      "top": {
+        "n": 15,
+        "mean": 3362.2175118,
+        "median": 3331.559186,
+        "stdev": 649.2057375233674,
+        "min": 2582.732827,
+        "max": 4911.637937
+      },
+      "tail": {
+        "n": 15,
+        "mean": 3289.9984196,
+        "median": 3073.579714,
+        "stdev": 683.1288914632678,
+        "min": 2742.851611,
+        "max": 5234.236209
+      },
+      "ping": {
+        "n": 15,
+        "mean": 3171.4207450666668,
+        "median": 2930.698246,
+        "stdev": 632.464762900788,
+        "min": 2592.891473,
+        "max": 5105.95332
+      }
+    },
+    "ssh3": {
+      "top": {
+        "n": 15,
+        "mean": 778.9471611333333,
+        "median": 703.496908,
+        "stdev": 201.1209738301621,
+        "min": 629.212275,
+        "max": 1337.042193
+      },
+      "tail": {
+        "n": 15,
+        "mean": 866.0745984,
+        "median": 734.387643,
+        "stdev": 266.4777877198894,
+        "min": 630.944027,
+        "max": 1482.850438
+      },
+      "ping": {
+        "n": 15,
+        "mean": 773.1139712666667,
+        "median": 692.431839,
+        "stdev": 176.13905023992072,
+        "min": 640.137024,
+        "max": 1189.399972
+      }
+    },
+    "mosh": {
+      "top": {
+        "n": 15,
+        "mean": 3629.5866826,
+        "median": 3529.5632,
+        "stdev": 623.3814359400354,
+        "min": 2773.143609,
+        "max": 4991.898896
+      },
+      "tail": {
+        "n": 15,
+        "mean": 4112.4672508,
+        "median": 3812.194156,
+        "stdev": 1098.3057656753697,
+        "min": 2838.627159,
+        "max": 6485.773956
+      },
+      "ping": {
+        "n": 15,
+        "mean": 3925.077453733333,
+        "median": 3793.040961,
+        "stdev": 733.6901733555474,
+        "min": 3011.399213,
+        "max": 5453.969746
+      }
+    }
+  }
+}

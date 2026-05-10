@@ -14,7 +14,7 @@ TRIALS=15
 TIMEOUT=30
 SEED=42
 
-OUTPUT_DIR="w2_results"
+OUTPUT_DIR="w2_results_low"
 LOG_PEXPECT=true
 PROMPT="__W2_PROMPT__# "
 
