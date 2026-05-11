@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import errno
 import json
 import math
 import random
@@ -25,7 +26,7 @@ except ImportError as exc:
 
 DEFAULT_PROTOCOLS = ["ssh", "ssh3", "mosh"]
 DEFAULT_WORKLOADS = ["large_output"]
-DEFAULT_PROMPT = "__W4_PROMPT__#"
+DEFAULT_PROMPT = "W4PROMPT#"
 DEFAULT_SSH3_PATH = "/ssh3-term"
 MARKER_TAIL_LEN = 12
 _TAIL_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
@@ -131,12 +132,6 @@ class W4Benchmark:
     def _normalize_marker_scan(text: str) -> str:
         return _MARKER_SCAN_STRIP_RE.sub("", text).upper()
 
-    def _marker_seen(self, text: str, marker_norm: str, tail_norm: str) -> bool:
-        normalized = self._normalize_marker_scan(text)
-        if marker_norm in normalized:
-            return True
-        return bool(tail_norm and tail_norm in normalized)
-
     @staticmethod
     def _drain_pending_output(child: pexpect.spawn, max_reads: int = 8) -> None:
         for _ in range(max_reads):
@@ -144,6 +139,32 @@ class W4Benchmark:
                 child.read_nonblocking(size=4096, timeout=0)
             except (pexpect.TIMEOUT, pexpect.EOF):
                 break
+            except OSError as exc:
+                if exc.errno == errno.ENOSPC:
+                    try:
+                        if getattr(child, "logfile_read", None) is not None:
+                            child.logfile_read.close()
+                            child.logfile_read = None
+                    except Exception:
+                        pass
+                    continue
+                raise
+
+    @staticmethod
+    def _handle_enospc_logging(child: pexpect.spawn, exc: OSError) -> bool:
+        if exc.errno != errno.ENOSPC:
+            return False
+        try:
+            if getattr(child, "logfile_read", None) is not None:
+                child.logfile_read.close()
+                child.logfile_read = None
+        except Exception:
+            pass
+        print(
+            "[warn] pexpect log disabled: no space left on device",
+            flush=True,
+        )
+        return True
 
     def _expect_prompt(self, child: pexpect.spawn) -> None:
         child.expect(self.prompt_re, timeout=self.args.timeout)
@@ -155,8 +176,9 @@ class W4Benchmark:
         clean_buffer = ""
         max_buffer_chars = 262_144
         output_bytes = 0
+        saw_activity = False
         marker_norm = self._normalize_marker_scan(marker)
-        tail_norm = self._normalize_marker_scan(marker_tail)
+        marker_tail_norm = self._normalize_marker_scan(marker_tail)
 
         def raise_timeout(reason: str) -> None:
             tail = clean_buffer[-500:]
@@ -174,11 +196,11 @@ class W4Benchmark:
             if now >= deadline:
                 raise_timeout(f"Marker not received within {self.args.timeout:.1f}s")
 
-            if idle_timeout > 0 and (now - last_data_at) >= idle_timeout:
+            if idle_timeout > 0 and saw_activity and (now - last_data_at) >= idle_timeout:
                 raise_timeout(f"No output for {idle_timeout:.1f}s")
 
             read_timeout = min(0.5, max(0.05, deadline - now))
-            if idle_timeout > 0:
+            if idle_timeout > 0 and saw_activity:
                 idle_left = idle_timeout - (now - last_data_at)
                 read_timeout = min(read_timeout, max(0.05, idle_left))
 
@@ -191,6 +213,10 @@ class W4Benchmark:
                     f"EOF while waiting for marker {marker!r}. "
                     f"buffer_tail={clean_buffer[-500:]!r}"
                 ) from exc
+            except OSError as exc:
+                if self._handle_enospc_logging(child, exc):
+                    continue
+                raise
 
             if not chunk:
                 continue
@@ -200,11 +226,17 @@ class W4Benchmark:
             if not clean_chunk:
                 continue
 
+            saw_activity = True
             clean_buffer += clean_chunk
             if len(clean_buffer) > max_buffer_chars:
                 clean_buffer = clean_buffer[-max_buffer_chars:]
 
-            if self._marker_seen(clean_buffer[-4096:], marker_norm, tail_norm):
+            # Mosh can fragment marker bytes with control traffic; match full marker
+            # on a normalized sliding window with tail fallback.
+            normalized_window = self._normalize_marker_scan(clean_buffer[-8192:])
+            if marker_norm in normalized_window:
+                return output_bytes
+            if marker_tail_norm and marker_tail_norm in normalized_window:
                 return output_bytes
 
             lines = clean_buffer.split("\n")
@@ -213,17 +245,25 @@ class W4Benchmark:
                 stripped = line.strip()
                 if stripped == marker:
                     return output_bytes
+                if self.prompt_marker and self.prompt_marker in line:
+                    prompt_pos = line.find(self.prompt_marker)
+                    output_bytes += len(line[:prompt_pos].encode("utf-8", errors="ignore"))
+                    return output_bytes
                 marker_pos = line.find(marker)
                 if marker_pos >= 0:
                     output_bytes += len(line[:marker_pos].encode("utf-8", errors="ignore"))
                     return output_bytes
-                tail_pos = line.find(marker_tail)
-                if tail_pos >= 0:
-                    output_bytes += len(line[:tail_pos].encode("utf-8", errors="ignore"))
-                    return output_bytes
-                if self._marker_seen(line, marker_norm, tail_norm):
-                    return output_bytes
                 output_bytes += len((line + "\n").encode("utf-8", errors="ignore"))
+
+            marker_pos = clean_buffer.find(marker)
+            if marker_pos >= 0:
+                output_bytes += len(clean_buffer[:marker_pos].encode("utf-8", errors="ignore"))
+                return output_bytes
+            if self.prompt_marker:
+                prompt_pos = clean_buffer.find(self.prompt_marker)
+                if prompt_pos >= 0:
+                    output_bytes += len(clean_buffer[:prompt_pos].encode("utf-8", errors="ignore"))
+                    return output_bytes
 
     def _next_marker_tail(self) -> str:
         if self.prev_marker_tail is None:
@@ -287,6 +327,7 @@ class W4Benchmark:
             timeout=self.args.timeout,
             maxread=self.args.maxread,
             searchwindowsize=search_window,
+            echo=False,
         )
 
         if self.args.log_pexpect:
@@ -300,6 +341,7 @@ class W4Benchmark:
 
         child.sendline(f"export PS1={shlex.quote(self.args.prompt)}")
         self._expect_prompt(child)
+
         return child, setup_ms
 
     def _close_session(self, child: pexpect.spawn) -> None:
@@ -318,18 +360,14 @@ class W4Benchmark:
     def _measure_output_delivery(
         self,
         child: pexpect.spawn,
+        protocol: str,
         command: str,
         marker: str,
         marker_tail: str,
     ) -> tuple[float, int]:
-        _ = marker_tail
-        set_marker_var = f"W4_MARKER={shlex.quote(marker)}"
-        wrapped = f"{{ {command}; }} 2>&1; echo \"$W4_MARKER\""
-
         self._drain_pending_output(child)
-        child.sendline(set_marker_var)
-        self._expect_prompt(child)
 
+        wrapped = f"{{ {command}; }} 2>&1; printf '%s\\n' {shlex.quote(marker)}"
         start_ns = time.perf_counter_ns()
         child.sendline(wrapped)
         output_bytes = self._wait_for_marker_line(child, marker, marker_tail)
@@ -339,7 +377,6 @@ class W4Benchmark:
         return latency_ms, output_bytes
 
     def _recover_after_timeout(self, child: pexpect.spawn) -> bool:
-        # If a large-output command exceeds timeout, interrupt it and recover prompt.
         try:
             child.sendcontrol("c")
             child.expect(self.prompt_re, timeout=min(10, self.args.timeout))
@@ -363,6 +400,7 @@ class W4Benchmark:
             try:
                 lat, output_bytes = self._measure_output_delivery(
                     child,
+                    protocol,
                     command,
                     marker,
                     marker_tail,
@@ -646,12 +684,13 @@ class W4Benchmark:
                 },
                 "metric_name": "output_delivery_latency_ms",
                 "metric_note": (
-                    "Latency = time from sendline(command) to unique completion marker "
-                    "visibility after command output flush. Commands are wrapped as "
-                    "'{ command; } 2>&1; echo <marker>'."
+                    "Latency = time from sendline(command) to command completion visibility. "
+                    "For SSH/SSH3/MOSH, stop condition is unique completion marker from "
+                    "'{ command; } 2>&1; printf %s\\n <marker>'. For MOSH, prompt "
+                    "re-appearance is a fallback if marker delivery is skipped."
                 ),
                 "additional_fields": {
-                    "output_bytes": "Byte length observed before completion marker",
+                    "output_bytes": "Byte length observed before completion condition",
                     "throughput_kib_s": "output_bytes / latency window",
                 },
                 "session_setup_note": (
