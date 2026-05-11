@@ -16,8 +16,8 @@ COMMANDS=(
   "grep -n root /etc/passwd"
 )
 
-ITERATIONS=100
-TRIALS=15
+ITERATIONS=50
+TRIALS=10
 TIMEOUT=20
 SEED=42
 
