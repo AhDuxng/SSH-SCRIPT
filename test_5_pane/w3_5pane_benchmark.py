@@ -14,7 +14,7 @@ import time
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 try:
     import pexpect
@@ -116,7 +116,6 @@ class W35PaneBenchmark:
         return re.compile("".join(parts) + rf"(?:{_ANSI_SEQ}|\s)*")
 
     def _expect_prompt(self, child: pexpect.spawn) -> None:
-        # TUI redraw (especially over mosh) may split prompt bytes with ANSI updates.
         child.expect(self.prompt_re, timeout=self.args.timeout)
 
     def _session_command(self, protocol: str) -> str:
@@ -241,8 +240,7 @@ class W35PaneBenchmark:
         else:
             raise RuntimeError(f"tmux session '{session}' did not start in time")
 
-        # Wait until setup script emits readiness marker into pane 0.
-        self._wait_pane_contains(child, PANE_READY_MARKER, timeout=self.args.timeout)
+            self._wait_pane_contains(child, PANE_READY_MARKER, timeout=self.args.timeout)
 
     def _stop_tmux_session(self, child: pexpect.spawn) -> None:
         self._run_remote(
@@ -281,135 +279,189 @@ class W35PaneBenchmark:
             time.sleep(PANE_POLL_INTERVAL_SEC)
         raise pexpect.TIMEOUT(f"Pane did not contain expected text: {text}")
 
-    def _wait_probe_echo(self, child: pexpect.spawn) -> None:
-        deadline = time.monotonic() + self.args.timeout
-        while time.monotonic() < deadline:
-            snap = self._capture_pane_text(child)
-            if self.probe_echo_re.search(snap) or self.probe_tail_echo_re.search(snap):
-                return
-            time.sleep(PANE_POLL_INTERVAL_SEC)
-        raise pexpect.TIMEOUT("Probe echo not observed in pane capture")
 
-    def _erase_probe_token(self, child: pexpect.spawn, token: str) -> None:
-        for _ in token:
-            self._tmux_send_key(child, "BSpace")
+    def _expect_probe_echo(self, child: pexpect.spawn) -> None:
+        child.expect(
+            [self.probe_echo_re, self.probe_tail_echo_re],
+            timeout=self.args.timeout,
+        )
 
-    def _ensure_vim_insert_mode(self, child: pexpect.spawn) -> None:
-        self._tmux_send_key(child, "Escape")
-        self._tmux_send_literal(child, "i")
+    @staticmethod
+    def _ensure_vim_insert_mode(child: pexpect.spawn) -> None:
+        child.send("\x1b")
+        child.send("i")
 
-    def _recover_vim_state(self, child: pexpect.spawn) -> None:
-        self._tmux_send_key(child, "Escape")
-        self._tmux_send_key(child, "C-l")
-        self._tmux_send_literal(child, "i")
+    @staticmethod
+    def _erase_probe_token(child: pexpect.spawn, token: str) -> None:
+        if token:
+            child.send("\x7f" * len(token))
 
-    def _recover_nano_state(self, child: pexpect.spawn) -> None:
-        self._tmux_send_key(child, "C-l")
+    @staticmethod
+    def _drain_pending_output(child: pexpect.spawn, max_reads: int = 8) -> None:
+        for _ in range(max_reads):
+            try:
+                child.read_nonblocking(size=4096, timeout=0)
+            except (pexpect.TIMEOUT, pexpect.EOF):
+                break
 
     def _probe_once(self, child: pexpect.spawn, erase_after_echo: bool = False) -> float:
+        self._drain_pending_output(child)
         start_ns = time.perf_counter_ns()
-        self._tmux_send_literal(child, self.probe_token)
-        self._wait_probe_echo(child)
+        child.send(self.probe_token)
+        self._expect_probe_echo(child)
         end_ns = time.perf_counter_ns()
         if erase_after_echo:
             self._erase_probe_token(child, self.probe_token)
         return (end_ns - start_ns) / 1_000_000.0
 
+    @staticmethod
+    def _recover_nano_state(child: pexpect.spawn) -> None:
+        child.sendcontrol("l")
+
+    @staticmethod
+    def _recover_vim_state(child: pexpect.spawn) -> None:
+        child.send("\x1b")
+        child.sendcontrol("l")
+        child.send("i")
+
     def _probe_vim_once(self, child: pexpect.spawn) -> float:
         self._ensure_vim_insert_mode(child)
         return self._probe_once(child, erase_after_echo=True)
 
-    def _setup_workload_pane(self, child: pexpect.spawn, workload: str) -> None:
-        self._tmux_send_key(child, "C-c")
-        self._tmux_send_key(child, "C-c")
 
-        if workload == "interactive_shell":
-            self._tmux_send_literal(child, "cat")
-            self._tmux_send_enter(child)
-            time.sleep(0.1)
-            return
+    def _measure_interactive_shell(
+        self,
+        child: pexpect.spawn,
+        warmup: int,
+        iterations: int,
+        report_cb: Optional[Callable[[int, float], None]] = None,
+    ) -> List[float]:
+        child.sendline("cat")
+        child.expect_exact("\n", timeout=self.args.timeout)
 
-        if workload == "vim":
-            self._tmux_send_literal(
-                child,
-                f"vim -Nu NONE -n {shlex.quote(self.args.remote_vim_file)}",
-            )
-            self._tmux_send_enter(child)
-            time.sleep(0.2)
-            self._tmux_send_literal(child, "i")
-            return
+        for _ in range(warmup):
+            child.send(self.probe_token)
+            self._expect_probe_echo(child)
 
-        if workload == "nano":
-            self._tmux_send_literal(
-                child,
-                f"nano --ignorercfiles {shlex.quote(self.args.remote_nano_file)}",
-            )
-            self._tmux_send_enter(child)
-            time.sleep(0.2)
-            return
+        latencies: List[float] = []
+        for i in range(iterations):
+            start_ns = time.perf_counter_ns()
+            child.send(self.probe_token)
+            self._expect_probe_echo(child)
+            end_ns = time.perf_counter_ns()
+            lat = (end_ns - start_ns) / 1_000_000.0
+            latencies.append(lat)
+            if report_cb:
+                report_cb(i + 1, lat)
 
-        raise ValueError(f"Unsupported workload: {workload}")
+        child.sendcontrol("c")
+        child.sendcontrol("c")
+        self._expect_prompt(child)
+        return latencies
 
-    def _teardown_workload_pane(self, child: pexpect.spawn, workload: str) -> None:
-        if workload == "interactive_shell":
-            self._tmux_send_key(child, "C-c")
-            self._tmux_send_key(child, "C-c")
-            return
+    def _measure_vim(
+        self,
+        child: pexpect.spawn,
+        warmup: int,
+        iterations: int,
+        report_cb: Optional[Callable[[int, float], None]] = None,
+    ) -> List[float]:
+        remote_file = self.args.remote_vim_file
+        child.sendline(f"vim -Nu NONE -n {shlex.quote(remote_file)}")
+        child.send("i")
+        child.expect([r"-- INSERT --", r"INSERT"], timeout=self.args.timeout)
 
-        if workload == "vim":
-            self._tmux_send_key(child, "Escape")
-            self._tmux_send_literal(child, ":q!")
-            self._tmux_send_enter(child)
-            return
-
-        if workload == "nano":
-            self._tmux_send_key(child, "C-x")
-            self._tmux_send_literal(child, "n")
-            return
-
-        raise ValueError(f"Unsupported workload: {workload}")
-
-    def _measure_sample(self, child: pexpect.spawn, workload: str) -> float:
-        if workload == "interactive_shell":
-            return self._probe_once(child, erase_after_echo=False)
-
-        if workload == "vim":
+        for _ in range(warmup):
             try:
-                return self._probe_vim_once(child)
+                self._probe_vim_once(child)
             except pexpect.TIMEOUT:
                 self._recover_vim_state(child)
-                return self._probe_vim_once(child)
+                self._probe_vim_once(child)
 
-        if workload == "nano":
+        latencies: List[float] = []
+        for i in range(iterations):
             try:
-                return self._probe_once(child, erase_after_echo=True)
+                lat = self._probe_vim_once(child)
+            except pexpect.TIMEOUT:
+                self._recover_vim_state(child)
+                lat = self._probe_vim_once(child)
+            latencies.append(lat)
+            if report_cb:
+                report_cb(i + 1, lat)
+
+        child.send("\x1b")
+        child.sendline(":q!")
+        self._expect_prompt(child)
+        return latencies
+
+    def _measure_nano(
+        self,
+        child: pexpect.spawn,
+        warmup: int,
+        iterations: int,
+        report_cb: Optional[Callable[[int, float], None]] = None,
+    ) -> List[float]:
+        remote_file = self.args.remote_nano_file
+        child.sendline(f"nano --ignorercfiles {shlex.quote(remote_file)}")
+        child.expect([r"GNU nano", r"\^G Help"], timeout=self.args.timeout)
+
+        for _ in range(warmup):
+            try:
+                self._probe_once(child, erase_after_echo=True)
             except pexpect.TIMEOUT:
                 self._recover_nano_state(child)
-                return self._probe_once(child, erase_after_echo=True)
+                self._probe_once(child, erase_after_echo=True)
 
-        raise ValueError(f"Unsupported workload: {workload}")
+        latencies: List[float] = []
+        for i in range(iterations):
+            try:
+                lat = self._probe_once(child, erase_after_echo=True)
+            except pexpect.TIMEOUT:
+                self._recover_nano_state(child)
+                lat = self._probe_once(child, erase_after_echo=True)
+            latencies.append(lat)
+            if report_cb:
+                report_cb(i + 1, lat)
 
-    def _run_trial(self, child: pexpect.spawn, protocol: str, workload: str, trial_id: int) -> None:
-        self._setup_workload_pane(child, workload)
-        try:
-            for _ in range(self.args.warmup_rounds):
-                self._measure_sample(child, workload)
+        child.sendcontrol("x")
+        child.send("n")
+        self._expect_prompt(child)
+        return latencies
 
-            for s_idx in range(1, self.args.iterations + 1):
-                lat = self._measure_sample(child, workload)
-                self.results[protocol][workload].append(lat)
-                self.records.append(
-                    SampleRecord(protocol, workload, trial_id, s_idx, lat)
-                )
-                print(
-                    f"[{protocol:>4}/{workload:<18}]"
-                    f" trial {trial_id:>2}"
-                    f" measure {s_idx:>3}/{self.args.iterations}:"
-                    f" {lat:.2f} ms",
-                    flush=True,
-                )
-        finally:
-            self._teardown_workload_pane(child, workload)
+    def _run_trial(
+        self,
+        child: pexpect.spawn,
+        protocol: str,
+        workload: str,
+        trial_id: int,
+    ) -> List[float]:
+        def report_cb(s_idx: int, lat: float) -> None:
+            self.results[protocol][workload].append(lat)
+            self.records.append(
+                SampleRecord(protocol, workload, trial_id, s_idx, lat)
+            )
+            print(
+                f"[{protocol:>4}/{workload:<18}]"
+                f" trial {trial_id:>2}"
+                f" measure {s_idx:>3}/{self.args.iterations}:"
+                f" {lat:.2f} ms",
+                flush=True,
+            )
+
+        if workload == "interactive_shell":
+            return self._measure_interactive_shell(
+                child, self.args.warmup_rounds, self.args.iterations, report_cb,
+            )
+        elif workload == "vim":
+            return self._measure_vim(
+                child, self.args.warmup_rounds, self.args.iterations, report_cb,
+            )
+        elif workload == "nano":
+            return self._measure_nano(
+                child, self.args.warmup_rounds, self.args.iterations, report_cb,
+            )
+        else:
+            raise ValueError(f"Unsupported workload: {workload}")
 
     def _run_session_group(self, protocol: str, workload: str) -> None:
         for trial_id in range(1, self.args.trials + 1):
@@ -425,9 +477,27 @@ class W35PaneBenchmark:
 
                 self._copy_tmux_setup_to_remote(child)
                 self._start_tmux_session(child)
-                self._run_trial(child, protocol, workload, trial_id)
 
-            except (pexpect.TIMEOUT, pexpect.EOF, ValueError, RuntimeError) as exc:
+                try:
+                    self._run_trial(child, protocol, workload, trial_id)
+                except (pexpect.TIMEOUT, pexpect.EOF, ValueError) as exc:
+                    self.failures.append(
+                        FailureRecord(
+                            protocol=protocol,
+                            workload=workload,
+                            round_id=trial_id,
+                            sample_id=-1,
+                            error_type=type(exc).__name__,
+                            error_message=str(exc),
+                        )
+                    )
+                    print(
+                        f"[{protocol:>4}/{workload:<18}]"
+                        f" trial {trial_id:>2}: FAIL"
+                        f" ({type(exc).__name__}: {exc})"
+                    )
+
+            except (pexpect.TIMEOUT, pexpect.EOF, RuntimeError) as exc:
                 self.failures.append(
                     FailureRecord(
                         protocol=protocol,
@@ -435,7 +505,7 @@ class W35PaneBenchmark:
                         round_id=trial_id,
                         sample_id=-1,
                         error_type=type(exc).__name__,
-                        error_message=str(exc),
+                        error_message=f"session/setup failed: {exc}",
                     )
                 )
                 print(
@@ -614,12 +684,16 @@ class W35PaneBenchmark:
                     "pane_3": "ls-loop + clear",
                     "pane_4": "background writer + tail -f",
                 },
-                "metric_name": "interactive_echo_latency_ms",
+                "metric_name": "input_to_visible_latency_ms",
                 "metric_note": (
-                    "Fixed probe token is sent to tmux pane 0. "
-                    "Latency = time from send-keys(token) to token echo observation "
-                    "via tmux capture-pane polling. This is echo latency, "
-                    "NOT physical keyboard-to-screen latency."
+                    "Measurement identical to W3 baseline (test/). "
+                    "Fixed probe token injected via pexpect child.send(). "
+                    "Latency = time from child.send(token) to token visible "
+                    "observation via child.expect(). Matching tolerates ANSI "
+                    "sequences inserted by TUI redraw and falls back to fixed "
+                    "tail matching when only partial redraw is emitted. "
+                    "Background load: tmux 5-pane session runs detached with "
+                    "4 I/O-intensive panes during measurement."
                 ),
                 "session_setup_note": (
                     "setup_ms = time from pexpect.spawn() to first shell prompt "
@@ -690,6 +764,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--remote-vim-file", default="/tmp/w3_vim_bench.txt")
     p.add_argument("--remote-nano-file", default="/tmp/w3_nano_bench.txt")
     p.add_argument("--shuffle-pairs", action="store_true")
+    p.add_argument("--reopen-on-failure", action="store_true")
     p.add_argument("--log-pexpect", action="store_true")
 
     p.add_argument("--tmux-session", default=TMUX_SESSION)
