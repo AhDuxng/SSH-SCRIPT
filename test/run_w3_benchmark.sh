@@ -7,13 +7,13 @@ SOURCE_IP="100.70.166.91"
 IDENTITY_FILE="$HOME/.ssh/id_ed25519" 
 
 # ── Giao thức & workload ──────────────────────────────────────────────────────
-PROTOCOLS="ssh ssh3 mosh"                          # ssh | ssh3 | mosh  (space-separated)
-WORKLOADS="interactive_shell vim nano"   # interactive_shell | vim | nano
+PROTOCOLS=" mosh"                          # ssh | ssh3 | mosh  (space-separated)
+WORKLOADS="vim "   # interactive_shell | vim | nano
 
 # ── Số vòng đo ───────────────────────────────────────────────────────────────
-ITERATIONS=100          # số sample thực đo (bỏ warmup)
+ITERATIONS=50         # số sample thực đo (bỏ warmup)
 WARMUP_ROUNDS=10        # số vòng khởi động (không tính kết quả)
-TRIALS=2   
+TRIALS=10   
 TIMEOUT=20             # pexpect timeout (giây)
 SEED=42                # random seed để tái hiện kết quả
 
