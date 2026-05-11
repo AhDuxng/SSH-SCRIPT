@@ -10,10 +10,9 @@ IDENTITY_FILE="$HOME/.ssh/id_ed25519"
 PROTOCOLS="mosh"                         # ssh | ssh3 | mosh
 WORKLOADS="vim nano"       # interactive_shell | vim | nano
 
-ITERATIONS=500
+ITERATIONS=10
 WARMUP_ROUNDS=10
-TRIALS=10      
-
+TRIALS=1  
 TIMEOUT=20
 SEED=42
 
