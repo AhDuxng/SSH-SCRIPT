@@ -7,12 +7,12 @@ USER_NAME="trungnt"
 SOURCE_IP="192.168.8.100"
 IDENTITY_FILE="$HOME/.ssh/id_rsa"
 
-PROTOCOLS="ssh ssh3 mosh"                         # ssh | ssh3 | mosh
-WORKLOADS="interactive_shell vim nano"       # interactive_shell | vim | nano
+PROTOCOLS="mosh"                         # ssh | ssh3 | mosh
+WORKLOADS="vim nano"       # interactive_shell | vim | nano
 
-ITERATIONS=100
+ITERATIONS=50
 WARMUP_ROUNDS=10
-TRIALS=15      
+TRIALS=10      
 TIMEOUT=20
 SEED=42
 
