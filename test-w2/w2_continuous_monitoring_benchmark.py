@@ -30,7 +30,9 @@ DEFAULT_SSH3_PATH = "/ssh3-term"
 
 _ANSI_SEQ = r"(?:\x1b\[\??[0-9;]*[a-zA-Z])"
 _ECHO_GAP = rf"(?:{_ANSI_SEQ}|[\r\n\b])*"
-_GAPPED_DIGITS = rf"(\d(?:{_ECHO_GAP}\d)*)"
+# Timestamp should be a single epoch token (10..19 digits) to avoid
+# accidentally gluing multiple updates together on noisy terminal streams.
+_GAPPED_DIGITS = rf"(\d(?:{_ECHO_GAP}\d){{9,18}})"
 _GAPPED_FLOAT = rf"(\d(?:{_ECHO_GAP}\d)*{_ECHO_GAP}\.{_ECHO_GAP}\d(?:{_ECHO_GAP}\d)*)"
 _INITIAL_PROMPT_RE = re.compile(
     r"[#$>](?:" + _ANSI_SEQ + r"|\s)*\s*$",
@@ -97,12 +99,6 @@ class W2Benchmark:
     @staticmethod
     def _build_gapped_literal(token: str) -> str:
         return "".join(re.escape(ch) + _ECHO_GAP for ch in token)
-
-    @staticmethod
-    def _strip_ansi_from_number(raw: str) -> str:
-        """Remove ANSI sequences and control characters from a captured number."""
-        cleaned = re.sub(_ANSI_SEQ, "", raw)
-        return re.sub(r"[\r\n\b\s]", "", cleaned)
 
     def _expect_prompt(self, child: pexpect.spawn) -> None:
         child.expect(self.prompt_re, timeout=self.args.timeout)
@@ -220,29 +216,7 @@ class W2Benchmark:
                 pass
 
     @staticmethod
-    def _parse_epoch_to_ns(raw: str) -> int:
-        """Parse epoch strings in one of: ns, us, ms, s, or s.frac into ns."""
-        token = raw.strip()
-        token = re.sub(_ANSI_SEQ, "", token)
-        if not token:
-            raise ValueError("Empty remote timestamp")
-
-        if token.endswith("%N") and token[:-2].isdigit():
-            # Non-GNU date may print literal %N. Fall back to epoch seconds.
-            return int(token[:-2]) * 1_000_000_000
-
-        m = re.search(r"\d+\.\d+|\d+", token)
-        if m is None:
-            raise ValueError(f"Invalid epoch timestamp: {raw!r}")
-        token = m.group(0)
-
-        if "." in token:
-            sec_s, frac_s = token.split(".", 1)
-            if not sec_s.isdigit() or not frac_s.isdigit():
-                raise ValueError(f"Invalid fractional epoch timestamp: {raw!r}")
-            frac_ns = (frac_s + "000000000")[:9]
-            return int(sec_s) * 1_000_000_000 + int(frac_ns)
-
+    def _digits_to_epoch_ns(token: str) -> int:
         n = int(token)
         digits = len(token)
         if digits >= 18:
@@ -252,6 +226,53 @@ class W2Benchmark:
         if digits >= 12:
             return n * 1_000_000
         return n * 1_000_000_000
+
+    @classmethod
+    def _token_to_epoch_candidates_ns(cls, token: str) -> List[int]:
+        if not token:
+            return []
+        if token.endswith("%N") and token[:-2].isdigit():
+            # Non-GNU date may print literal %N. Fall back to epoch seconds.
+            return [int(token[:-2]) * 1_000_000_000]
+        if "." in token:
+            sec_s, frac_s = token.split(".", 1)
+            if sec_s.isdigit() and frac_s.isdigit():
+                frac_ns = (frac_s + "000000000")[:9]
+                return [int(sec_s) * 1_000_000_000 + int(frac_ns)]
+            return []
+        if not token.isdigit():
+            return []
+
+        if len(token) <= 19:
+            return [cls._digits_to_epoch_ns(token)]
+
+        # If multiple timestamps were accidentally concatenated, scan 19-digit
+        # windows and pick the one closest to local receive time.
+        return [int(token[i : i + 19]) for i in range(0, len(token) - 18)]
+
+    @classmethod
+    def _parse_epoch_to_ns(cls, raw: str, recv_local_ns: Optional[int] = None) -> int:
+        """Parse epoch strings in one of: ns, us, ms, s, or s.frac into ns."""
+        cleaned = re.sub(_ANSI_SEQ, "", raw).replace("\b", " ")
+        cleaned = cleaned.strip()
+        if not cleaned:
+            raise ValueError("Empty remote timestamp")
+
+        tokens = re.findall(r"\d+%N|\d+\.\d+|\d+", cleaned)
+        if not tokens:
+            raise ValueError(f"Invalid epoch timestamp: {raw!r}")
+
+        candidates: List[int] = []
+        for token in tokens:
+            candidates.extend(cls._token_to_epoch_candidates_ns(token))
+
+        if not candidates:
+            raise ValueError(f"Invalid epoch timestamp: {raw!r}")
+
+        if recv_local_ns is None:
+            return candidates[0]
+
+        return min(candidates, key=lambda ns: abs(recv_local_ns - ns))
 
     def _event_latency_ms(self, remote_event_ns: int, recv_local_ns: int) -> float:
         lat = (recv_local_ns - remote_event_ns) / 1_000_000.0
@@ -290,7 +311,7 @@ class W2Benchmark:
         for i in range(iterations):
             child.expect(marker_re, timeout=expect_timeout)
             recv_ns = time.time_ns()
-            remote_event_ns = self._parse_epoch_to_ns(self._strip_ansi_from_number(child.match.group(1)))
+            remote_event_ns = self._parse_epoch_to_ns(child.match.group(1), recv_ns)
             lat = self._event_latency_ms(remote_event_ns, recv_ns)
             report_cb(i + 1, lat)
 
@@ -341,7 +362,7 @@ class W2Benchmark:
             for i in range(iterations):
                 child.expect(marker_re, timeout=self.args.timeout)
                 recv_ns = time.time_ns()
-                remote_event_ns = self._parse_epoch_to_ns(self._strip_ansi_from_number(child.match.group(1)))
+                remote_event_ns = self._parse_epoch_to_ns(child.match.group(1), recv_ns)
                 lat = self._event_latency_ms(remote_event_ns, recv_ns)
                 report_cb(i + 1, lat)
         finally:
@@ -378,7 +399,7 @@ class W2Benchmark:
         for i in range(iterations):
             child.expect(marker_re, timeout=self.args.timeout)
             recv_ns = time.time_ns()
-            remote_event_ns = self._parse_epoch_to_ns(self._strip_ansi_from_number(child.match.group(1)))
+            remote_event_ns = self._parse_epoch_to_ns(child.match.group(1), recv_ns)
             lat = self._event_latency_ms(remote_event_ns, recv_ns)
             report_cb(i + 1, lat)
 
