@@ -75,25 +75,6 @@ class SummaryRow:
     p99_ms: Optional[float]
     max_ms: Optional[float]
     ci95_half_width_ms: Optional[float]
-    sample_ci95_half_width_ms: Optional[float]
-    trial_count: int
-    trial_mean_of_means_ms: Optional[float]
-    trial_median_of_means_ms: Optional[float]
-    trial_mean_of_medians_ms: Optional[float]
-
-@dataclass
-class TrialSummaryRecord:
-    protocol: str
-    workload: str
-    round_id: int
-    n: int
-    mean_ms: float
-    median_ms: float
-    min_ms: float
-    max_ms: float
-    stdev_ms: float
-    clock_offset_ns: int
-    clock_offset_ms: float
 
 @dataclass
 class ClockOffsetRecord:
@@ -124,7 +105,6 @@ class W2Benchmark:
         self.session_setups: Dict[str, Dict[str, List[float]]] = {
             p: {w: [] for w in args.workloads} for p in args.protocols
         }
-        self.trial_summaries: List[TrialSummaryRecord] = []
         self.clock_offsets: List[ClockOffsetRecord] = []
         self.current_clock_offset_ns: int = 0
 
@@ -634,33 +614,6 @@ class W2Benchmark:
             raise ValueError(f"Unsupported workload: {workload}")
         return trial_samples
 
-    def _append_trial_summary(
-        self,
-        protocol: str,
-        workload: str,
-        trial_id: int,
-        trial_samples: List[float],
-        clock_offset_ns: int,
-    ) -> None:
-        if not trial_samples:
-            return
-        n = len(trial_samples)
-        self.trial_summaries.append(
-            TrialSummaryRecord(
-                protocol=protocol,
-                workload=workload,
-                round_id=trial_id,
-                n=n,
-                mean_ms=statistics.mean(trial_samples),
-                median_ms=statistics.median(trial_samples),
-                min_ms=min(trial_samples),
-                max_ms=max(trial_samples),
-                stdev_ms=statistics.stdev(trial_samples) if n > 1 else 0.0,
-                clock_offset_ns=clock_offset_ns,
-                clock_offset_ms=clock_offset_ns / 1_000_000.0,
-            )
-        )
-
     def _run_session_group(
         self,
         protocol: str,
@@ -680,14 +633,7 @@ class W2Benchmark:
                     self.current_clock_offset_ns = self._estimate_clock_offset_ns(
                         child, protocol, workload, trial_id
                     )
-                    trial_samples = self._run_trial(child, protocol, workload, trial_id)
-                    self._append_trial_summary(
-                        protocol=protocol,
-                        workload=workload,
-                        trial_id=trial_id,
-                        trial_samples=trial_samples,
-                        clock_offset_ns=self.current_clock_offset_ns,
-                    )
+                    self._run_trial(child, protocol, workload, trial_id)
                 except (pexpect.TIMEOUT, pexpect.EOF, ValueError) as exc:
                     self.failures.append(
                         FailureRecord(
@@ -766,27 +712,14 @@ class W2Benchmark:
 
     def _summary_row(self, protocol: str, workload: str) -> SummaryRow:
         data = self.results[protocol][workload]
-        trial_rows = [
-            r for r in self.trial_summaries
-            if r.protocol == protocol and r.workload == workload
-        ]
-        trial_means = [r.mean_ms for r in trial_rows]
-        trial_medians = [r.median_ms for r in trial_rows]
         fail_n = sum(
             1
             for f in self.failures
             if f.protocol == protocol and f.workload == workload
         )
         n = len(data)
-        total_trials = self.args.trials
-        success_rate = (100.0 * (total_trials - fail_n) / total_trials) if total_trials else 0.0
-
-        trial_count = len(trial_means)
-        trial_mean_of_means = statistics.mean(trial_means) if trial_means else None
-        trial_median_of_means = statistics.median(trial_means) if trial_means else None
-        trial_mean_of_medians = statistics.mean(trial_medians) if trial_medians else None
-        trial_stdev_of_means = statistics.stdev(trial_means) if trial_count > 1 else 0.0
-        trial_ci95 = (1.96 * trial_stdev_of_means / math.sqrt(trial_count)) if trial_count > 1 else 0.0
+        total = n + fail_n
+        success_rate = (100.0 * n / total) if total else 0.0
 
         if n == 0:
             return SummaryRow(
@@ -802,18 +735,13 @@ class W2Benchmark:
                 None,
                 None,
                 None,
-                trial_ci95 if trial_count else None,
                 None,
-                trial_count,
-                trial_mean_of_means,
-                trial_median_of_means,
-                trial_mean_of_medians,
             )
 
         mean_ms = statistics.mean(data)
         median_ms = statistics.median(data)
         stdev_ms = statistics.stdev(data) if n > 1 else 0.0
-        sample_ci95 = (1.96 * stdev_ms / math.sqrt(n)) if n > 1 else 0.0
+        ci95 = (1.96 * stdev_ms / math.sqrt(n)) if n > 1 else 0.0
         return SummaryRow(
             protocol=protocol,
             workload=workload,
@@ -827,12 +755,7 @@ class W2Benchmark:
             p95_ms=self._percentile(data, 95),
             p99_ms=self._percentile(data, 99),
             max_ms=max(data),
-            ci95_half_width_ms=trial_ci95 if trial_count else None,
-            sample_ci95_half_width_ms=sample_ci95,
-            trial_count=trial_count,
-            trial_mean_of_means_ms=trial_mean_of_means,
-            trial_median_of_means_ms=trial_median_of_means,
-            trial_mean_of_medians_ms=trial_mean_of_medians,
+            ci95_half_width_ms=ci95,
         )
 
     def summaries(self) -> List[SummaryRow]:
@@ -860,21 +783,18 @@ class W2Benchmark:
         def fmt(v: Optional[float]) -> str:
             return f"{v:.2f}" if v is not None else "N/A"
 
-        width = 182
+        width = 146
         print("\n" + "=" * width)
         print(
             f"{'Protocol':<8} | {'Workload':<18} | {'N':>4} | {'Fail':>4} | {'Success%':>8} | "
-            f"{'Min':>8} | {'Mean':>8} | {'Median':>8} | {'Std':>8} | {'P95':>8} | {'P99':>8} | {'Max':>8} | "
-            f"{'T#':>4} | {'TMean':>8} | {'TMdn':>8} | {'CI95(T)':>9} | {'CI95(S)':>9}"
+            f"{'Min':>8} | {'Mean':>8} | {'Median':>8} | {'Std':>8} | {'P95':>8} | {'P99':>8} | {'Max':>8} | {'CI95+/-':>9}"
         )
         print("-" * width)
         for row in self.summaries():
             print(
                 f"{row.protocol:<8} | {row.workload:<18} | {row.n:>4} | {row.failures:>4} | "
                 f"{row.success_rate_pct:>8.1f} | {fmt(row.min_ms):>8} | {fmt(row.mean_ms):>8} | {fmt(row.median_ms):>8} | "
-                f"{fmt(row.stdev_ms):>8} | {fmt(row.p95_ms):>8} | {fmt(row.p99_ms):>8} | {fmt(row.max_ms):>8} | "
-                f"{row.trial_count:>4} | {fmt(row.trial_mean_of_means_ms):>8} | {fmt(row.trial_median_of_means_ms):>8} | "
-                f"{fmt(row.ci95_half_width_ms):>9} | {fmt(row.sample_ci95_half_width_ms):>9}"
+                f"{fmt(row.stdev_ms):>8} | {fmt(row.p95_ms):>8} | {fmt(row.p99_ms):>8} | {fmt(row.max_ms):>8} | {fmt(row.ci95_half_width_ms):>9}"
             )
         print("=" * width)
 
@@ -908,8 +828,6 @@ class W2Benchmark:
         raw_csv = outdir / "w2_raw_samples.csv"
         failures_csv = outdir / "w2_failures.csv"
         setup_csv = outdir / "w2_session_setup.csv"
-        trial_csv = outdir / "w2_trial_stats.csv"
-        clock_csv = outdir / "w2_clock_offsets.csv"
 
         if self.args.clock_offset_mode == "estimate":
             clock_offset_warning = None
@@ -957,8 +875,6 @@ class W2Benchmark:
                 ),
             },
             "summary": [asdict(row) for row in self.summaries()],
-            "trial_summary": [asdict(row) for row in self.trial_summaries],
-            "clock_offsets": [asdict(row) for row in self.clock_offsets],
             "session_setup": {
                 p: {w: self._session_setup_stats(p, w) for w in self.args.workloads}
                 for p in self.args.protocols
@@ -993,66 +909,10 @@ class W2Benchmark:
                     for trial_id, ms in enumerate(self.session_setups[p][w], start=1):
                         writer.writerow([p, w, trial_id, f"{ms:.6f}"])
 
-        with trial_csv.open("w", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
-            writer.writerow([
-                "protocol",
-                "workload",
-                "trial_id",
-                "n",
-                "mean_ms",
-                "median_ms",
-                "min_ms",
-                "max_ms",
-                "stdev_ms",
-                "clock_offset_ns",
-                "clock_offset_ms",
-            ])
-            for r in self.trial_summaries:
-                writer.writerow([
-                    r.protocol,
-                    r.workload,
-                    r.round_id,
-                    r.n,
-                    f"{r.mean_ms:.6f}",
-                    f"{r.median_ms:.6f}",
-                    f"{r.min_ms:.6f}",
-                    f"{r.max_ms:.6f}",
-                    f"{r.stdev_ms:.6f}",
-                    r.clock_offset_ns,
-                    f"{r.clock_offset_ms:.6f}",
-                ])
-
-        with clock_csv.open("w", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
-            writer.writerow([
-                "protocol",
-                "workload",
-                "trial_id",
-                "probes",
-                "offset_ns",
-                "offset_ms",
-                "median_rtt_ms",
-                "method",
-            ])
-            for r in self.clock_offsets:
-                writer.writerow([
-                    r.protocol,
-                    r.workload,
-                    r.round_id,
-                    r.probes,
-                    r.offset_ns,
-                    f"{r.offset_ms:.6f}",
-                    f"{r.median_rtt_ms:.6f}",
-                    r.method,
-                ])
-
         print(f"Saved summary JSON    : {summary_json}")
         print(f"Saved raw samples CSV : {raw_csv}")
         print(f"Saved failures CSV    : {failures_csv}")
         print(f"Saved session setup   : {setup_csv}")
-        print(f"Saved trial stats CSV : {trial_csv}")
-        print(f"Saved clock offset CSV: {clock_csv}")
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
