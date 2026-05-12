@@ -11,9 +11,9 @@ PROTOCOLS="ssh ssh3 mosh"                          # ssh | ssh3 | mosh  (space-s
 WORKLOADS="interactive_shell vim nano"   # interactive_shell | vim | nano
 
 # ── Số vòng đo ───────────────────────────────────────────────────────────────
-ITERATIONS=100          # số sample thực đo (bỏ warmup)
+ITERATIONS=50          # số sample thực đo (bỏ warmup)
 WARMUP_ROUNDS=10        # số vòng khởi động (không tính kết quả)
-TRIALS=15             
+TRIALS=10             
 TIMEOUT=20             # pexpect timeout (giây)
 SEED=42                # random seed để tái hiện kết quả
 
