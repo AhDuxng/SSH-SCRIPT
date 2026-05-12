@@ -10,7 +10,7 @@ PROTOCOLS="mosh"
 WORKLOADS="top tail ping"
 
 ITERATIONS=50
-TRIALS=10
+TRIALS=2
 TIMEOUT=30
 SEED=42
 
@@ -26,6 +26,9 @@ STRICT_HOST_KEY=false
 MOSH_PREDICT="never"
 TOP_INTERVAL=1.0
 PING_TARGET=""
+MIN_VALID_LATENCY_MS=-5000
+MAX_VALID_LATENCY_MS=60000
+MAX_INVALID_SAMPLES=100
 
 CMD=(
   python w2_continuous_monitoring_benchmark.py
@@ -44,6 +47,9 @@ CMD=(
   --ssh3-path "$SSH3_PATH"
   --mosh-predict "$MOSH_PREDICT"
   --top-interval "$TOP_INTERVAL"
+  --min-valid-latency-ms "$MIN_VALID_LATENCY_MS"
+  --max-valid-latency-ms "$MAX_VALID_LATENCY_MS"
+  --max-invalid-samples "$MAX_INVALID_SAMPLES"
 )
 
 if [[ -n "$PING_TARGET" ]]; then

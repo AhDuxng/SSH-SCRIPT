@@ -30,9 +30,8 @@ DEFAULT_SSH3_PATH = "/ssh3-term"
 
 _ANSI_SEQ = r"(?:\x1b\[\??[0-9;]*[a-zA-Z])"
 _ECHO_GAP = rf"(?:{_ANSI_SEQ}|[\r\n\b])*"
-# Timestamp should be a single epoch token (10..19 digits) to avoid
-# accidentally gluing multiple updates together on noisy terminal streams.
-_GAPPED_DIGITS = rf"(\d(?:{_ECHO_GAP}\d){{9,18}})"
+# date +%s%N yields a 19-digit epoch-ns timestamp on GNU date.
+_GAPPED_EPOCH_NS = rf"(\d(?:{_ECHO_GAP}\d){{18}})"
 _GAPPED_FLOAT = rf"(\d(?:{_ECHO_GAP}\d)*{_ECHO_GAP}\.{_ECHO_GAP}\d(?:{_ECHO_GAP}\d)*)"
 _INITIAL_PROMPT_RE = re.compile(
     r"[#$>](?:" + _ANSI_SEQ + r"|\s)*\s*$",
@@ -284,6 +283,28 @@ class W2Benchmark:
             )
         return lat
 
+    def _latency_is_valid(self, latency_ms: float) -> bool:
+        return self.args.min_valid_latency_ms <= latency_ms <= self.args.max_valid_latency_ms
+
+    def _warn_and_count_invalid(
+        self,
+        workload: str,
+        dropped: int,
+        reason: str,
+        raw_token: str = "",
+    ) -> int:
+        dropped += 1
+        detail = f" raw={raw_token[:120]!r}" if raw_token else ""
+        print(
+            f"  [WARN] Dropping invalid {workload} sample #{dropped}: {reason}.{detail}",
+            flush=True,
+        )
+        if dropped > self.args.max_invalid_samples:
+            raise ValueError(
+                f"Too many invalid {workload} samples (>{self.args.max_invalid_samples})"
+            )
+        return dropped
+
     def _measure_top(
         self,
         child: pexpect.spawn,
@@ -292,7 +313,7 @@ class W2Benchmark:
     ) -> None:
         interval = self.args.top_interval
         marker_re = re.compile(
-            self._build_gapped_literal("W2_TOP_REFRESH:") + _GAPPED_DIGITS
+            self._build_gapped_literal("W2_TOP_REFRESH:") + _GAPPED_EPOCH_NS
         )
         TOP_LOOP = (
             f"while true; do "
@@ -304,16 +325,35 @@ class W2Benchmark:
         child.sendline(TOP_LOOP)
 
         expect_timeout = max(self.args.timeout, int(interval * 3) + 5)
+        dropped = 0
 
         for _ in range(3):
             child.expect(marker_re, timeout=expect_timeout)
 
-        for i in range(iterations):
+        sample_id = 0
+        while sample_id < iterations:
             child.expect(marker_re, timeout=expect_timeout)
             recv_ns = time.time_ns()
-            remote_event_ns = self._parse_epoch_to_ns(child.match.group(1), recv_ns)
+            raw_token = child.match.group(1)
+            try:
+                remote_event_ns = self._parse_epoch_to_ns(raw_token, recv_ns)
+            except ValueError as exc:
+                dropped = self._warn_and_count_invalid("top", dropped, str(exc), raw_token)
+                continue
             lat = self._event_latency_ms(remote_event_ns, recv_ns)
-            report_cb(i + 1, lat)
+            if not self._latency_is_valid(lat):
+                dropped = self._warn_and_count_invalid(
+                    "top",
+                    dropped,
+                    (
+                        f"latency {lat:.2f} ms outside "
+                        f"[{self.args.min_valid_latency_ms:.2f}, {self.args.max_valid_latency_ms:.2f}]"
+                    ),
+                    raw_token,
+                )
+                continue
+            sample_id += 1
+            report_cb(sample_id, lat)
 
         for _ in range(3):
             child.sendcontrol("c")
@@ -333,7 +373,7 @@ class W2Benchmark:
     ) -> None:
         marker_re = re.compile(
             self._build_gapped_literal("W2_TAIL_") + r"\d(?:" + _ECHO_GAP + r"\d)*" + _ECHO_GAP +
-            re.escape(":") + _ECHO_GAP + _GAPPED_DIGITS
+            re.escape(":") + _ECHO_GAP + _GAPPED_EPOCH_NS
         )
         remote_log = "/tmp/w2_test.log"
         child.sendline(f"rm -f {remote_log} && touch {remote_log}")
@@ -354,17 +394,36 @@ class W2Benchmark:
         self._expect_prompt(child)
 
         child.sendline(f"tail -f {remote_log}")
+        dropped = 0
 
         try:
             for _ in range(10):
                 child.expect(marker_re, timeout=self.args.timeout)
 
-            for i in range(iterations):
+            sample_id = 0
+            while sample_id < iterations:
                 child.expect(marker_re, timeout=self.args.timeout)
                 recv_ns = time.time_ns()
-                remote_event_ns = self._parse_epoch_to_ns(child.match.group(1), recv_ns)
+                raw_token = child.match.group(1)
+                try:
+                    remote_event_ns = self._parse_epoch_to_ns(raw_token, recv_ns)
+                except ValueError as exc:
+                    dropped = self._warn_and_count_invalid("tail", dropped, str(exc), raw_token)
+                    continue
                 lat = self._event_latency_ms(remote_event_ns, recv_ns)
-                report_cb(i + 1, lat)
+                if not self._latency_is_valid(lat):
+                    dropped = self._warn_and_count_invalid(
+                        "tail",
+                        dropped,
+                        (
+                            f"latency {lat:.2f} ms outside "
+                            f"[{self.args.min_valid_latency_ms:.2f}, {self.args.max_valid_latency_ms:.2f}]"
+                        ),
+                        raw_token,
+                    )
+                    continue
+                sample_id += 1
+                report_cb(sample_id, lat)
         finally:
             # Always cleanup: stop tail and kill background writer
             try:
@@ -392,16 +451,35 @@ class W2Benchmark:
         ping_target = self.args.ping_target or "127.0.0.1"
         child.sendline(f"ping -D -i 0.1 {ping_target}")
         child.expect(r"PING ", timeout=self.args.timeout)
+        dropped = 0
 
         for _ in range(5):
             child.expect(marker_re, timeout=self.args.timeout)
 
-        for i in range(iterations):
+        sample_id = 0
+        while sample_id < iterations:
             child.expect(marker_re, timeout=self.args.timeout)
             recv_ns = time.time_ns()
-            remote_event_ns = self._parse_epoch_to_ns(child.match.group(1), recv_ns)
+            raw_token = child.match.group(1)
+            try:
+                remote_event_ns = self._parse_epoch_to_ns(raw_token, recv_ns)
+            except ValueError as exc:
+                dropped = self._warn_and_count_invalid("ping", dropped, str(exc), raw_token)
+                continue
             lat = self._event_latency_ms(remote_event_ns, recv_ns)
-            report_cb(i + 1, lat)
+            if not self._latency_is_valid(lat):
+                dropped = self._warn_and_count_invalid(
+                    "ping",
+                    dropped,
+                    (
+                        f"latency {lat:.2f} ms outside "
+                        f"[{self.args.min_valid_latency_ms:.2f}, {self.args.max_valid_latency_ms:.2f}]"
+                    ),
+                    raw_token,
+                )
+                continue
+            sample_id += 1
+            report_cb(sample_id, lat)
 
         child.sendcontrol("c")
         self._expect_prompt(child)
@@ -646,7 +724,9 @@ class W2Benchmark:
                     f"top emits W2_TOP_REFRESH:<epoch_ns> every {self.args.top_interval}s; "
                     "tail writer emits W2_TAIL_<seq>:<epoch_ns> every 50ms and client follows via tail -f; "
                     f"ping uses 'ping -D -i 0.1 {self.args.ping_target or '127.0.0.1'}' and parses [epoch.us]. "
-                    "Results can include host clock-offset bias between client and server."
+                    "Results can include host clock-offset bias between client and server. "
+                    f"Samples outside [{self.args.min_valid_latency_ms:.2f}, {self.args.max_valid_latency_ms:.2f}] ms "
+                    f"are treated as invalid and dropped (limit: {self.args.max_invalid_samples} per trial)."
                 ),
             },
             "summary": [asdict(row) for row in self.summaries()],
@@ -714,6 +794,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--shuffle-pairs", action="store_true", help="Shuffle protocol/workload execution order")
     p.add_argument("--reopen-on-failure", action="store_true", help="Reopen session after failure")
     p.add_argument("--log-pexpect", action="store_true", help="Save raw pexpect terminal output per protocol")
+    p.add_argument("--min-valid-latency-ms", type=float, default=-5000.0, help="Drop samples below this latency threshold")
+    p.add_argument("--max-valid-latency-ms", type=float, default=60000.0, help="Drop samples above this latency threshold")
+    p.add_argument("--max-invalid-samples", type=int, default=100, help="Max dropped invalid samples per trial before failing")
     return p
 
 
@@ -725,6 +808,10 @@ def main() -> int:
         parser.error("--trials must be > 0")
     if args.iterations <= 0:
         parser.error("--iterations must be > 0")
+    if args.max_invalid_samples < 0:
+        parser.error("--max-invalid-samples must be >= 0")
+    if args.max_valid_latency_ms <= args.min_valid_latency_ms:
+        parser.error("--max-valid-latency-ms must be > --min-valid-latency-ms")
 
     bench = W2Benchmark(args)
     bench.run()
