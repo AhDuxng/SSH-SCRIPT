@@ -10,9 +10,11 @@ PROTOCOLS="ssh ssh3 mosh"
 WORKLOADS="top tail ping"
 
 ITERATIONS=50
-TRIALS=10
+TRIALS=1
 TIMEOUT=30
 SEED=42
+CLOCK_SYNC_SAMPLES=7
+CLOCK_SYNC_PAUSE=0.02
 
 OUTPUT_DIR="w2_results"
 LOG_PEXPECT=true
@@ -37,6 +39,8 @@ CMD=(
   --iterations "$ITERATIONS"
   --trials "$TRIALS"
   --timeout "$TIMEOUT"
+  --clock-sync-samples "$CLOCK_SYNC_SAMPLES"
+  --clock-sync-pause "$CLOCK_SYNC_PAUSE"
   --seed "$SEED"
   --output-dir "$OUTPUT_DIR"
   --prompt "$PROMPT"

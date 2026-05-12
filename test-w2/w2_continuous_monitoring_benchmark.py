@@ -68,6 +68,16 @@ class SummaryRow:
     max_ms: Optional[float]
     ci95_half_width_ms: Optional[float]
 
+@dataclass
+class ClockSyncRecord:
+    protocol: str
+    workload: str
+    round_id: int
+    offset_ms: float
+    best_rtt_ms: float
+    uncertainty_ms: float
+    samples: int
+
 class W2Benchmark:
     def __init__(self, args: argparse.Namespace) -> None:
         self.args = args
@@ -86,6 +96,9 @@ class W2Benchmark:
         self.session_setups: Dict[str, Dict[str, List[float]]] = {
             p: {w: [] for w in args.workloads} for p in args.protocols
         }
+        self.clock_sync_records: List[ClockSyncRecord] = []
+        self.current_clock_offset_ns: int = 0
+        self.current_clock_uncertainty_ns: int = 0
 
     @staticmethod
     def _build_prompt_re(prompt_marker: str) -> re.Pattern[str]:
@@ -133,13 +146,7 @@ class W2Benchmark:
         raise ValueError(f"Unsupported protocol: {protocol}")
 
     def _open_session(self, protocol: str, max_retries: int = 3) -> tuple[pexpect.spawn, float]:
-        """Open a remote session with retry logic.
-
-        Mosh sessions on degraded networks may need extra time to establish.
-        We retry up to max_retries times, with an increasing timeout multiplier.
-        """
         last_exc: Exception | None = None
-        # Mosh needs more generous timeouts on medium/high-loss networks
         base_timeout = self.args.timeout
         if protocol == "mosh":
             base_timeout = max(base_timeout, 30)
@@ -159,7 +166,6 @@ class W2Benchmark:
                     log_path.parent.mkdir(parents=True, exist_ok=True)
                     child.logfile_read = open(log_path, "a", encoding="utf-8")
 
-                # Use escalating timeout for each retry attempt
                 connect_timeout = base_timeout * attempt
 
                 start_ns = time.perf_counter_ns()
@@ -186,19 +192,16 @@ class W2Benchmark:
     def _close_session(self, child: pexpect.spawn, protocol: str = "") -> None:
         """Close the pexpect session, forcefully killing any running processes first."""
         try:
-            # Send Ctrl+C multiple times to break out of any running foreground
-            # process (top loop, tail -f, ping, etc.) that may still be active
             for _ in range(3):
                 child.sendcontrol("c")
                 time.sleep(0.3)
 
-            # Try to send 'exit' cleanly
             child.sendline("exit")
             child.expect(pexpect.EOF, timeout=5)
         except Exception:
             pass
         finally:
-            # Always force-close the child process
+            
             try:
                 child.close(force=True)
             except Exception:
@@ -209,13 +212,77 @@ class W2Benchmark:
             except Exception:
                 pass
 
-        # For Mosh: also kill any lingering mosh-client processes for this session
         if protocol == "mosh" and hasattr(child, "pid") and child.pid:
             try:
                 import os, signal
                 os.kill(child.pid, signal.SIGKILL)
             except (ProcessLookupError, OSError):
                 pass
+
+    @staticmethod
+    def _parse_epoch_to_ns(raw: str) -> int:
+        """Parse epoch strings in one of: ns, us, ms, s, or s.frac into ns."""
+        token = raw.strip()
+        if not token:
+            raise ValueError("Empty remote timestamp")
+
+        if "." in token:
+            sec_s, frac_s = token.split(".", 1)
+            if not sec_s.isdigit() or not frac_s.isdigit():
+                raise ValueError(f"Invalid fractional epoch timestamp: {raw!r}")
+            frac_ns = (frac_s + "000000000")[:9]
+            return int(sec_s) * 1_000_000_000 + int(frac_ns)
+
+        if not token.isdigit():
+            raise ValueError(f"Invalid epoch timestamp: {raw!r}")
+
+        n = int(token)
+        digits = len(token)
+        if digits >= 18:
+            return n
+        if digits >= 15:
+            return n * 1_000
+        if digits >= 12:
+            return n * 1_000_000
+        return n * 1_000_000_000
+
+    def _clock_sync(self, child: pexpect.spawn) -> tuple[int, int, int]:
+        """Estimate remote-local clock offset using min-RTT sampling.
+
+        Returns:
+            (offset_ns, best_rtt_ns, uncertainty_ns)
+        where offset_ns = remote_clock - local_clock.
+        """
+        samples: List[tuple[int, int]] = []
+        marker = "__W2_CLK__"
+        pattern = re.compile(re.escape(marker) + r":(\d+)")
+
+        for _ in range(self.args.clock_sync_samples):
+            t0 = time.time_ns()
+            child.sendline(f'printf "{marker}:%s\\n" "$(date +%s%N)"')
+            child.expect(pattern, timeout=self.args.timeout)
+            t1 = time.time_ns()
+            remote_ns = self._parse_epoch_to_ns(child.match.group(1))
+            self._expect_prompt(child)
+
+            rtt_ns = max(0, t1 - t0)
+            midpoint_local_ns = t0 + (rtt_ns // 2)
+            offset_ns = remote_ns - midpoint_local_ns
+            samples.append((rtt_ns, offset_ns))
+
+            if self.args.clock_sync_pause > 0:
+                time.sleep(self.args.clock_sync_pause)
+
+        if not samples:
+            raise ValueError("No clock-sync samples collected")
+
+        best_rtt_ns, best_offset_ns = min(samples, key=lambda x: x[0])
+        uncertainty_ns = best_rtt_ns // 2
+        return best_offset_ns, best_rtt_ns, uncertainty_ns
+
+    def _event_latency_ms(self, remote_event_ns: int, recv_local_ns: int) -> float:
+        recv_remote_ns = recv_local_ns + self.current_clock_offset_ns
+        return (recv_remote_ns - remote_event_ns) / 1_000_000.0
 
     def _measure_top(
         self,
@@ -224,38 +291,32 @@ class W2Benchmark:
         report_cb: Callable[[int, float], None],
     ) -> None:
         interval = self.args.top_interval
-        # Continuous top: loop top -bn1 every <interval>s with a detectable marker,
-        # simulating a sysadmin running `top` in continuous monitoring mode.
+        marker_re = re.compile(r"W2_TOP_REFRESH:(\d+)")
         TOP_LOOP = (
             f"while true; do "
-            f"echo 'W2_TOP_REFRESH'; "
+            f"echo \"W2_TOP_REFRESH:$(date +%s%N)\"; "
             f"top -bn1 2>/dev/null | head -20; "
             f"sleep {interval}; "
             f"done"
         )
         child.sendline(TOP_LOOP)
 
-        # Warmup: skip first few refresh cycles to let the pipeline stabilise
         for _ in range(3):
-            child.expect(r"W2_TOP_REFRESH", timeout=self.args.timeout)
+            child.expect(marker_re, timeout=self.args.timeout)
 
         for i in range(iterations):
-            start_ns = time.perf_counter_ns()
-            child.expect(r"W2_TOP_REFRESH", timeout=self.args.timeout)
-            end_ns = time.perf_counter_ns()
-            lat = (end_ns - start_ns) / 1_000_000.0
+            child.expect(marker_re, timeout=self.args.timeout)
+            recv_ns = time.time_ns()
+            remote_event_ns = self._parse_epoch_to_ns(child.match.group(1))
+            lat = self._event_latency_ms(remote_event_ns, recv_ns)
             report_cb(i + 1, lat)
 
-        # Send Ctrl+C multiple times to reliably break the while-loop,
-        # especially over high-latency / lossy Mosh connections.
         for _ in range(3):
             child.sendcontrol("c")
             time.sleep(0.5)
-        # Drain any remaining output and wait for the prompt
         try:
             self._expect_prompt(child)
         except pexpect.TIMEOUT:
-            # If prompt still not found, send one more Ctrl+C and try again
             child.sendcontrol("c")
             time.sleep(1)
             self._expect_prompt(child)
@@ -266,22 +327,20 @@ class W2Benchmark:
         iterations: int,
         report_cb: Callable[[int, float], None],
     ) -> None:
+        marker_re = re.compile(r"W2_TAIL_\d+:(\d+)")
         remote_log = "/tmp/w2_test.log"
         child.sendline(f"rm -f {remote_log} && touch {remote_log}")
         self._expect_prompt(child)
 
-        # Use unique sequential counter per line so we can skip stale buffered
-        # lines and only measure the NEXT fresh arrival.  Write interval = 50 ms.
         child.sendline(
             f"W2_SEQ=0; while true; do "
             f"W2_SEQ=$((W2_SEQ+1)); "
-            f"echo \"W2_TAIL_$W2_SEQ\" >> {remote_log}; "
+            f"echo \"W2_TAIL_$W2_SEQ:$(date +%s%N)\" >> {remote_log}; "
             f"sleep 0.05; "
             f"done &"
         )
         self._expect_prompt(child)
 
-        # Capture PID reliably after the job is backgrounded
         child.sendline("W2_WRITER_PID=$!; echo W2_WRITER_PID=$W2_WRITER_PID")
         child.expect(r"W2_WRITER_PID=(\d+)", timeout=self.args.timeout)
         bg_pid = child.match.group(1)
@@ -289,16 +348,14 @@ class W2Benchmark:
 
         child.sendline(f"tail -f {remote_log}")
 
-        # Warmup: skip first 10 deliveries to drain initial burst and let
-        # the pipeline stabilise (TCP Nagle can batch early lines).
         for _ in range(10):
-            child.expect(r"W2_TAIL_\d+", timeout=self.args.timeout)
+            child.expect(marker_re, timeout=self.args.timeout)
 
         for i in range(iterations):
-            start_ns = time.perf_counter_ns()
-            child.expect(r"W2_TAIL_\d+", timeout=self.args.timeout)
-            end_ns = time.perf_counter_ns()
-            lat = (end_ns - start_ns) / 1_000_000.0
+            child.expect(marker_re, timeout=self.args.timeout)
+            recv_ns = time.time_ns()
+            remote_event_ns = self._parse_epoch_to_ns(child.match.group(1))
+            lat = self._event_latency_ms(remote_event_ns, recv_ns)
             report_cb(i + 1, lat)
 
         child.sendcontrol("c")
@@ -314,18 +371,19 @@ class W2Benchmark:
         iterations: int,
         report_cb: Callable[[int, float], None],
     ) -> None:
+        marker_re = re.compile(r"\[(\d+\.\d+)\]\s+\d+\s+bytes from")
         ping_target = self.args.ping_target or "127.0.0.1"
-        child.sendline(f"ping -i 0.1 {ping_target}")
+        child.sendline(f"ping -D -i 0.1 {ping_target}")
         child.expect(r"PING ", timeout=self.args.timeout)
 
         for _ in range(5):
-            child.expect(r"bytes from", timeout=self.args.timeout)
+            child.expect(marker_re, timeout=self.args.timeout)
 
         for i in range(iterations):
-            start_ns = time.perf_counter_ns()
-            child.expect(r"bytes from", timeout=self.args.timeout)
-            end_ns = time.perf_counter_ns()
-            lat = (end_ns - start_ns) / 1_000_000.0
+            child.expect(marker_re, timeout=self.args.timeout)
+            recv_ns = time.time_ns()
+            remote_event_ns = self._parse_epoch_to_ns(child.match.group(1))
+            lat = self._event_latency_ms(remote_event_ns, recv_ns)
             report_cb(i + 1, lat)
 
         child.sendcontrol("c")
@@ -374,6 +432,27 @@ class W2Benchmark:
                     flush=True,
                 )
                 try:
+                    offset_ns, best_rtt_ns, uncertainty_ns = self._clock_sync(child)
+                    self.current_clock_offset_ns = offset_ns
+                    self.current_clock_uncertainty_ns = uncertainty_ns
+                    self.clock_sync_records.append(
+                        ClockSyncRecord(
+                            protocol=protocol,
+                            workload=workload,
+                            round_id=trial_id,
+                            offset_ms=offset_ns / 1_000_000.0,
+                            best_rtt_ms=best_rtt_ns / 1_000_000.0,
+                            uncertainty_ms=uncertainty_ns / 1_000_000.0,
+                            samples=self.args.clock_sync_samples,
+                        )
+                    )
+                    print(
+                        f"[{protocol:>4}/{workload:<18}] trial {trial_id:>2}/{self.args.trials}"
+                        f" clock_sync offset={offset_ns / 1_000_000.0:.3f} ms"
+                        f" (best_rtt={best_rtt_ns / 1_000_000.0:.3f} ms, "
+                        f"uncertainty<=+/-{uncertainty_ns / 1_000_000.0:.3f} ms)",
+                        flush=True,
+                    )
                     self._run_trial(child, protocol, workload, trial_id)
                 except (pexpect.TIMEOUT, pexpect.EOF, ValueError) as exc:
                     self.failures.append(
@@ -391,15 +470,12 @@ class W2Benchmark:
                         flush=True,
                     )
                     if self.args.reopen_on_failure:
-                        # Force-close the broken session before reopening
                         if child is not None:
                             self._close_session(child, protocol)
                             child = None
-                        # Cooldown: let the network / remote side settle
                         time.sleep(3)
                         continue
             except (pexpect.TIMEOUT, pexpect.EOF) as exc:
-                # _open_session itself failed after all retries
                 self.failures.append(
                     FailureRecord(
                         protocol=protocol,
@@ -419,7 +495,6 @@ class W2Benchmark:
             finally:
                 if child is not None:
                     self._close_session(child, protocol)
-                # Brief pause between trials for Mosh to release UDP ports
                 if protocol == "mosh":
                     time.sleep(2)
 
@@ -504,6 +579,33 @@ class W2Benchmark:
             max=max(data),
         )
 
+    def _clock_sync_stats(self, protocol: str, workload: str) -> dict:
+        rows = [
+            r for r in self.clock_sync_records
+            if r.protocol == protocol and r.workload == workload
+        ]
+        if not rows:
+            return dict(
+                n=0,
+                offset_mean=None,
+                offset_median=None,
+                offset_stdev=None,
+                best_rtt_mean=None,
+                uncertainty_mean=None,
+            )
+        offsets = [r.offset_ms for r in rows]
+        best_rtts = [r.best_rtt_ms for r in rows]
+        uncertainties = [r.uncertainty_ms for r in rows]
+        n = len(rows)
+        return dict(
+            n=n,
+            offset_mean=statistics.mean(offsets),
+            offset_median=statistics.median(offsets),
+            offset_stdev=statistics.stdev(offsets) if n > 1 else 0.0,
+            best_rtt_mean=statistics.mean(best_rtts),
+            uncertainty_mean=statistics.mean(uncertainties),
+        )
+
     def print_report(self) -> None:
         def fmt(v: Optional[float]) -> str:
             return f"{v:.2f}" if v is not None else "N/A"
@@ -545,6 +647,29 @@ class W2Benchmark:
                 )
         print("-" * ss_width)
 
+        cs_width = 122
+        print("\n" + "-" * cs_width)
+        print(
+            "CLOCK SYNC (ms)  "
+            "[offset = remote_clock - local_clock; uncertainty ~= best_rtt/2]"
+        )
+        print(
+            f"{'Protocol':<8} | {'Workload':<18} | {'N':>3} |"
+            f" {'OffsetMean':>10} | {'OffsetMed':>10} | {'OffsetStd':>10} |"
+            f" {'BestRTTMean':>11} | {'UncertaintyMean':>15}"
+        )
+        print("-" * cs_width)
+        for protocol in self.args.protocols:
+            for workload in self.args.workloads:
+                s = self._clock_sync_stats(protocol, workload)
+                print(
+                    f"{protocol:<8} | {workload:<18} | {s['n']:>3} |"
+                    f" {fmt(s['offset_mean']):>10} | {fmt(s['offset_median']):>10} |"
+                    f" {fmt(s['offset_stdev']):>10} | {fmt(s['best_rtt_mean']):>11} |"
+                    f" {fmt(s['uncertainty_mean']):>15}"
+                )
+        print("-" * cs_width)
+
     def export(self) -> None:
         outdir = Path(self.args.output_dir)
         outdir.mkdir(parents=True, exist_ok=True)
@@ -553,6 +678,7 @@ class W2Benchmark:
         raw_csv = outdir / "w2_raw_samples.csv"
         failures_csv = outdir / "w2_failures.csv"
         setup_csv = outdir / "w2_session_setup.csv"
+        clock_sync_csv = outdir / "w2_clock_sync.csv"
 
         payload = {
             "meta": {
@@ -565,25 +691,31 @@ class W2Benchmark:
                 "iterations": self.args.iterations,
                 "timeout_sec": self.args.timeout,
                 "random_seed": self.args.seed,
+                "clock_sync_samples": self.args.clock_sync_samples,
+                "clock_sync_pause_sec": self.args.clock_sync_pause,
                 "topology": {
                     "client": self.args.source_ip or "unknown",
                     "server": self.args.host,
                 },
-                "metric_name": "screen_update_latency_ms",
+                "metric_name": "screen_update_e2e_latency_ms",
                 "metric_note": (
-                    f"All workloads measure inter-arrival time of streaming output (screen update latency). "
-                    f"top: continuous loop of 'top -bn1 | head -20' every {self.args.top_interval}s with W2_TOP_REFRESH marker "
-                    f"(expected inter-arrival ≈ {self.args.top_interval * 1000:.0f} ms + network delay). "
-                    f"tail: background writer at 50 ms intervals with tail -f "
-                    f"(expected inter-arrival ≈ 50 ms + network delay). "
-                    f"ping: 'ping -i 0.1 {self.args.ping_target or '127.0.0.1'}' "
-                    f"(expected inter-arrival ≈ 100 ms + network delay). "
-                    f"Deviation from expected interval reflects protocol overhead + network-induced screen update delay."
+                    "Latency is measured as: remote event timestamp -> client receive timestamp. "
+                    "For each session, remote/local clock offset is estimated with min-RTT clock sync samples "
+                    "(Cristian-style; offset = remote_clock - local_clock). "
+                    f"top emits W2_TOP_REFRESH:<epoch_ns> every {self.args.top_interval}s; "
+                    "tail writer emits W2_TAIL_<seq>:<epoch_ns> every 50ms and client follows via tail -f; "
+                    f"ping uses 'ping -D -i 0.1 {self.args.ping_target or '127.0.0.1'}' and parses [epoch.us]. "
+                    "Per-sample latency uses event_remote_ns and receive_local_ns converted into remote timebase via estimated offset. "
+                    "Clock-sync uncertainty is approximately +/- best_rtt/2 for the chosen sample."
                 ),
             },
             "summary": [asdict(row) for row in self.summaries()],
             "session_setup": {
                 p: {w: self._session_setup_stats(p, w) for w in self.args.workloads}
+                for p in self.args.protocols
+            },
+            "clock_sync": {
+                p: {w: self._clock_sync_stats(p, w) for w in self.args.workloads}
                 for p in self.args.protocols
             },
         }
@@ -616,10 +748,33 @@ class W2Benchmark:
                     for trial_id, ms in enumerate(self.session_setups[p][w], start=1):
                         writer.writerow([p, w, trial_id, f"{ms:.6f}"])
 
+        with clock_sync_csv.open("w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                "protocol",
+                "workload",
+                "trial_id",
+                "offset_ms",
+                "best_rtt_ms",
+                "uncertainty_ms",
+                "samples",
+            ])
+            for r in self.clock_sync_records:
+                writer.writerow([
+                    r.protocol,
+                    r.workload,
+                    r.round_id,
+                    f"{r.offset_ms:.6f}",
+                    f"{r.best_rtt_ms:.6f}",
+                    f"{r.uncertainty_ms:.6f}",
+                    r.samples,
+                ])
+
         print(f"Saved summary JSON    : {summary_json}")
         print(f"Saved raw samples CSV : {raw_csv}")
         print(f"Saved failures CSV    : {failures_csv}")
         print(f"Saved session setup   : {setup_csv}")
+        print(f"Saved clock sync CSV  : {clock_sync_csv}")
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -635,6 +790,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--trials", type=int, default=15, help="Independent sessions per protocol/workload pair")
     p.add_argument("--iterations", type=int, default=100, help="Recorded samples per trial")
     p.add_argument("--timeout", type=int, default=20, help="pexpect timeout in seconds")
+    p.add_argument("--clock-sync-samples", type=int, default=7, help="Clock-sync probes per session (default: 7)")
+    p.add_argument("--clock-sync-pause", type=float, default=0.02, help="Pause between clock-sync probes in seconds")
     p.add_argument("--seed", type=int, default=42, help="Random seed")
     p.add_argument("--output-dir", default="w2_results", help="Directory for JSON/CSV outputs")
     p.add_argument("--prompt", default=DEFAULT_PROMPT, help="Unique shell prompt marker used after session is ready")
@@ -657,6 +814,10 @@ def main() -> int:
         parser.error("--trials must be > 0")
     if args.iterations <= 0:
         parser.error("--iterations must be > 0")
+    if args.clock_sync_samples <= 0:
+        parser.error("--clock-sync-samples must be > 0")
+    if args.clock_sync_pause < 0:
+        parser.error("--clock-sync-pause must be >= 0")
 
     bench = W2Benchmark(args)
     bench.run()
