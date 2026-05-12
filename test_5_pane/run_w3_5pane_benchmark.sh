@@ -10,9 +10,9 @@ IDENTITY_FILE="$HOME/.ssh/id_rsa"
 PROTOCOLS="ssh ssh3 mosh"                         # ssh | ssh3 | mosh
 WORKLOADS=" interactive_shell vim nano"       # interactive_shell | vim | nano
 
-ITERATIONS=30
+ITERATIONS=100
 WARMUP_ROUNDS=10
-TRIALS=5  
+TRIALS=3  
 TIMEOUT=20
 SEED=42
 
