@@ -38,12 +38,25 @@ def load_rows(path: Path) -> list[dict[str, str]]:
         return list(csv.DictReader(f))
 
 
-def build_series(
+def sanitize_token(value: str) -> str:
+    cleaned = "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in value)
+    cleaned = cleaned.strip("_")
+    return cleaned or "unknown"
+
+
+def protocol_sort_key(protocol: str) -> tuple[int, str]:
+    order = {"ssh": 0, "mosh": 1, "ssh3": 2}
+    return (order.get(protocol.lower(), 99), protocol.lower())
+
+
+def build_metric_maps(
     rows: list[dict[str, str]],
-    group_fields: list[str],
+    workload_field: str,
+    protocol_field: str,
+    facet_fields: list[str],
     metric: str,
-) -> dict[tuple[str, ...], tuple[list[int], list[float]]]:
-    grouped: dict[tuple[str, ...], dict[int, list[float]]] = defaultdict(
+) -> dict[tuple[str, tuple[str, ...]], dict[str, tuple[list[int], list[float]]]]:
+    grouped: dict[tuple[str, tuple[str, ...], str], dict[int, list[float]]] = defaultdict(
         lambda: defaultdict(list)
     )
 
@@ -63,11 +76,14 @@ def build_series(
         except ValueError:
             continue
 
-        key = tuple(row.get(field, "").strip() for field in group_fields)
+        workload = row.get(workload_field, "").strip() or "unknown_workload"
+        protocol = row.get(protocol_field, "").strip() or "unknown_protocol"
+        facet_key = tuple(row.get(field, "").strip() or "unknown" for field in facet_fields)
+        key = (workload, facet_key, protocol)
         grouped[key][trial_id].append(latency)
 
-    series: dict[tuple[str, ...], tuple[list[int], list[float]]] = {}
-    for key, trial_map in grouped.items():
+    metrics: dict[tuple[str, tuple[str, ...]], dict[str, tuple[list[int], list[float]]]] = defaultdict(dict)
+    for (workload, facet_key, protocol), trial_map in grouped.items():
         xs = sorted(trial_map.keys())
         ys: list[float] = []
         for x in xs:
@@ -77,14 +93,16 @@ def build_series(
             else:
                 ys.append(percentile(values, 95.0))
         if xs and ys:
-            series[key] = (xs, ys)
+            metrics[(workload, facet_key)][protocol] = (xs, ys)
 
-    return series
+    return dict(metrics)
 
 
 def plot_metric(
-    series: dict[tuple[str, ...], tuple[list[int], list[float]]],
-    group_fields: list[str],
+    protocol_series: dict[str, tuple[list[int], list[float]]],
+    workload: str,
+    facet_fields: list[str],
+    facet_key: tuple[str, ...],
     metric: str,
     output_path: Path,
     title_prefix: str,
@@ -92,12 +110,25 @@ def plot_metric(
 ) -> None:
     fig, ax = plt.subplots(figsize=(12, 6))
 
-    for key in sorted(series):
-        xs, ys = series[key]
-        label = " | ".join(f"{name}={value}" for name, value in zip(group_fields, key))
-        ax.plot(xs, ys, marker="o", linewidth=1.8, markersize=4, label=label)
+    for protocol in sorted(protocol_series, key=protocol_sort_key):
+        xs, ys = protocol_series[protocol]
+        ax.plot(
+            xs,
+            ys,
+            marker="o",
+            linewidth=2.0,
+            markersize=4,
+            label=protocol,
+        )
 
-    ax.set_title(f"{title_prefix} trend by trial ({metric.upper()})")
+    facet_title = ""
+    if facet_fields:
+        facet_title = " | " + ", ".join(
+            f"{name}={value}" for name, value in zip(facet_fields, facet_key)
+        )
+    ax.set_title(
+        f"{title_prefix} | workload={workload}{facet_title} | {metric.upper()} by trial"
+    )
     ax.set_xlabel("trial_id (round_id)")
     ax.set_ylabel("latency_ms")
     ax.grid(True, alpha=0.3)
@@ -122,7 +153,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--group-fields",
         nargs="+",
         default=["protocol", "workload"],
-        help="CSV fields used to split series lines",
+        help=(
+            "Fields used for chart grouping. Must include protocol + workload. "
+            "Any extra fields become per-chart facets (e.g. command)."
+        ),
     )
     parser.add_argument("--dpi", type=int, default=200, help="PNG DPI")
     return parser
@@ -141,36 +175,70 @@ def main() -> int:
     if not line_log_path.exists():
         raise SystemExit(f"Line log CSV not found: {line_log_path}")
 
+    if "protocol" not in args.group_fields or "workload" not in args.group_fields:
+        raise SystemExit("--group-fields must include both 'protocol' and 'workload'")
+
+    facet_fields = [
+        field for field in args.group_fields if field not in ("protocol", "workload")
+    ]
     rows = load_rows(line_log_path)
-    mean_series = build_series(rows, args.group_fields, "mean")
-    p95_series = build_series(rows, args.group_fields, "p95")
-    if not mean_series or not p95_series:
+    mean_maps = build_metric_maps(rows, "workload", "protocol", facet_fields, "mean")
+    p95_maps = build_metric_maps(rows, "workload", "protocol", facet_fields, "p95")
+    if not mean_maps or not p95_maps:
         raise SystemExit(
             "No valid successful samples found in line log CSV (status=ok with latency_ms)."
         )
 
-    mean_path = output_dir / f"{args.prefix}_trend_mean.png"
-    p95_path = output_dir / f"{args.prefix}_trend_p95.png"
-
-    plot_metric(
-        mean_series,
-        args.group_fields,
-        "mean",
-        mean_path,
-        args.prefix.upper(),
-        args.dpi,
+    created: list[Path] = []
+    chart_keys = sorted(
+        set(mean_maps.keys()) | set(p95_maps.keys()),
+        key=lambda item: (
+            item[0].lower(),
+            tuple(part.lower() for part in item[1]),
+        ),
     )
-    plot_metric(
-        p95_series,
-        args.group_fields,
-        "p95",
-        p95_path,
-        args.prefix.upper(),
-        args.dpi,
-    )
+    for workload, facet_key in chart_keys:
+        workload_token = sanitize_token(workload)
+        facet_suffix = ""
+        if facet_fields:
+            facet_parts = [
+                f"{name}-{sanitize_token(value)}"
+                for name, value in zip(facet_fields, facet_key)
+            ]
+            facet_suffix = "_" + "_".join(facet_parts)
 
-    print(f"Saved trend chart (mean): {mean_path}")
-    print(f"Saved trend chart (p95) : {p95_path}")
+        mean_path = output_dir / f"{args.prefix}_{workload_token}{facet_suffix}_trend_mean.png"
+        p95_path = output_dir / f"{args.prefix}_{workload_token}{facet_suffix}_trend_p95.png"
+
+        mean_series = mean_maps.get((workload, facet_key), {})
+        p95_series = p95_maps.get((workload, facet_key), {})
+        if mean_series:
+            plot_metric(
+                mean_series,
+                workload,
+                facet_fields,
+                facet_key,
+                "mean",
+                mean_path,
+                args.prefix.upper(),
+                args.dpi,
+            )
+            created.append(mean_path)
+        if p95_series:
+            plot_metric(
+                p95_series,
+                workload,
+                facet_fields,
+                facet_key,
+                "p95",
+                p95_path,
+                args.prefix.upper(),
+                args.dpi,
+            )
+            created.append(p95_path)
+
+    for path in created:
+        print(f"Saved trend chart: {path}")
     return 0
 
 
