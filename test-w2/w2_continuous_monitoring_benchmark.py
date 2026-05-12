@@ -32,7 +32,12 @@ _ANSI_SEQ = r"(?:\x1b\[\??[0-9;]*[a-zA-Z])"
 _ECHO_GAP = rf"(?:{_ANSI_SEQ}|[\r\n\b])*"
 # date +%s%N yields a 19-digit epoch-ns timestamp on GNU date.
 _GAPPED_EPOCH_NS = rf"(\d(?:{_ECHO_GAP}\d){{18}})"
-_GAPPED_FLOAT = rf"(\d(?:{_ECHO_GAP}\d)*{_ECHO_GAP}\.{_ECHO_GAP}\d(?:{_ECHO_GAP}\d)*)"
+# ping -D emits epoch.us (currently 10 digits seconds + 6 digits usec).
+_GAPPED_PING_EPOCH_US = (
+    rf"(\d(?:{_ECHO_GAP}\d){{9}}"
+    rf"{_ECHO_GAP}\."
+    rf"{_ECHO_GAP}\d(?:{_ECHO_GAP}\d){{5}})"
+)
 _INITIAL_PROMPT_RE = re.compile(
     r"[#$>](?:" + _ANSI_SEQ + r"|\s)*\s*$",
     re.MULTILINE,
@@ -445,7 +450,7 @@ class W2Benchmark:
         report_cb: Callable[[int, float], None],
     ) -> None:
         marker_re = re.compile(
-            re.escape("[") + _ECHO_GAP + _GAPPED_FLOAT +
+            re.escape("[") + _ECHO_GAP + _GAPPED_PING_EPOCH_US +
             _ECHO_GAP + re.escape("]")
         )
         ping_target = self.args.ping_target or "127.0.0.1"
