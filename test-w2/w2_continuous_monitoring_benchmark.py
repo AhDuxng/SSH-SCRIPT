@@ -116,6 +116,28 @@ class W2Benchmark:
     def _strip_ansi(text: str) -> str:
         return re.sub(_ANSI_SEQ, "", text)
 
+    def _extract_remote_ts_from_stream(
+        self,
+        raw_stream: str,
+        marker_prefix: str,
+    ) -> Optional[int]:
+        """Extract the latest timestamp that follows a marker prefix.
+
+        This matcher is resilient to ANSI/control characters inserted between
+        marker bytes (common with terminal redraws / mosh).
+        """
+        marker_re = re.compile(
+            self._build_gapped_literal(marker_prefix) +
+            r"((?:[0-9.%N]|" + _ANSI_SEQ + r"|[\r\n\b])+)"
+        )
+        matches = marker_re.findall(raw_stream)
+        for ts_raw in reversed(matches):
+            try:
+                return self._parse_epoch_to_ns(ts_raw)
+            except ValueError:
+                continue
+        return None
+
     def _next_marker_tail(self) -> str:
         if self.prev_marker_tail is None:
             tail = "".join(random.choice(_TAIL_ALPHABET) for _ in range(MARKER_TAIL_LEN))
@@ -292,28 +314,24 @@ class W2Benchmark:
             sample_ok = False
             for attempt in range(1, 3):
                 marker_tail = self._next_marker_tail()
-                marker_re = re.compile(
-                    re.escape(marker) + ":" + re.escape(marker_tail) + r":([^\r\n]+)"
-                )
+                marker_prefix = f"{marker}:{marker_tail}:"
 
                 t0 = time.time_ns()
                 child.sendline(f'echo "{marker}:{marker_tail}:$(date +%s%N)"')
                 self._expect_prompt(child)
                 t1 = time.time_ns()
 
-                raw_out = self._strip_ansi(child.before)
-                matches = marker_re.findall(raw_out)
-                remote_ns: Optional[int] = None
-                for ts_raw in reversed(matches):
-                    try:
-                        remote_ns = self._parse_epoch_to_ns(ts_raw)
-                        break
-                    except ValueError:
-                        continue
+                remote_ns = self._extract_remote_ts_from_stream(
+                    child.before,
+                    marker_prefix,
+                )
 
                 if remote_ns is None:
+                    debug_snippet = self._strip_ansi(child.before).replace("\r", "\\r").replace("\n", "\\n")
+                    debug_snippet = debug_snippet[-200:]
                     print(
-                        f"  [WARN] clock_sync sample parse failed (attempt {attempt}/2), retrying...",
+                        f"  [WARN] clock_sync sample parse failed (attempt {attempt}/2), retrying... "
+                        f"marker_prefix={marker_prefix!r} tail_stream={debug_snippet!r}",
                         flush=True,
                     )
                     continue
