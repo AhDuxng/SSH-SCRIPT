@@ -7,12 +7,12 @@ USER_NAME="pi"
 SOURCE_IP="100.70.166.91"
 IDENTITY_FILE="$HOME/.ssh/id_ed25519"
 
-PROTOCOLS="mosh"                         # ssh | ssh3 | mosh
-WORKLOADS="vim nano"       # interactive_shell | vim | nano
+PROTOCOLS="ssh ssh3 mosh"                         # ssh | ssh3 | mosh
+WORKLOADS="interactive_shell vim nano"       # interactive_shell | vim | nano
 
-ITERATIONS=10
+ITERATIONS=50
 WARMUP_ROUNDS=10
-TRIALS=1  
+TRIALS=10
 TIMEOUT=20
 SEED=42
 

@@ -1,448 +1,16 @@
 protocol,workload,round_id,sample_id,error_type,error_message
-ssh,vim,2,-1,TIMEOUT,"Timeout exceeded.
-<pexpect.pty_spawn.spawn object at 0x7f73137d1090>
-command: /usr/bin/ssh
-args: [b'/usr/bin/ssh', b'-tt', b'-b', b'100.70.166.91', b'-o', b'StrictHostKeyChecking=no', b'-o', b'UserKnownHostsFile=/dev/null', b'-i', b'/home/twan/.ssh/id_ed25519', b'pi@100.66.79.93']
-buffer (last 100 chars): ''
-before (last 100 chars): ''
-after: <class 'pexpect.exceptions.TIMEOUT'>
-match: None
-match_index: None
-exitstatus: None
-flag_eof: False
-pid: 590526
-child_fd: 5
-closed: False
-timeout: 20
-delimiter: <class 'pexpect.exceptions.EOF'>
-logfile: None
-logfile_read: <_io.TextIOWrapper name='w3_5pane_results/pexpect_ssh.log' mode='a' encoding='utf-8'>
-logfile_send: None
-maxread: 2000
-ignorecase: False
-searchwindowsize: None
-delaybeforesend: 0.05
-delayafterclose: 0.1
-delayafterterminate: 0.1
-searcher: searcher_re:
-    0: re.compile('_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*W(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*3(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*P(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*R(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*O(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*M(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*P(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*T(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*\\#(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|\\s)*')"
-ssh,vim,3,-1,TIMEOUT,"Timeout exceeded.
-<pexpect.pty_spawn.spawn object at 0x7f73137d0f50>
-command: /usr/bin/ssh
-args: [b'/usr/bin/ssh', b'-tt', b'-b', b'100.70.166.91', b'-o', b'StrictHostKeyChecking=no', b'-o', b'UserKnownHostsFile=/dev/null', b'-i', b'/home/twan/.ssh/id_ed25519', b'pi@100.66.79.93']
-buffer (last 100 chars): ''
-before (last 100 chars): ''
-after: <class 'pexpect.exceptions.TIMEOUT'>
-match: None
-match_index: None
-exitstatus: None
-flag_eof: False
-pid: 590645
-child_fd: 6
-closed: False
-timeout: 20
-delimiter: <class 'pexpect.exceptions.EOF'>
-logfile: None
-logfile_read: <_io.TextIOWrapper name='w3_5pane_results/pexpect_ssh.log' mode='a' encoding='utf-8'>
-logfile_send: None
-maxread: 2000
-ignorecase: False
-searchwindowsize: None
-delaybeforesend: 0.05
-delayafterclose: 0.1
-delayafterterminate: 0.1
-searcher: searcher_re:
-    0: re.compile('_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*W(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*3(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*P(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*R(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*O(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*M(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*P(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*T(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*\\#(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|\\s)*')"
-ssh,vim,4,-1,TIMEOUT,"Timeout exceeded.
-<pexpect.pty_spawn.spawn object at 0x7f73137d1590>
-command: /usr/bin/ssh
-args: [b'/usr/bin/ssh', b'-tt', b'-b', b'100.70.166.91', b'-o', b'StrictHostKeyChecking=no', b'-o', b'UserKnownHostsFile=/dev/null', b'-i', b'/home/twan/.ssh/id_ed25519', b'pi@100.66.79.93']
-buffer (last 100 chars): ''
-before (last 100 chars): ''
-after: <class 'pexpect.exceptions.TIMEOUT'>
-match: None
-match_index: None
-exitstatus: None
-flag_eof: False
-pid: 590741
-child_fd: 6
-closed: False
-timeout: 20
-delimiter: <class 'pexpect.exceptions.EOF'>
-logfile: None
-logfile_read: <_io.TextIOWrapper name='w3_5pane_results/pexpect_ssh.log' mode='a' encoding='utf-8'>
-logfile_send: None
-maxread: 2000
-ignorecase: False
-searchwindowsize: None
-delaybeforesend: 0.05
-delayafterclose: 0.1
-delayafterterminate: 0.1
-searcher: searcher_re:
-    0: re.compile('[#$>](?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|\\s)*\\s*$')"
-ssh,vim,5,-1,TIMEOUT,"Timeout exceeded.
-<pexpect.pty_spawn.spawn object at 0x7f73137d1810>
-command: /usr/bin/ssh
-args: [b'/usr/bin/ssh', b'-tt', b'-b', b'100.70.166.91', b'-o', b'StrictHostKeyChecking=no', b'-o', b'UserKnownHostsFile=/dev/null', b'-i', b'/home/twan/.ssh/id_ed25519', b'pi@100.66.79.93']
-buffer (last 100 chars): ''
-before (last 100 chars): ''
-after: <class 'pexpect.exceptions.TIMEOUT'>
-match: None
-match_index: None
-exitstatus: None
-flag_eof: False
-pid: 590745
-child_fd: 8
-closed: False
-timeout: 20
-delimiter: <class 'pexpect.exceptions.EOF'>
-logfile: None
-logfile_read: <_io.TextIOWrapper name='w3_5pane_results/pexpect_ssh.log' mode='a' encoding='utf-8'>
-logfile_send: None
-maxread: 2000
-ignorecase: False
-searchwindowsize: None
-delaybeforesend: 0.05
-delayafterclose: 0.1
-delayafterterminate: 0.1
-searcher: searcher_re:
-    0: re.compile('[#$>](?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|\\s)*\\s*$')"
-ssh,vim,6,-1,TIMEOUT,"Timeout exceeded.
-<pexpect.pty_spawn.spawn object at 0x7f73137d1950>
-command: /usr/bin/ssh
-args: [b'/usr/bin/ssh', b'-tt', b'-b', b'100.70.166.91', b'-o', b'StrictHostKeyChecking=no', b'-o', b'UserKnownHostsFile=/dev/null', b'-i', b'/home/twan/.ssh/id_ed25519', b'pi@100.66.79.93']
-buffer (last 100 chars): ''
-before (last 100 chars): ''
-after: <class 'pexpect.exceptions.TIMEOUT'>
-match: None
-match_index: None
-exitstatus: None
-flag_eof: False
-pid: 590773
-child_fd: 10
-closed: False
-timeout: 20
-delimiter: <class 'pexpect.exceptions.EOF'>
-logfile: None
-logfile_read: <_io.TextIOWrapper name='w3_5pane_results/pexpect_ssh.log' mode='a' encoding='utf-8'>
-logfile_send: None
-maxread: 2000
-ignorecase: False
-searchwindowsize: None
-delaybeforesend: 0.05
-delayafterclose: 0.1
-delayafterterminate: 0.1
-searcher: searcher_re:
-    0: re.compile('[#$>](?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|\\s)*\\s*$')"
-ssh,vim,7,-1,TIMEOUT,"Timeout exceeded.
-<pexpect.pty_spawn.spawn object at 0x7f73137d1a90>
-command: /usr/bin/ssh
-args: [b'/usr/bin/ssh', b'-tt', b'-b', b'100.70.166.91', b'-o', b'StrictHostKeyChecking=no', b'-o', b'UserKnownHostsFile=/dev/null', b'-i', b'/home/twan/.ssh/id_ed25519', b'pi@100.66.79.93']
-buffer (last 100 chars): ''
-before (last 100 chars): ''
-after: <class 'pexpect.exceptions.TIMEOUT'>
-match: None
-match_index: None
-exitstatus: None
-flag_eof: False
-pid: 590801
-child_fd: 12
-closed: False
-timeout: 20
-delimiter: <class 'pexpect.exceptions.EOF'>
-logfile: None
-logfile_read: <_io.TextIOWrapper name='w3_5pane_results/pexpect_ssh.log' mode='a' encoding='utf-8'>
-logfile_send: None
-maxread: 2000
-ignorecase: False
-searchwindowsize: None
-delaybeforesend: 0.05
-delayafterclose: 0.1
-delayafterterminate: 0.1
-searcher: searcher_re:
-    0: re.compile('[#$>](?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|\\s)*\\s*$')"
-ssh,vim,8,-1,TIMEOUT,"Timeout exceeded.
-<pexpect.pty_spawn.spawn object at 0x7f73137d1bd0>
-command: /usr/bin/ssh
-args: [b'/usr/bin/ssh', b'-tt', b'-b', b'100.70.166.91', b'-o', b'StrictHostKeyChecking=no', b'-o', b'UserKnownHostsFile=/dev/null', b'-i', b'/home/twan/.ssh/id_ed25519', b'pi@100.66.79.93']
-buffer (last 100 chars): ''
-before (last 100 chars): ''
-after: <class 'pexpect.exceptions.TIMEOUT'>
-match: None
-match_index: None
-exitstatus: None
-flag_eof: False
-pid: 590832
-child_fd: 14
-closed: False
-timeout: 20
-delimiter: <class 'pexpect.exceptions.EOF'>
-logfile: None
-logfile_read: <_io.TextIOWrapper name='w3_5pane_results/pexpect_ssh.log' mode='a' encoding='utf-8'>
-logfile_send: None
-maxread: 2000
-ignorecase: False
-searchwindowsize: None
-delaybeforesend: 0.05
-delayafterclose: 0.1
-delayafterterminate: 0.1
-searcher: searcher_re:
-    0: re.compile('[#$>](?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|\\s)*\\s*$')"
-ssh,vim,9,-1,TIMEOUT,"Timeout exceeded.
-<pexpect.pty_spawn.spawn object at 0x7f73137d1d10>
-command: /usr/bin/ssh
-args: [b'/usr/bin/ssh', b'-tt', b'-b', b'100.70.166.91', b'-o', b'StrictHostKeyChecking=no', b'-o', b'UserKnownHostsFile=/dev/null', b'-i', b'/home/twan/.ssh/id_ed25519', b'pi@100.66.79.93']
-buffer (last 100 chars): ''
-before (last 100 chars): ''
-after: <class 'pexpect.exceptions.TIMEOUT'>
-match: None
-match_index: None
-exitstatus: None
-flag_eof: False
-pid: 590870
-child_fd: 16
-closed: False
-timeout: 20
-delimiter: <class 'pexpect.exceptions.EOF'>
-logfile: None
-logfile_read: <_io.TextIOWrapper name='w3_5pane_results/pexpect_ssh.log' mode='a' encoding='utf-8'>
-logfile_send: None
-maxread: 2000
-ignorecase: False
-searchwindowsize: None
-delaybeforesend: 0.05
-delayafterclose: 0.1
-delayafterterminate: 0.1
-searcher: searcher_re:
-    0: re.compile('[#$>](?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|\\s)*\\s*$')"
-ssh,vim,10,-1,TIMEOUT,"Timeout exceeded.
-<pexpect.pty_spawn.spawn object at 0x7f73137d1e50>
-command: /usr/bin/ssh
-args: [b'/usr/bin/ssh', b'-tt', b'-b', b'100.70.166.91', b'-o', b'StrictHostKeyChecking=no', b'-o', b'UserKnownHostsFile=/dev/null', b'-i', b'/home/twan/.ssh/id_ed25519', b'pi@100.66.79.93']
-buffer (last 100 chars): ""Warning: Permanently added '100.66.79.93' (ED25519) to the list of known hosts.\r\r\n""
-before (last 100 chars): ""Warning: Permanently added '100.66.79.93' (ED25519) to the list of known hosts.\r\r\n""
-after: <class 'pexpect.exceptions.TIMEOUT'>
-match: None
-match_index: None
-exitstatus: None
-flag_eof: False
-pid: 590905
-child_fd: 18
-closed: False
-timeout: 20
-delimiter: <class 'pexpect.exceptions.EOF'>
-logfile: None
-logfile_read: <_io.TextIOWrapper name='w3_5pane_results/pexpect_ssh.log' mode='a' encoding='utf-8'>
-logfile_send: None
-maxread: 2000
-ignorecase: False
-searchwindowsize: None
-delaybeforesend: 0.05
-delayafterclose: 0.1
-delayafterterminate: 0.1
-searcher: searcher_re:
-    0: re.compile('[#$>](?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|\\s)*\\s*$')"
-ssh,vim,11,-1,TIMEOUT,"Timeout exceeded.
-<pexpect.pty_spawn.spawn object at 0x7f73137d1f90>
-command: /usr/bin/ssh
-args: [b'/usr/bin/ssh', b'-tt', b'-b', b'100.70.166.91', b'-o', b'StrictHostKeyChecking=no', b'-o', b'UserKnownHostsFile=/dev/null', b'-i', b'/home/twan/.ssh/id_ed25519', b'pi@100.66.79.93']
-buffer (last 100 chars): ''
-before (last 100 chars): ''
-after: <class 'pexpect.exceptions.TIMEOUT'>
-match: None
-match_index: None
-exitstatus: None
-flag_eof: False
-pid: 590945
-child_fd: 20
-closed: False
-timeout: 20
-delimiter: <class 'pexpect.exceptions.EOF'>
-logfile: None
-logfile_read: <_io.TextIOWrapper name='w3_5pane_results/pexpect_ssh.log' mode='a' encoding='utf-8'>
-logfile_send: None
-maxread: 2000
-ignorecase: False
-searchwindowsize: None
-delaybeforesend: 0.05
-delayafterclose: 0.1
-delayafterterminate: 0.1
-searcher: searcher_re:
-    0: re.compile('_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*W(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*3(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*P(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*R(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*O(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*M(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*P(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*T(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*\\#(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|\\s)*')"
-ssh,vim,12,-1,TIMEOUT,"Timeout exceeded.
-<pexpect.pty_spawn.spawn object at 0x7f73137d2210>
-command: /usr/bin/ssh
-args: [b'/usr/bin/ssh', b'-tt', b'-b', b'100.70.166.91', b'-o', b'StrictHostKeyChecking=no', b'-o', b'UserKnownHostsFile=/dev/null', b'-i', b'/home/twan/.ssh/id_ed25519', b'pi@100.66.79.93']
-buffer (last 100 chars): ''
-before (last 100 chars): ''
-after: <class 'pexpect.exceptions.TIMEOUT'>
-match: None
-match_index: None
-exitstatus: None
-flag_eof: False
-pid: 591199
-child_fd: 21
-closed: False
-timeout: 20
-delimiter: <class 'pexpect.exceptions.EOF'>
-logfile: None
-logfile_read: <_io.TextIOWrapper name='w3_5pane_results/pexpect_ssh.log' mode='a' encoding='utf-8'>
-logfile_send: None
-maxread: 2000
-ignorecase: False
-searchwindowsize: None
-delaybeforesend: 0.05
-delayafterclose: 0.1
-delayafterterminate: 0.1
-searcher: searcher_re:
-    0: re.compile('_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*W(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*3(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*P(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*R(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*O(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*M(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*P(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*T(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*\\#(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|\\s)*')"
-ssh,vim,13,-1,TIMEOUT,"Timeout exceeded.
-<pexpect.pty_spawn.spawn object at 0x7f73137d2490>
-command: /usr/bin/ssh
-args: [b'/usr/bin/ssh', b'-tt', b'-b', b'100.70.166.91', b'-o', b'StrictHostKeyChecking=no', b'-o', b'UserKnownHostsFile=/dev/null', b'-i', b'/home/twan/.ssh/id_ed25519', b'pi@100.66.79.93']
-buffer (last 100 chars): ''
-before (last 100 chars): ''
-after: <class 'pexpect.exceptions.TIMEOUT'>
-match: None
-match_index: None
-exitstatus: None
-flag_eof: False
-pid: 591676
-child_fd: 21
-closed: False
-timeout: 20
-delimiter: <class 'pexpect.exceptions.EOF'>
-logfile: None
-logfile_read: <_io.TextIOWrapper name='w3_5pane_results/pexpect_ssh.log' mode='a' encoding='utf-8'>
-logfile_send: None
-maxread: 2000
-ignorecase: False
-searchwindowsize: None
-delaybeforesend: 0.05
-delayafterclose: 0.1
-delayafterterminate: 0.1
-searcher: searcher_re:
-    0: re.compile('_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*W(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*3(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*P(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*R(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*O(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*M(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*P(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*T(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*\\#(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|\\s)*')"
-ssh,vim,14,-1,TIMEOUT,"Timeout exceeded.
-<pexpect.pty_spawn.spawn object at 0x7f73137d2350>
-command: /usr/bin/ssh
-args: [b'/usr/bin/ssh', b'-tt', b'-b', b'100.70.166.91', b'-o', b'StrictHostKeyChecking=no', b'-o', b'UserKnownHostsFile=/dev/null', b'-i', b'/home/twan/.ssh/id_ed25519', b'pi@100.66.79.93']
-buffer (last 100 chars): ''
-before (last 100 chars): ''
-after: <class 'pexpect.exceptions.TIMEOUT'>
-match: None
-match_index: None
-exitstatus: None
-flag_eof: False
-pid: 592185
-child_fd: 21
-closed: False
-timeout: 20
-delimiter: <class 'pexpect.exceptions.EOF'>
-logfile: None
-logfile_read: <_io.TextIOWrapper name='w3_5pane_results/pexpect_ssh.log' mode='a' encoding='utf-8'>
-logfile_send: None
-maxread: 2000
-ignorecase: False
-searchwindowsize: None
-delaybeforesend: 0.05
-delayafterclose: 0.1
-delayafterterminate: 0.1
-searcher: searcher_re:
-    0: re.compile('[#$>](?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|\\s)*\\s*$')"
-ssh,vim,15,-1,TIMEOUT,"Timeout exceeded.
-<pexpect.pty_spawn.spawn object at 0x7f73137d20d0>
-command: /usr/bin/ssh
-args: [b'/usr/bin/ssh', b'-tt', b'-b', b'100.70.166.91', b'-o', b'StrictHostKeyChecking=no', b'-o', b'UserKnownHostsFile=/dev/null', b'-i', b'/home/twan/.ssh/id_ed25519', b'pi@100.66.79.93']
-buffer (last 100 chars): ''
-before (last 100 chars): ''
-after: <class 'pexpect.exceptions.TIMEOUT'>
-match: None
-match_index: None
-exitstatus: None
-flag_eof: False
-pid: 592194
-child_fd: 23
-closed: False
-timeout: 20
-delimiter: <class 'pexpect.exceptions.EOF'>
-logfile: None
-logfile_read: <_io.TextIOWrapper name='w3_5pane_results/pexpect_ssh.log' mode='a' encoding='utf-8'>
-logfile_send: None
-maxread: 2000
-ignorecase: False
-searchwindowsize: None
-delaybeforesend: 0.05
-delayafterclose: 0.1
-delayafterterminate: 0.1
-searcher: searcher_re:
-    0: re.compile('[#$>](?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|\\s)*\\s*$')"
-ssh,nano,1,-1,TIMEOUT,"Timeout exceeded.
-<pexpect.pty_spawn.spawn object at 0x7f73137d25d0>
-command: /usr/bin/ssh
-args: [b'/usr/bin/ssh', b'-tt', b'-b', b'100.70.166.91', b'-o', b'StrictHostKeyChecking=no', b'-o', b'UserKnownHostsFile=/dev/null', b'-i', b'/home/twan/.ssh/id_ed25519', b'pi@100.66.79.93']
-buffer (last 100 chars): ''
-before (last 100 chars): ''
-after: <class 'pexpect.exceptions.TIMEOUT'>
-match: None
-match_index: None
-exitstatus: None
-flag_eof: False
-pid: 592248
-child_fd: 25
-closed: False
-timeout: 20
-delimiter: <class 'pexpect.exceptions.EOF'>
-logfile: None
-logfile_read: <_io.TextIOWrapper name='w3_5pane_results/pexpect_ssh.log' mode='a' encoding='utf-8'>
-logfile_send: None
-maxread: 2000
-ignorecase: False
-searchwindowsize: None
-delaybeforesend: 0.05
-delayafterclose: 0.1
-delayafterterminate: 0.1
-searcher: searcher_re:
-    0: re.compile('[#$>](?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|\\s)*\\s*$')"
-ssh,nano,2,-1,TIMEOUT,"Timeout exceeded.
-<pexpect.pty_spawn.spawn object at 0x7f73137d2710>
-command: /usr/bin/ssh
-args: [b'/usr/bin/ssh', b'-tt', b'-b', b'100.70.166.91', b'-o', b'StrictHostKeyChecking=no', b'-o', b'UserKnownHostsFile=/dev/null', b'-i', b'/home/twan/.ssh/id_ed25519', b'pi@100.66.79.93']
-buffer (last 100 chars): ''
-before (last 100 chars): ''
-after: <class 'pexpect.exceptions.TIMEOUT'>
-match: None
-match_index: None
-exitstatus: None
-flag_eof: False
-pid: 592298
-child_fd: 27
-closed: False
-timeout: 20
-delimiter: <class 'pexpect.exceptions.EOF'>
-logfile: None
-logfile_read: <_io.TextIOWrapper name='w3_5pane_results/pexpect_ssh.log' mode='a' encoding='utf-8'>
-logfile_send: None
-maxread: 2000
-ignorecase: False
-searchwindowsize: None
-delaybeforesend: 0.05
-delayafterclose: 0.1
-delayafterterminate: 0.1
-searcher: searcher_re:
-    0: re.compile('[#$>](?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|\\s)*\\s*$')"
 mosh,interactive_shell,1,-1,TIMEOUT,"Timeout exceeded.
-<pexpect.pty_spawn.spawn object at 0x7f73137d2c10>
+<pexpect.pty_spawn.spawn object at 0x7f15dd6c51d0>
 command: /usr/bin/mosh
 args: [b'/usr/bin/mosh', b'--ssh=ssh -tt -b 100.70.166.91 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i /home/twan/.ssh/id_ed25519', b'--predict', b'never', b'pi@100.66.79.93']
-buffer (last 100 chars): 'OBE_FIXED_Q9J5V2K7M4T8X1\x1b[24;16H\x1b[?25h\x1b[?25l\x1b[22;35HW3_PR\r\nOBE_FIXED_Q9J5V2K7M4T8X1\x1b[K\x1b[24;16H\x1b[?25h'
-before (last 100 chars): 'OBE_FIXED_Q9J5V2K7M4T8X1\x1b[24;16H\x1b[?25h\x1b[?25l\x1b[22;35HW3_PR\r\nOBE_FIXED_Q9J5V2K7M4T8X1\x1b[K\x1b[24;16H\x1b[?25h'
+buffer (last 100 chars): 'm\x1b[1;23r\x1b[?25l\x1b[23;1H\n\x1b[r\x1b[23;1HX1W3_PROBE_FIXED_Q9J5V2K7M4T8X1^C\r\n__\x1b[24;9HMPT__# \x1b[K\x1b[?25h\x1b[?2004h'
+before (last 100 chars): 'm\x1b[1;23r\x1b[?25l\x1b[23;1H\n\x1b[r\x1b[23;1HX1W3_PROBE_FIXED_Q9J5V2K7M4T8X1^C\r\n__\x1b[24;9HMPT__# \x1b[K\x1b[?25h\x1b[?2004h'
 after: <class 'pexpect.exceptions.TIMEOUT'>
 match: None
 match_index: None
 exitstatus: None
 flag_eof: False
-pid: 731590
+pid: 3174010
 child_fd: 5
 closed: False
 timeout: 20
@@ -459,17 +27,17 @@ delayafterterminate: 0.1
 searcher: searcher_re:
     0: re.compile('_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*W(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*3(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*P(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*R(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*O(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*M(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*P(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*T(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*\\#(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|\\s)*')"
 mosh,interactive_shell,2,-1,TIMEOUT,"Timeout exceeded.
-<pexpect.pty_spawn.spawn object at 0x7f73137d25d0>
+<pexpect.pty_spawn.spawn object at 0x7f15dd6c5950>
 command: /usr/bin/mosh
 args: [b'/usr/bin/mosh', b'--ssh=ssh -tt -b 100.70.166.91 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i /home/twan/.ssh/id_ed25519', b'--predict', b'never', b'pi@100.66.79.93']
-buffer (last 100 chars): 'V2K7M4T8X1\x1b[24;16H\x1b[?25h\x1b[?25l\x1b[22;25HW3_PROBE_FIXED_\r\nQ9J5V2K7\x1b[23;10H4\x1b[23;12H8X1\x1b[K\x1b[24;16H\x1b[?25h'
-before (last 100 chars): 'V2K7M4T8X1\x1b[24;16H\x1b[?25h\x1b[?25l\x1b[22;25HW3_PROBE_FIXED_\r\nQ9J5V2K7\x1b[23;10H4\x1b[23;12H8X1\x1b[K\x1b[24;16H\x1b[?25h'
+buffer (last 100 chars): 'm\x1b[1;23r\x1b[?25l\x1b[23;1H\n\x1b[r\x1b[23;1HX1W3_PROBE_FIXED_Q9J5V2K7M4T8X1^C\r\n__\x1b[24;9HMPT__# \x1b[K\x1b[?25h\x1b[?2004h'
+before (last 100 chars): 'm\x1b[1;23r\x1b[?25l\x1b[23;1H\n\x1b[r\x1b[23;1HX1W3_PROBE_FIXED_Q9J5V2K7M4T8X1^C\r\n__\x1b[24;9HMPT__# \x1b[K\x1b[?25h\x1b[?2004h'
 after: <class 'pexpect.exceptions.TIMEOUT'>
 match: None
 match_index: None
 exitstatus: None
 flag_eof: False
-pid: 731670
+pid: 3179113
 child_fd: 6
 closed: False
 timeout: 20
@@ -486,17 +54,17 @@ delayafterterminate: 0.1
 searcher: searcher_re:
     0: re.compile('_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*W(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*3(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*P(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*R(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*O(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*M(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*P(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*T(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*\\#(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|\\s)*')"
 mosh,interactive_shell,3,-1,TIMEOUT,"Timeout exceeded.
-<pexpect.pty_spawn.spawn object at 0x7f73137d2ad0>
+<pexpect.pty_spawn.spawn object at 0x7f15dd6c5090>
 command: /usr/bin/mosh
 args: [b'/usr/bin/mosh', b'--ssh=ssh -tt -b 100.70.166.91 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i /home/twan/.ssh/id_ed25519', b'--predict', b'never', b'pi@100.66.79.93']
-buffer (last 100 chars): '_FIXED_Q9J5V2K7M4T8X1W3_PROBE_FI\r\nXED_Q9J5V2K7M4T8X1W3_PROBE_FIXED_Q9J5V2\r\nK7M4T8X1\x1b[K\x1b[24;16H\x1b[?25h'
-before (last 100 chars): '_FIXED_Q9J5V2K7M4T8X1W3_PROBE_FI\r\nXED_Q9J5V2K7M4T8X1W3_PROBE_FIXED_Q9J5V2\r\nK7M4T8X1\x1b[K\x1b[24;16H\x1b[?25h'
+buffer (last 100 chars): '[1;22r\x1b[?25l\x1b[22;1H\n\x1b[r\x1b[22;1HX1W3_PROBE_FIXED_Q9J5V2K7M4T8X1^C\r\n__\x1b[23;9HMPT__# ^C\x1b[K\x1b[24;16H\x1b[?25h'
+before (last 100 chars): '[1;22r\x1b[?25l\x1b[22;1H\n\x1b[r\x1b[22;1HX1W3_PROBE_FIXED_Q9J5V2K7M4T8X1^C\r\n__\x1b[23;9HMPT__# ^C\x1b[K\x1b[24;16H\x1b[?25h'
 after: <class 'pexpect.exceptions.TIMEOUT'>
 match: None
 match_index: None
 exitstatus: None
 flag_eof: False
-pid: 731778
+pid: 3184059
 child_fd: 7
 closed: False
 timeout: 20
@@ -513,17 +81,17 @@ delayafterterminate: 0.1
 searcher: searcher_re:
     0: re.compile('_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*W(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*3(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*P(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*R(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*O(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*M(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*P(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*T(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*\\#(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|\\s)*')"
 mosh,interactive_shell,4,-1,TIMEOUT,"Timeout exceeded.
-<pexpect.pty_spawn.spawn object at 0x7f73137d20d0>
+<pexpect.pty_spawn.spawn object at 0x7f15dd6c5310>
 command: /usr/bin/mosh
 args: [b'/usr/bin/mosh', b'--ssh=ssh -tt -b 100.70.166.91 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i /home/twan/.ssh/id_ed25519', b'--predict', b'never', b'pi@100.66.79.93']
-buffer (last 100 chars): 'OBE_FIXED_Q9J5V2K7M4T8X1\x1b[24;16H\x1b[?25h\x1b[?25l\x1b[22;35HW3_PR\r\nOBE_FIXED_Q9J5V2K7M4T8X1\x1b[K\x1b[24;16H\x1b[?25h'
-before (last 100 chars): 'OBE_FIXED_Q9J5V2K7M4T8X1\x1b[24;16H\x1b[?25h\x1b[?25l\x1b[22;35HW3_PR\r\nOBE_FIXED_Q9J5V2K7M4T8X1\x1b[K\x1b[24;16H\x1b[?25h'
+buffer (last 100 chars): 'm\x1b[1;23r\x1b[?25l\x1b[23;1H\n\x1b[r\x1b[23;1HX1W3_PROBE_FIXED_Q9J5V2K7M4T8X1^C\r\n__\x1b[24;9HMPT__# \x1b[K\x1b[?25h\x1b[?2004h'
+before (last 100 chars): 'm\x1b[1;23r\x1b[?25l\x1b[23;1H\n\x1b[r\x1b[23;1HX1W3_PROBE_FIXED_Q9J5V2K7M4T8X1^C\r\n__\x1b[24;9HMPT__# \x1b[K\x1b[?25h\x1b[?2004h'
 after: <class 'pexpect.exceptions.TIMEOUT'>
 match: None
 match_index: None
 exitstatus: None
 flag_eof: False
-pid: 731853
+pid: 3189158
 child_fd: 8
 closed: False
 timeout: 20
@@ -540,17 +108,17 @@ delayafterterminate: 0.1
 searcher: searcher_re:
     0: re.compile('_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*W(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*3(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*P(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*R(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*O(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*M(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*P(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*T(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*\\#(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|\\s)*')"
 mosh,interactive_shell,5,-1,TIMEOUT,"Timeout exceeded.
-<pexpect.pty_spawn.spawn object at 0x7f73137d2710>
+<pexpect.pty_spawn.spawn object at 0x7f15dd6c5a90>
 command: /usr/bin/mosh
 args: [b'/usr/bin/mosh', b'--ssh=ssh -tt -b 100.70.166.91 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i /home/twan/.ssh/id_ed25519', b'--predict', b'never', b'pi@100.66.79.93']
-buffer (last 100 chars): 'OBE_FI\r\nXED_Q9J5V2K7M4T8X1W3_PROBE_FIXED_Q9J5V2\r\nK7M4T8X1W3_PROBE_FIXED_Q9J5V2K7M4T8X1\x1b[24;16H\x1b[?25h'
-before (last 100 chars): 'OBE_FI\r\nXED_Q9J5V2K7M4T8X1W3_PROBE_FIXED_Q9J5V2\r\nK7M4T8X1W3_PROBE_FIXED_Q9J5V2K7M4T8X1\x1b[24;16H\x1b[?25h'
+buffer (last 100 chars): 'm\x1b[1;23r\x1b[?25l\x1b[23;1H\n\x1b[r\x1b[23;1HX1W3_PROBE_FIXED_Q9J5V2K7M4T8X1^C\r\n__\x1b[24;9HMPT__# \x1b[K\x1b[?25h\x1b[?2004h'
+before (last 100 chars): 'm\x1b[1;23r\x1b[?25l\x1b[23;1H\n\x1b[r\x1b[23;1HX1W3_PROBE_FIXED_Q9J5V2K7M4T8X1^C\r\n__\x1b[24;9HMPT__# \x1b[K\x1b[?25h\x1b[?2004h'
 after: <class 'pexpect.exceptions.TIMEOUT'>
 match: None
 match_index: None
 exitstatus: None
 flag_eof: False
-pid: 732007
+pid: 3194063
 child_fd: 9
 closed: False
 timeout: 20
@@ -567,17 +135,17 @@ delayafterterminate: 0.1
 searcher: searcher_re:
     0: re.compile('_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*W(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*3(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*P(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*R(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*O(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*M(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*P(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*T(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*\\#(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|\\s)*')"
 mosh,interactive_shell,6,-1,TIMEOUT,"Timeout exceeded.
-<pexpect.pty_spawn.spawn object at 0x7f73137d2350>
+<pexpect.pty_spawn.spawn object at 0x7f15dd6c5bd0>
 command: /usr/bin/mosh
 args: [b'/usr/bin/mosh', b'--ssh=ssh -tt -b 100.70.166.91 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i /home/twan/.ssh/id_ed25519', b'--predict', b'never', b'pi@100.66.79.93']
-buffer (last 100 chars): 'V2K7M4T8X1\x1b[24;16H\x1b[?25h\x1b[?25l\x1b[22;25HW3_PROBE_FIXED_\r\nQ9J5V2K7\x1b[23;10H4\x1b[23;12H8X1\x1b[K\x1b[24;16H\x1b[?25h'
-before (last 100 chars): 'V2K7M4T8X1\x1b[24;16H\x1b[?25h\x1b[?25l\x1b[22;25HW3_PROBE_FIXED_\r\nQ9J5V2K7\x1b[23;10H4\x1b[23;12H8X1\x1b[K\x1b[24;16H\x1b[?25h'
+buffer (last 100 chars): 'm\x1b[1;23r\x1b[?25l\x1b[23;1H\n\x1b[r\x1b[23;1HX1W3_PROBE_FIXED_Q9J5V2K7M4T8X1^C\r\n__\x1b[24;9HMPT__# \x1b[K\x1b[?25h\x1b[?2004h'
+before (last 100 chars): 'm\x1b[1;23r\x1b[?25l\x1b[23;1H\n\x1b[r\x1b[23;1HX1W3_PROBE_FIXED_Q9J5V2K7M4T8X1^C\r\n__\x1b[24;9HMPT__# \x1b[K\x1b[?25h\x1b[?2004h'
 after: <class 'pexpect.exceptions.TIMEOUT'>
 match: None
 match_index: None
 exitstatus: None
 flag_eof: False
-pid: 732084
+pid: 3198977
 child_fd: 10
 closed: False
 timeout: 20
@@ -594,17 +162,17 @@ delayafterterminate: 0.1
 searcher: searcher_re:
     0: re.compile('_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*W(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*3(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*P(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*R(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*O(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*M(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*P(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*T(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*\\#(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|\\s)*')"
 mosh,interactive_shell,7,-1,TIMEOUT,"Timeout exceeded.
-<pexpect.pty_spawn.spawn object at 0x7f73137d2490>
+<pexpect.pty_spawn.spawn object at 0x7f15dd6c5d10>
 command: /usr/bin/mosh
 args: [b'/usr/bin/mosh', b'--ssh=ssh -tt -b 100.70.166.91 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i /home/twan/.ssh/id_ed25519', b'--predict', b'never', b'pi@100.66.79.93']
-buffer (last 100 chars): 'V2K7M4T8X1\x1b[24;16H\x1b[?25h\x1b[?25l\x1b[22;25HW3_PROBE_FIXED_\r\nQ9J5V2K7\x1b[23;10H4\x1b[23;12H8X1\x1b[K\x1b[24;16H\x1b[?25h'
-before (last 100 chars): 'V2K7M4T8X1\x1b[24;16H\x1b[?25h\x1b[?25l\x1b[22;25HW3_PROBE_FIXED_\r\nQ9J5V2K7\x1b[23;10H4\x1b[23;12H8X1\x1b[K\x1b[24;16H\x1b[?25h'
+buffer (last 100 chars): 'm\x1b[1;23r\x1b[?25l\x1b[23;1H\n\x1b[r\x1b[23;1HX1W3_PROBE_FIXED_Q9J5V2K7M4T8X1^C\r\n__\x1b[24;9HMPT__# \x1b[K\x1b[?25h\x1b[?2004h'
+before (last 100 chars): 'm\x1b[1;23r\x1b[?25l\x1b[23;1H\n\x1b[r\x1b[23;1HX1W3_PROBE_FIXED_Q9J5V2K7M4T8X1^C\r\n__\x1b[24;9HMPT__# \x1b[K\x1b[?25h\x1b[?2004h'
 after: <class 'pexpect.exceptions.TIMEOUT'>
 match: None
 match_index: None
 exitstatus: None
 flag_eof: False
-pid: 732232
+pid: 3203879
 child_fd: 11
 closed: False
 timeout: 20
@@ -621,17 +189,17 @@ delayafterterminate: 0.1
 searcher: searcher_re:
     0: re.compile('_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*W(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*3(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*P(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*R(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*O(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*M(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*P(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*T(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*\\#(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|\\s)*')"
 mosh,interactive_shell,8,-1,TIMEOUT,"Timeout exceeded.
-<pexpect.pty_spawn.spawn object at 0x7f73137d2850>
+<pexpect.pty_spawn.spawn object at 0x7f15dd6c5e50>
 command: /usr/bin/mosh
 args: [b'/usr/bin/mosh', b'--ssh=ssh -tt -b 100.70.166.91 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i /home/twan/.ssh/id_ed25519', b'--predict', b'never', b'pi@100.66.79.93']
-buffer (last 100 chars): 'OBE_FIXED_Q9J5V2K7M4T8X1\x1b[24;16H\x1b[?25h\x1b[?25l\x1b[22;35HW3_PR\r\nOBE_FIXED_Q9J5V2K7M4T8X1\x1b[K\x1b[24;16H\x1b[?25h'
-before (last 100 chars): 'OBE_FIXED_Q9J5V2K7M4T8X1\x1b[24;16H\x1b[?25h\x1b[?25l\x1b[22;35HW3_PR\r\nOBE_FIXED_Q9J5V2K7M4T8X1\x1b[K\x1b[24;16H\x1b[?25h'
+buffer (last 100 chars): 'm\x1b[1;23r\x1b[?25l\x1b[23;1H\n\x1b[r\x1b[23;1HX1W3_PROBE_FIXED_Q9J5V2K7M4T8X1^C\r\n__\x1b[24;9HMPT__# \x1b[K\x1b[?25h\x1b[?2004h'
+before (last 100 chars): 'm\x1b[1;23r\x1b[?25l\x1b[23;1H\n\x1b[r\x1b[23;1HX1W3_PROBE_FIXED_Q9J5V2K7M4T8X1^C\r\n__\x1b[24;9HMPT__# \x1b[K\x1b[?25h\x1b[?2004h'
 after: <class 'pexpect.exceptions.TIMEOUT'>
 match: None
 match_index: None
 exitstatus: None
 flag_eof: False
-pid: 732393
+pid: 3208899
 child_fd: 12
 closed: False
 timeout: 20
@@ -648,17 +216,17 @@ delayafterterminate: 0.1
 searcher: searcher_re:
     0: re.compile('_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*W(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*3(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*P(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*R(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*O(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*M(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*P(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*T(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*\\#(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|\\s)*')"
 mosh,interactive_shell,9,-1,TIMEOUT,"Timeout exceeded.
-<pexpect.pty_spawn.spawn object at 0x7f73137d1e50>
+<pexpect.pty_spawn.spawn object at 0x7f15dd6c5f90>
 command: /usr/bin/mosh
 args: [b'/usr/bin/mosh', b'--ssh=ssh -tt -b 100.70.166.91 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i /home/twan/.ssh/id_ed25519', b'--predict', b'never', b'pi@100.66.79.93']
-buffer (last 100 chars): '\x1b[?25l\x1b[22;35HW3_PR\r\nOBE_FIXED_Q9J5V2K7M4T8X1\x1b[K\x1b[24;16H\x1b[?25h'
-before (last 100 chars): '\x1b[?25l\x1b[22;35HW3_PR\r\nOBE_FIXED_Q9J5V2K7M4T8X1\x1b[K\x1b[24;16H\x1b[?25h'
+buffer (last 100 chars): 'm\x1b[1;23r\x1b[?25l\x1b[23;1H\n\x1b[r\x1b[23;1HX1W3_PROBE_FIXED_Q9J5V2K7M4T8X1^C\r\n__\x1b[24;9HMPT__# \x1b[K\x1b[?25h\x1b[?2004h'
+before (last 100 chars): 'm\x1b[1;23r\x1b[?25l\x1b[23;1H\n\x1b[r\x1b[23;1HX1W3_PROBE_FIXED_Q9J5V2K7M4T8X1^C\r\n__\x1b[24;9HMPT__# \x1b[K\x1b[?25h\x1b[?2004h'
 after: <class 'pexpect.exceptions.TIMEOUT'>
 match: None
 match_index: None
 exitstatus: None
 flag_eof: False
-pid: 732570
+pid: 3213751
 child_fd: 13
 closed: False
 timeout: 20
@@ -675,207 +243,18 @@ delayafterterminate: 0.1
 searcher: searcher_re:
     0: re.compile('_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*W(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*3(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*P(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*R(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*O(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*M(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*P(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*T(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*\\#(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|\\s)*')"
 mosh,interactive_shell,10,-1,TIMEOUT,"Timeout exceeded.
-<pexpect.pty_spawn.spawn object at 0x7f73137d2210>
+<pexpect.pty_spawn.spawn object at 0x7f15dd6c60d0>
 command: /usr/bin/mosh
 args: [b'/usr/bin/mosh', b'--ssh=ssh -tt -b 100.70.166.91 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i /home/twan/.ssh/id_ed25519', b'--predict', b'never', b'pi@100.66.79.93']
-buffer (last 100 chars): 'V2K7M4T8X1\x1b[24;16H\x1b[?25h\x1b[?25l\x1b[22;25HW3_PROBE_FIXED_\r\nQ9J5V2K7\x1b[23;10H4\x1b[23;12H8X1\x1b[K\x1b[24;16H\x1b[?25h'
-before (last 100 chars): 'V2K7M4T8X1\x1b[24;16H\x1b[?25h\x1b[?25l\x1b[22;25HW3_PROBE_FIXED_\r\nQ9J5V2K7\x1b[23;10H4\x1b[23;12H8X1\x1b[K\x1b[24;16H\x1b[?25h'
+buffer (last 100 chars): 'm\x1b[1;23r\x1b[?25l\x1b[23;1H\n\x1b[r\x1b[23;1HX1W3_PROBE_FIXED_Q9J5V2K7M4T8X1^C\r\n__\x1b[24;9HMPT__# \x1b[K\x1b[?25h\x1b[?2004h'
+before (last 100 chars): 'm\x1b[1;23r\x1b[?25l\x1b[23;1H\n\x1b[r\x1b[23;1HX1W3_PROBE_FIXED_Q9J5V2K7M4T8X1^C\r\n__\x1b[24;9HMPT__# \x1b[K\x1b[?25h\x1b[?2004h'
 after: <class 'pexpect.exceptions.TIMEOUT'>
 match: None
 match_index: None
 exitstatus: None
 flag_eof: False
-pid: 732763
+pid: 3218693
 child_fd: 14
-closed: False
-timeout: 20
-delimiter: <class 'pexpect.exceptions.EOF'>
-logfile: None
-logfile_read: <_io.TextIOWrapper name='w3_5pane_results/pexpect_mosh.log' mode='a' encoding='utf-8'>
-logfile_send: None
-maxread: 2000
-ignorecase: False
-searchwindowsize: None
-delaybeforesend: 0.05
-delayafterclose: 0.1
-delayafterterminate: 0.1
-searcher: searcher_re:
-    0: re.compile('_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*W(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*3(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*P(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*R(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*O(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*M(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*P(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*T(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*\\#(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|\\s)*')"
-mosh,interactive_shell,11,-1,TIMEOUT,"Timeout exceeded.
-<pexpect.pty_spawn.spawn object at 0x7f73137d1f90>
-command: /usr/bin/mosh
-args: [b'/usr/bin/mosh', b'--ssh=ssh -tt -b 100.70.166.91 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i /home/twan/.ssh/id_ed25519', b'--predict', b'never', b'pi@100.66.79.93']
-buffer (last 100 chars): 'V2K7M4T8X1\x1b[24;16H\x1b[?25h\x1b[?25l\x1b[22;25HW3_PROBE_FIXED_\r\nQ9J5V2K7\x1b[23;10H4\x1b[23;12H8X1\x1b[K\x1b[24;16H\x1b[?25h'
-before (last 100 chars): 'V2K7M4T8X1\x1b[24;16H\x1b[?25h\x1b[?25l\x1b[22;25HW3_PROBE_FIXED_\r\nQ9J5V2K7\x1b[23;10H4\x1b[23;12H8X1\x1b[K\x1b[24;16H\x1b[?25h'
-after: <class 'pexpect.exceptions.TIMEOUT'>
-match: None
-match_index: None
-exitstatus: None
-flag_eof: False
-pid: 732976
-child_fd: 15
-closed: False
-timeout: 20
-delimiter: <class 'pexpect.exceptions.EOF'>
-logfile: None
-logfile_read: <_io.TextIOWrapper name='w3_5pane_results/pexpect_mosh.log' mode='a' encoding='utf-8'>
-logfile_send: None
-maxread: 2000
-ignorecase: False
-searchwindowsize: None
-delaybeforesend: 0.05
-delayafterclose: 0.1
-delayafterterminate: 0.1
-searcher: searcher_re:
-    0: re.compile('_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*W(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*3(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*P(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*R(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*O(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*M(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*P(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*T(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*\\#(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|\\s)*')"
-mosh,interactive_shell,12,-1,TIMEOUT,"Timeout exceeded.
-<pexpect.pty_spawn.spawn object at 0x7f73137d1d10>
-command: /usr/bin/mosh
-args: [b'/usr/bin/mosh', b'--ssh=ssh -tt -b 100.70.166.91 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i /home/twan/.ssh/id_ed25519', b'--predict', b'never', b'pi@100.66.79.93']
-buffer (last 100 chars): 'OBE_FIXED_Q9J5V2K7M4T8X1\x1b[24;16H\x1b[?25h\x1b[?25l\x1b[22;35HW3_PR\r\nOBE_FIXED_Q9J5V2K7M4T8X1\x1b[K\x1b[24;16H\x1b[?25h'
-before (last 100 chars): 'OBE_FIXED_Q9J5V2K7M4T8X1\x1b[24;16H\x1b[?25h\x1b[?25l\x1b[22;35HW3_PR\r\nOBE_FIXED_Q9J5V2K7M4T8X1\x1b[K\x1b[24;16H\x1b[?25h'
-after: <class 'pexpect.exceptions.TIMEOUT'>
-match: None
-match_index: None
-exitstatus: None
-flag_eof: False
-pid: 733167
-child_fd: 16
-closed: False
-timeout: 20
-delimiter: <class 'pexpect.exceptions.EOF'>
-logfile: None
-logfile_read: <_io.TextIOWrapper name='w3_5pane_results/pexpect_mosh.log' mode='a' encoding='utf-8'>
-logfile_send: None
-maxread: 2000
-ignorecase: False
-searchwindowsize: None
-delaybeforesend: 0.05
-delayafterclose: 0.1
-delayafterterminate: 0.1
-searcher: searcher_re:
-    0: re.compile('_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*W(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*3(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*P(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*R(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*O(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*M(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*P(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*T(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*\\#(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|\\s)*')"
-mosh,interactive_shell,13,-1,TIMEOUT,"Timeout exceeded.
-<pexpect.pty_spawn.spawn object at 0x7f73137d1bd0>
-command: /usr/bin/mosh
-args: [b'/usr/bin/mosh', b'--ssh=ssh -tt -b 100.70.166.91 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i /home/twan/.ssh/id_ed25519', b'--predict', b'never', b'pi@100.66.79.93']
-buffer (last 100 chars): 'V2K7M4T8X1\x1b[24;16H\x1b[?25h\x1b[?25l\x1b[22;25HW3_PROBE_FIXED_\r\nQ9J5V2K7\x1b[23;10H4\x1b[23;12H8X1\x1b[K\x1b[24;16H\x1b[?25h'
-before (last 100 chars): 'V2K7M4T8X1\x1b[24;16H\x1b[?25h\x1b[?25l\x1b[22;25HW3_PROBE_FIXED_\r\nQ9J5V2K7\x1b[23;10H4\x1b[23;12H8X1\x1b[K\x1b[24;16H\x1b[?25h'
-after: <class 'pexpect.exceptions.TIMEOUT'>
-match: None
-match_index: None
-exitstatus: None
-flag_eof: False
-pid: 733392
-child_fd: 17
-closed: False
-timeout: 20
-delimiter: <class 'pexpect.exceptions.EOF'>
-logfile: None
-logfile_read: <_io.TextIOWrapper name='w3_5pane_results/pexpect_mosh.log' mode='a' encoding='utf-8'>
-logfile_send: None
-maxread: 2000
-ignorecase: False
-searchwindowsize: None
-delaybeforesend: 0.05
-delayafterclose: 0.1
-delayafterterminate: 0.1
-searcher: searcher_re:
-    0: re.compile('_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*W(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*3(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*P(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*R(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*O(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*M(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*P(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*T(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*\\#(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|\\s)*')"
-mosh,interactive_shell,14,-1,TIMEOUT,"Timeout exceeded.
-<pexpect.pty_spawn.spawn object at 0x7f73137d1950>
-command: /usr/bin/mosh
-args: [b'/usr/bin/mosh', b'--ssh=ssh -tt -b 100.70.166.91 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i /home/twan/.ssh/id_ed25519', b'--predict', b'never', b'pi@100.66.79.93']
-buffer (last 100 chars): '\r\n__W3\x1b[23;6HPROMPT__# tmux send-keys -t w3bench5:0.0 -l W3_PROBE_FIXED_Q9J5V2K7M4T8X1\x1b[24;16H\x1b[?25h'
-before (last 100 chars): '\r\n__W3\x1b[23;6HPROMPT__# tmux send-keys -t w3bench5:0.0 -l W3_PROBE_FIXED_Q9J5V2K7M4T8X1\x1b[24;16H\x1b[?25h'
-after: <class 'pexpect.exceptions.TIMEOUT'>
-match: None
-match_index: None
-exitstatus: None
-flag_eof: False
-pid: 733651
-child_fd: 18
-closed: False
-timeout: 20
-delimiter: <class 'pexpect.exceptions.EOF'>
-logfile: None
-logfile_read: <_io.TextIOWrapper name='w3_5pane_results/pexpect_mosh.log' mode='a' encoding='utf-8'>
-logfile_send: None
-maxread: 2000
-ignorecase: False
-searchwindowsize: None
-delaybeforesend: 0.05
-delayafterclose: 0.1
-delayafterterminate: 0.1
-searcher: searcher_re:
-    0: re.compile('_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*W(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*3(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*P(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*R(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*O(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*M(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*P(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*T(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*\\#(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|\\s)*')"
-mosh,interactive_shell,15,-1,TIMEOUT,"Timeout exceeded.
-<pexpect.pty_spawn.spawn object at 0x7f73137d1810>
-command: /usr/bin/mosh
-args: [b'/usr/bin/mosh', b'--ssh=ssh -tt -b 100.70.166.91 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i /home/twan/.ssh/id_ed25519', b'--predict', b'never', b'pi@100.66.79.93']
-buffer (last 100 chars): 'V2K7M4T8X1\x1b[24;16H\x1b[?25h\x1b[?25l\x1b[22;25HW3_PROBE_FIXED_\r\nQ9J5V2K7\x1b[23;10H4\x1b[23;12H8X1\x1b[K\x1b[24;16H\x1b[?25h'
-before (last 100 chars): 'V2K7M4T8X1\x1b[24;16H\x1b[?25h\x1b[?25l\x1b[22;25HW3_PROBE_FIXED_\r\nQ9J5V2K7\x1b[23;10H4\x1b[23;12H8X1\x1b[K\x1b[24;16H\x1b[?25h'
-after: <class 'pexpect.exceptions.TIMEOUT'>
-match: None
-match_index: None
-exitstatus: None
-flag_eof: False
-pid: 733861
-child_fd: 19
-closed: False
-timeout: 20
-delimiter: <class 'pexpect.exceptions.EOF'>
-logfile: None
-logfile_read: <_io.TextIOWrapper name='w3_5pane_results/pexpect_mosh.log' mode='a' encoding='utf-8'>
-logfile_send: None
-maxread: 2000
-ignorecase: False
-searchwindowsize: None
-delaybeforesend: 0.05
-delayafterclose: 0.1
-delayafterterminate: 0.1
-searcher: searcher_re:
-    0: re.compile('_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*W(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*3(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*P(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*R(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*O(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*M(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*P(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*T(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*\\#(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|\\s)*')"
-mosh,vim,10,-1,TIMEOUT,"Timeout exceeded.
-<pexpect.pty_spawn.spawn object at 0x7f73137d34d0>
-command: /usr/bin/mosh
-args: [b'/usr/bin/mosh', b'--ssh=ssh -tt -b 100.70.166.91 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i /home/twan/.ssh/id_ed25519', b'--predict', b'never', b'pi@100.66.79.93']
-buffer (last 100 chars): ""W3_5PANE_PANE0_R\r\nEADY__\\n'\x1b[K\r\n__W3_5PANE_PANE0_READY__\x1b[K\r\npi@raspi:~ $\r\n\x1b[K\n\x1b[K\n\x1b[K\x1b[24;16H\x1b[?25h""
-before (last 100 chars): ""W3_5PANE_PANE0_R\r\nEADY__\\n'\x1b[K\r\n__W3_5PANE_PANE0_READY__\x1b[K\r\npi@raspi:~ $\r\n\x1b[K\n\x1b[K\n\x1b[K\x1b[24;16H\x1b[?25h""
-after: <class 'pexpect.exceptions.TIMEOUT'>
-match: None
-match_index: None
-exitstatus: None
-flag_eof: False
-pid: 794669
-child_fd: 29
-closed: False
-timeout: 20
-delimiter: <class 'pexpect.exceptions.EOF'>
-logfile: None
-logfile_read: <_io.TextIOWrapper name='w3_5pane_results/pexpect_mosh.log' mode='a' encoding='utf-8'>
-logfile_send: None
-maxread: 2000
-ignorecase: False
-searchwindowsize: None
-delaybeforesend: 0.05
-delayafterclose: 0.1
-delayafterterminate: 0.1
-searcher: searcher_re:
-    0: re.compile('_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*W(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*3(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*P(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*R(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*O(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*M(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*P(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*T(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*_(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*\\#(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|[\\r\\n\\b])*(?:(?:\\x1b\\[\\??[0-9;]*[a-zA-Z])|\\s)*')"
-mosh,nano,1,-1,TIMEOUT,"Timeout exceeded.
-<pexpect.pty_spawn.spawn object at 0x7f73137d3c50>
-command: /usr/bin/mosh
-args: [b'/usr/bin/mosh', b'--ssh=ssh -tt -b 100.70.166.91 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -i /home/twan/.ssh/id_ed25519', b'--predict', b'never', b'pi@100.66.79.93']
-buffer (last 100 chars): 'tmux send-keys -t w3bench5:0.0 BSpace\x1b[24;16H\x1b[?25h'
-before (last 100 chars): 'tmux send-keys -t w3bench5:0.0 BSpace\x1b[24;16H\x1b[?25h'
-after: <class 'pexpect.exceptions.TIMEOUT'>
-match: None
-match_index: None
-exitstatus: None
-flag_eof: False
-pid: 839049
-child_fd: 35
 closed: False
 timeout: 20
 delimiter: <class 'pexpect.exceptions.EOF'>
