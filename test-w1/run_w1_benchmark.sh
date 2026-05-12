@@ -22,7 +22,7 @@ TIMEOUT=20
 SEED=42
 
 OUTPUT_DIR="w1_results"
-LOG_PEXPECT=true
+LOG_PEXPECT=false
 PROMPT="__W1_PROMPT__# "
 
 SSH3_PATH="/ssh3-term"
@@ -61,4 +61,9 @@ echo "Command:"
 printf '  %s \\\n' "${CMD[@]}"
 echo ""
 
-exec "${CMD[@]}"
+"${CMD[@]}"
+
+python plot_trend.py \
+  --output-dir "$OUTPUT_DIR" \
+  --prefix "w1" \
+  --group-fields protocol workload command

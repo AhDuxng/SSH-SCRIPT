@@ -17,7 +17,7 @@ TIMEOUT=20
 SEED=42
 
 OUTPUT_DIR="w3_5pane_results"
-LOG_PEXPECT=true
+LOG_PEXPECT=false
 
 PROMPT="__W3_PROMPT__# "
 
@@ -80,4 +80,9 @@ echo "Lệnh thực thi:"
 printf '  %s \\\n' "${CMD[@]}"
 echo ""
 
-exec "${CMD[@]}"
+"${CMD[@]}"
+
+python plot_trend.py \
+  --output-dir "$OUTPUT_DIR" \
+  --prefix "w3_5pane" \
+  --group-fields protocol workload

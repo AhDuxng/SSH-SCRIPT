@@ -19,7 +19,7 @@ SEED=42                # random seed để tái hiện kết quả
 
 # ── Output ───────────────────────────────────────────────────────────────────
 OUTPUT_DIR="w3_results"
-LOG_PEXPECT=true       # true = ghi raw pexpect log ra file
+LOG_PEXPECT=false      # compatibility flag only; benchmark no longer writes pexpect logs
 
 # ── Prompt marker ─────────────────────────────────────────────────────────────
 PROMPT="__W3_PROMPT__# "
@@ -73,4 +73,9 @@ echo "Lệnh thực thi:"
 printf '  %s \\\n' "${CMD[@]}"
 echo ""
 
-exec "${CMD[@]}"
+"${CMD[@]}"
+
+python plot_trend.py \
+  --output-dir "$OUTPUT_DIR" \
+  --prefix "w3" \
+  --group-fields protocol workload

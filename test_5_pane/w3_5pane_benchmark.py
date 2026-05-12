@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import json
 import math
 import random
 import re
@@ -11,7 +10,7 @@ import shlex
 import statistics
 import sys
 import time
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
@@ -165,10 +164,6 @@ class W35PaneBenchmark:
             codec_errors="ignore",
             timeout=self.args.timeout,
         )
-        if self.args.log_pexpect:
-            log_path = Path(self.args.output_dir) / f"pexpect_{protocol}.log"
-            log_path.parent.mkdir(parents=True, exist_ok=True)
-            child.logfile_read = open(log_path, "a", encoding="utf-8")
 
         start_ns = time.perf_counter_ns()
         child.expect(_INITIAL_PROMPT_RE, timeout=self.args.timeout)
@@ -651,79 +646,49 @@ class W35PaneBenchmark:
         outdir = Path(self.args.output_dir)
         outdir.mkdir(parents=True, exist_ok=True)
 
-        summary_json = outdir / "w3_5pane_summary.json"
-        raw_csv = outdir / "w3_5pane_raw_samples.csv"
-        failures_csv = outdir / "w3_5pane_failures.csv"
+        line_csv = outdir / "w3_5pane_line_log.csv"
         setup_csv = outdir / "w3_5pane_session_setup.csv"
 
-        payload = {
-            "meta": {
-                "started_at_utc": self.started_at,
-                "target": self.target,
-                "client_source_ip": self.args.source_ip,
-                "protocols": self.args.protocols,
-                "workloads": self.args.workloads,
-                "trials": self.args.trials,
-                "iterations": self.args.iterations,
-                "warmup_rounds": self.args.warmup_rounds,
-                "timeout_sec": self.args.timeout,
-                "random_seed": self.args.seed,
-                "probe_token_mode": "fixed",
-                "probe_token": self.probe_token,
-                "probe_tail": self.probe_tail,
-                "topology": {
-                    "client": "192.168.8.100",
-                    "server": self.args.host,
-                },
-                "load_environment": {
-                    "type": "tmux_5_pane",
-                    "tmux_session": self.args.tmux_session,
-                    "pane_0": "interactive measurement target",
-                    "pane_1": "heartbeat ~5 lines/s",
-                    "pane_2": "burst stdout ~750 lines/s",
-                    "pane_3": "ls-loop + clear",
-                    "pane_4": "background writer + tail -f",
-                },
-                "metric_name": "input_to_visible_latency_ms",
-                "metric_note": (
-                    "Measurement identical to W3 baseline (test/). "
-                    "Fixed probe token injected via pexpect child.send(). "
-                    "Latency = time from child.send(token) to token visible "
-                    "observation via child.expect(). Matching tolerates ANSI "
-                    "sequences inserted by TUI redraw and falls back to fixed "
-                    "tail matching when only partial redraw is emitted. "
-                    "Background load: tmux 5-pane session runs detached with "
-                    "4 I/O-intensive panes during measurement."
-                ),
-                "session_setup_note": (
-                    "setup_ms = time from pexpect.spawn() to first shell prompt "
-                    "(regex [#$>]\\s*$). The tmux 5-pane bootstrapping is done "
-                    "after this timing window."
-                ),
-            },
-            "summary": [asdict(row) for row in self.summaries()],
-            "session_setup": {
-                p: {w: self._session_setup_stats(p, w) for w in self.args.workloads}
-                for p in self.args.protocols
-            },
-        }
-        summary_json.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-
-        with raw_csv.open("w", newline="", encoding="utf-8") as f:
+        with line_csv.open("w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
-            writer.writerow(["protocol", "workload", "round_id", "sample_id", "latency_ms"])
+            writer.writerow(
+                [
+                    "protocol",
+                    "workload",
+                    "round_id",
+                    "sample_id",
+                    "latency_ms",
+                    "status",
+                    "error_type",
+                    "error_message",
+                ]
+            )
             for r in self.records:
-                writer.writerow([r.protocol, r.workload, r.round_id, r.sample_id, f"{r.latency_ms:.6f}"])
-
-        with failures_csv.open("w", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
-            writer.writerow([
-                "protocol", "workload", "round_id", "sample_id", "error_type", "error_message"
-            ])
+                writer.writerow(
+                    [
+                        r.protocol,
+                        r.workload,
+                        r.round_id,
+                        r.sample_id,
+                        f"{r.latency_ms:.6f}",
+                        "ok",
+                        "",
+                        "",
+                    ]
+                )
             for r in self.failures:
-                writer.writerow([
-                    r.protocol, r.workload, r.round_id, r.sample_id, r.error_type, r.error_message
-                ])
+                writer.writerow(
+                    [
+                        r.protocol,
+                        r.workload,
+                        r.round_id,
+                        r.sample_id,
+                        "",
+                        "fail",
+                        r.error_type,
+                        r.error_message,
+                    ]
+                )
 
         with setup_csv.open("w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
@@ -733,9 +698,7 @@ class W35PaneBenchmark:
                     for trial_id, ms in enumerate(self.session_setups[p][w], start=1):
                         writer.writerow([p, w, trial_id, f"{ms:.6f}"])
 
-        print(f"Saved summary JSON    : {summary_json}")
-        print(f"Saved raw samples CSV : {raw_csv}")
-        print(f"Saved failures CSV    : {failures_csv}")
+        print(f"Saved line log CSV    : {line_csv}")
         print(f"Saved session setup   : {setup_csv}")
 
 
@@ -765,7 +728,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--remote-nano-file", default="/tmp/w3_nano_bench.txt")
     p.add_argument("--shuffle-pairs", action="store_true")
     p.add_argument("--reopen-on-failure", action="store_true")
-    p.add_argument("--log-pexpect", action="store_true")
+    p.add_argument(
+        "--log-pexpect",
+        action="store_true",
+        help="Deprecated compatibility flag (no-op): pexpect logs are disabled",
+    )
 
     p.add_argument("--tmux-session", default=TMUX_SESSION)
     p.add_argument("--tmux-setup-script", default=TMUX_SETUP_SCRIPT)

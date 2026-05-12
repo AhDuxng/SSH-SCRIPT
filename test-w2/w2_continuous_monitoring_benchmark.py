@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import json
 import math
 import random
 import re
@@ -11,7 +10,7 @@ import shlex
 import statistics
 import sys
 import time
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
@@ -174,11 +173,6 @@ class W2Benchmark:
                     timeout=base_timeout,
                 )
 
-                if self.args.log_pexpect:
-                    log_path = Path(self.args.output_dir) / f"pexpect_{protocol}.log"
-                    log_path.parent.mkdir(parents=True, exist_ok=True)
-                    child.logfile_read = open(log_path, "a", encoding="utf-8")
-
                 connect_timeout = base_timeout * attempt
 
                 start_ns = time.perf_counter_ns()
@@ -302,8 +296,7 @@ class W2Benchmark:
         marker_re = re.compile(
             self._build_gapped_literal("W2_CLOCK_TS:") + _GAPPED_EPOCH_NS
         )
-        offsets_ns: List[int] = []
-        rtts_ms: List[float] = []
+        probe_data: List[tuple[int, float]] = []
         probes = max(1, self.args.clock_offset_probes)
 
         for probe_idx in range(1, probes + 1):
@@ -314,8 +307,8 @@ class W2Benchmark:
                 t1 = time.time_ns()
                 mid_local_ns = (t0 + t1) // 2
                 remote_ns = self._parse_epoch_to_ns(child.match.group(1), mid_local_ns)
-                offsets_ns.append(mid_local_ns - remote_ns)
-                rtts_ms.append((t1 - t0) / 1_000_000.0)
+                rtt_ms = (t1 - t0) / 1_000_000.0
+                probe_data.append((mid_local_ns - remote_ns, rtt_ms))
                 self._expect_prompt(child)
             except (pexpect.TIMEOUT, pexpect.EOF, ValueError) as exc:
                 print(
@@ -328,11 +321,10 @@ class W2Benchmark:
                     self._expect_prompt(child)
                 except Exception:
                     pass
-                offsets_ns.clear()
-                rtts_ms.clear()
+                probe_data.clear()
                 break
 
-        if not offsets_ns:
+        if not probe_data:
             self.clock_offsets.append(
                 ClockOffsetRecord(
                     protocol=protocol,
@@ -347,8 +339,9 @@ class W2Benchmark:
             )
             return 0
 
-        offset_ns = int(statistics.median(offsets_ns))
-        median_rtt_ms = statistics.median(rtts_ms)
+        best_offset_ns, best_rtt_ms = min(probe_data, key=lambda item: item[1])
+        offset_ns = int(best_offset_ns)
+        median_rtt_ms = statistics.median([rtt for _, rtt in probe_data])
         self.clock_offsets.append(
             ClockOffsetRecord(
                 protocol=protocol,
@@ -358,12 +351,13 @@ class W2Benchmark:
                 offset_ns=offset_ns,
                 offset_ms=offset_ns / 1_000_000.0,
                 median_rtt_ms=median_rtt_ms,
-                method="midpoint_round_trip",
+                method="midpoint_round_trip_min_rtt_pick",
             )
         )
         print(
             f"[{protocol:>4}/{workload:<18}] trial {trial_id:>2}/{self.args.trials}"
-            f" clock_offset_est={offset_ns / 1_000_000.0:.2f} ms (median_rtt={median_rtt_ms:.2f} ms)",
+            f" clock_offset_est={offset_ns / 1_000_000.0:.2f} ms"
+            f" (best_rtt={best_rtt_ms:.2f} ms, median_rtt={median_rtt_ms:.2f} ms)",
             flush=True,
         )
         return offset_ns
@@ -373,6 +367,11 @@ class W2Benchmark:
         corrected_ns = raw_ns - self.current_clock_offset_ns
         lat = corrected_ns / 1_000_000.0
         if lat < 0:
+            if (
+                self.args.clock_offset_mode == "estimate"
+                and abs(lat) <= self.args.negative_latency_tolerance_ms
+            ):
+                return 0.0
             print(
                 f"  [WARN] Negative latency {lat:.2f} ms detected "
                 f"(clock offset mode={self.args.clock_offset_mode})",
@@ -824,82 +823,49 @@ class W2Benchmark:
         outdir = Path(self.args.output_dir)
         outdir.mkdir(parents=True, exist_ok=True)
 
-        summary_json = outdir / "w2_summary.json"
-        raw_csv = outdir / "w2_raw_samples.csv"
-        failures_csv = outdir / "w2_failures.csv"
+        line_csv = outdir / "w2_line_log.csv"
         setup_csv = outdir / "w2_session_setup.csv"
 
-        if self.args.clock_offset_mode == "estimate":
-            clock_offset_warning = None
-        else:
-            clock_offset_warning = (
-                "Clock offset correction is disabled. "
-                "Raw screen-update visibility latency can include client/server clock skew."
+        with line_csv.open("w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(
+                [
+                    "protocol",
+                    "workload",
+                    "round_id",
+                    "sample_id",
+                    "latency_ms",
+                    "status",
+                    "error_type",
+                    "error_message",
+                ]
             )
-
-        payload = {
-            "meta": {
-                "started_at_utc": self.started_at,
-                "target": self.target,
-                "client_source_ip": self.args.source_ip,
-                "protocols": self.args.protocols,
-                "workloads": self.args.workloads,
-                "trials": self.args.trials,
-                "iterations": self.args.iterations,
-                "timeout_sec": self.args.timeout,
-                "random_seed": self.args.seed,
-                "topology": {
-                    "client": self.args.source_ip or "unknown",
-                    "server": self.args.host,
-                },
-                "metric_name": "end_to_end_screen_update_latency_ms",
-                "metric_alias": "terminal_output_visibility_latency_ms",
-                "shuffle_pairs_enabled": self.args.shuffle_pairs,
-                "fairness_recommendation": (
-                    "Use --shuffle-pairs to reduce order effects across protocol/workload runs."
-                ),
-                "clock_offset_mode": self.args.clock_offset_mode,
-                "clock_offset_probes": self.args.clock_offset_probes,
-                "clock_offset_warning": clock_offset_warning,
-                "metric_note": (
-                    "This benchmark measures end-to-end terminal output visibility latency: "
-                    "(client_receive_time_ns - remote_event_timestamp_ns - estimated_clock_offset_ns). "
-                    "It is not a pure protocol/network RTT metric. "
-                    f"top emits W2_TOP_REFRESH:<epoch_ns> every {self.args.top_interval}s; "
-                    "tail uses tail -n 0 -f and a background writer emits W2_TAIL_<seq>:<epoch_ns> every 50ms; "
-                    f"ping uses 'ping -D -i 0.1 {self.args.ping_target or '127.0.0.1'}' and measures ping output update latency "
-                    "(screen visibility of ping timestamps), not ICMP network ping RTT. "
-                    "When clock offset correction is disabled, results can include host clock-offset bias. "
-                    f"Samples outside [{self.args.min_valid_latency_ms:.2f}, {self.args.max_valid_latency_ms:.2f}] ms "
-                    f"are treated as invalid and dropped (limit: {self.args.max_invalid_samples} per trial)."
-                ),
-            },
-            "summary": [asdict(row) for row in self.summaries()],
-            "session_setup": {
-                p: {w: self._session_setup_stats(p, w) for w in self.args.workloads}
-                for p in self.args.protocols
-            },
-        }
-        summary_json.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-
-        with raw_csv.open("w", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
-            writer.writerow(["protocol", "workload", "round_id", "sample_id", "latency_ms"])
             for r in self.records:
-                writer.writerow([r.protocol, r.workload, r.round_id, r.sample_id, f"{r.latency_ms:.6f}"])
-
-        with failures_csv.open("w", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
-            writer.writerow(["protocol", "workload", "round_id", "sample_id", "error_type", "error_message"])
+                writer.writerow(
+                    [
+                        r.protocol,
+                        r.workload,
+                        r.round_id,
+                        r.sample_id,
+                        f"{r.latency_ms:.6f}",
+                        "ok",
+                        "",
+                        "",
+                    ]
+                )
             for r in self.failures:
-                writer.writerow([
-                    r.protocol,
-                    r.workload,
-                    r.round_id,
-                    r.sample_id,
-                    r.error_type,
-                    r.error_message,
-                ])
+                writer.writerow(
+                    [
+                        r.protocol,
+                        r.workload,
+                        r.round_id,
+                        r.sample_id,
+                        "",
+                        "fail",
+                        r.error_type,
+                        r.error_message,
+                    ]
+                )
 
         with setup_csv.open("w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
@@ -909,9 +875,7 @@ class W2Benchmark:
                     for trial_id, ms in enumerate(self.session_setups[p][w], start=1):
                         writer.writerow([p, w, trial_id, f"{ms:.6f}"])
 
-        print(f"Saved summary JSON    : {summary_json}")
-        print(f"Saved raw samples CSV : {raw_csv}")
-        print(f"Saved failures CSV    : {failures_csv}")
+        print(f"Saved line log CSV    : {line_csv}")
         print(f"Saved session setup   : {setup_csv}")
 
 
@@ -938,9 +902,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--mosh-predict", default="adaptive", choices=["adaptive", "always", "never"], help="Mosh prediction mode")
     p.add_argument("--shuffle-pairs", action="store_true", help="Shuffle protocol/workload execution order")
     p.add_argument("--reopen-on-failure", action="store_true", help="Reopen session after failure")
-    p.add_argument("--log-pexpect", action="store_true", help="Save raw pexpect terminal output per protocol")
+    p.add_argument("--log-pexpect", action="store_true", help="Deprecated compatibility flag (no-op): pexpect logs are disabled")
     p.add_argument("--clock-offset-mode", default="none", choices=["none", "estimate"], help="Clock offset correction mode")
     p.add_argument("--clock-offset-probes", type=int, default=3, help="Remote date probes per trial when --clock-offset-mode=estimate")
+    p.add_argument("--negative-latency-tolerance-ms", type=float, default=50.0, help="Clamp small negative latencies to 0 in estimate mode")
     p.add_argument("--min-valid-latency-ms", type=float, default=-5000.0, help="Drop samples below this latency threshold")
     p.add_argument("--max-valid-latency-ms", type=float, default=60000.0, help="Drop samples above this latency threshold")
     p.add_argument("--max-invalid-samples", type=int, default=100, help="Max dropped invalid samples per trial before failing")
@@ -961,6 +926,8 @@ def main() -> int:
         parser.error("--max-valid-latency-ms must be > --min-valid-latency-ms")
     if args.clock_offset_probes <= 0:
         parser.error("--clock-offset-probes must be > 0")
+    if args.negative_latency_tolerance_ms < 0:
+        parser.error("--negative-latency-tolerance-ms must be >= 0")
 
     bench = W2Benchmark(args)
     bench.run()

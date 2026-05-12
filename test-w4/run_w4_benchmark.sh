@@ -71,4 +71,9 @@ echo "Command:"
 printf '  %s \\\n' "${CMD[@]}"
 echo ""
 
-exec "${CMD[@]}"
+"${CMD[@]}"
+
+python plot_trend.py \
+  --output-dir "$OUTPUT_DIR" \
+  --prefix "w4" \
+  --group-fields protocol workload command
