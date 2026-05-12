@@ -326,16 +326,46 @@ class W2Benchmark:
         rtts_ms: List[float] = []
         probes = max(1, self.args.clock_offset_probes)
 
-        for _ in range(probes):
-            t0 = time.time_ns()
-            child.sendline("echo \"W2_CLOCK_TS:$(date +%s%N)\"")
-            child.expect(marker_re, timeout=self.args.timeout)
-            t1 = time.time_ns()
-            mid_local_ns = (t0 + t1) // 2
-            remote_ns = self._parse_epoch_to_ns(child.match.group(1), mid_local_ns)
-            offsets_ns.append(mid_local_ns - remote_ns)
-            rtts_ms.append((t1 - t0) / 1_000_000.0)
-            self._expect_prompt(child)
+        for probe_idx in range(1, probes + 1):
+            try:
+                t0 = time.time_ns()
+                child.sendline("echo \"W2_CLOCK_TS:$(date +%s%N)\"")
+                child.expect(marker_re, timeout=self.args.timeout)
+                t1 = time.time_ns()
+                mid_local_ns = (t0 + t1) // 2
+                remote_ns = self._parse_epoch_to_ns(child.match.group(1), mid_local_ns)
+                offsets_ns.append(mid_local_ns - remote_ns)
+                rtts_ms.append((t1 - t0) / 1_000_000.0)
+                self._expect_prompt(child)
+            except (pexpect.TIMEOUT, pexpect.EOF, ValueError) as exc:
+                print(
+                    f"  [WARN] clock offset probe {probe_idx}/{probes} failed: {type(exc).__name__}. "
+                    "Fallback to zero offset for this trial.",
+                    flush=True,
+                )
+                try:
+                    child.sendcontrol("c")
+                    self._expect_prompt(child)
+                except Exception:
+                    pass
+                offsets_ns.clear()
+                rtts_ms.clear()
+                break
+
+        if not offsets_ns:
+            self.clock_offsets.append(
+                ClockOffsetRecord(
+                    protocol=protocol,
+                    workload=workload,
+                    round_id=trial_id,
+                    probes=probes,
+                    offset_ns=0,
+                    offset_ms=0.0,
+                    median_rtt_ms=0.0,
+                    method="estimate_failed_fallback_zero",
+                )
+            )
+            return 0
 
         offset_ns = int(statistics.median(offsets_ns))
         median_rtt_ms = statistics.median(rtts_ms)
@@ -463,28 +493,22 @@ class W2Benchmark:
             re.escape(":") + _ECHO_GAP + _GAPPED_EPOCH_NS
         )
         remote_log = "/tmp/w2_test.log"
-        tail_pid = ""
         writer_pid = ""
         child.sendline(f"rm -f {remote_log} && touch {remote_log}")
         self._expect_prompt(child)
 
         child.sendline(
-            f"tail -n 0 -f {remote_log} & echo W2_TAIL_PID=$!"
-        )
-        child.expect(r"W2_TAIL_PID=(\d+)", timeout=self.args.timeout)
-        tail_pid = child.match.group(1)
-        self._expect_prompt(child)
-
-        child.sendline(
+            f"(sleep 0.20; "
             f"W2_SEQ=0; while true; do "
             f"W2_SEQ=$((W2_SEQ+1)); "
             f"echo \"W2_TAIL_$W2_SEQ:$(date +%s%N)\" >> {remote_log}; "
             f"sleep 0.05; "
-            f"done & echo W2_WRITER_PID=$!"
+            f"done) & "
+            f"W2_WRITER_PID=$!; echo W2_WRITER_PID=$W2_WRITER_PID; "
+            f"tail -n 0 -f {remote_log}"
         )
         child.expect(r"W2_WRITER_PID=(\d+)", timeout=self.args.timeout)
         writer_pid = child.match.group(1)
-        self._expect_prompt(child)
         dropped = 0
 
         try:
@@ -516,12 +540,19 @@ class W2Benchmark:
                 sample_id += 1
                 report_cb(sample_id, lat)
         finally:
-            # Always cleanup: stop tail and kill background writer
             try:
-                child.sendline(
-                    f"kill {writer_pid} {tail_pid} 2>/dev/null; "
-                    f"rm -f {remote_log}"
-                )
+                child.sendcontrol("c")
+                self._expect_prompt(child)
+            except Exception:
+                try:
+                    child.sendcontrol("c")
+                    time.sleep(1)
+                    self._expect_prompt(child)
+                except Exception:
+                    pass
+
+            try:
+                child.sendline(f"kill {writer_pid} 2>/dev/null; rm -f {remote_log}")
                 self._expect_prompt(child)
             except Exception:
                 pass
