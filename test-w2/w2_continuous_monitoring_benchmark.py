@@ -24,9 +24,11 @@ except ImportError as exc:
     ) from exc
 
 DEFAULT_PROTOCOLS = ["ssh", "ssh3", "mosh"]
-DEFAULT_WORKLOADS = ["top", "tail", "ping"]
+DEFAULT_WORKLOADS = ["top", "tail -f logs", "ping"]
 DEFAULT_PROMPT = "__W2_PROMPT__#"
 DEFAULT_SSH3_PATH = "/ssh3-term"
+MARKER_TAIL_LEN = 12
+_TAIL_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
 _ANSI_SEQ = r"(?:\x1b\[\??[0-9;]*[a-zA-Z])"
 _ECHO_GAP = rf"(?:{_ANSI_SEQ}|[\r\n\b])*"
@@ -99,11 +101,34 @@ class W2Benchmark:
         self.clock_sync_records: List[ClockSyncRecord] = []
         self.current_clock_offset_ns: int = 0
         self.current_clock_uncertainty_ns: int = 0
+        self.prev_marker_tail: Optional[str] = None
 
     @staticmethod
     def _build_prompt_re(prompt_marker: str) -> re.Pattern[str]:
         parts = [re.escape(ch) + _ECHO_GAP for ch in prompt_marker]
         return re.compile("".join(parts) + rf"(?:{_ANSI_SEQ}|\s)*")
+
+    @staticmethod
+    def _build_gapped_literal(token: str) -> str:
+        return "".join(re.escape(ch) + _ECHO_GAP for ch in token)
+
+    @staticmethod
+    def _strip_ansi(text: str) -> str:
+        return re.sub(_ANSI_SEQ, "", text)
+
+    def _next_marker_tail(self) -> str:
+        if self.prev_marker_tail is None:
+            tail = "".join(random.choice(_TAIL_ALPHABET) for _ in range(MARKER_TAIL_LEN))
+            self.prev_marker_tail = tail
+            return tail
+
+        chars: List[str] = []
+        for prev_ch in self.prev_marker_tail:
+            candidates = [c for c in _TAIL_ALPHABET if c != prev_ch]
+            chars.append(random.choice(candidates))
+        tail = "".join(chars)
+        self.prev_marker_tail = tail
+        return tail
 
     def _expect_prompt(self, child: pexpect.spawn) -> None:
         child.expect(self.prompt_re, timeout=self.args.timeout)
@@ -223,8 +248,18 @@ class W2Benchmark:
     def _parse_epoch_to_ns(raw: str) -> int:
         """Parse epoch strings in one of: ns, us, ms, s, or s.frac into ns."""
         token = raw.strip()
+        token = re.sub(_ANSI_SEQ, "", token)
         if not token:
             raise ValueError("Empty remote timestamp")
+
+        if token.endswith("%N") and token[:-2].isdigit():
+            # Non-GNU date may print literal %N. Fall back to epoch seconds.
+            return int(token[:-2]) * 1_000_000_000
+
+        m = re.search(r"\d+\.\d+|\d+", token)
+        if m is None:
+            raise ValueError(f"Invalid epoch timestamp: {raw!r}")
+        token = m.group(0)
 
         if "." in token:
             sec_s, frac_s = token.split(".", 1)
@@ -232,9 +267,6 @@ class W2Benchmark:
                 raise ValueError(f"Invalid fractional epoch timestamp: {raw!r}")
             frac_ns = (frac_s + "000000000")[:9]
             return int(sec_s) * 1_000_000_000 + int(frac_ns)
-
-        if not token.isdigit():
-            raise ValueError(f"Invalid epoch timestamp: {raw!r}")
 
         n = int(token)
         digits = len(token)
@@ -255,26 +287,55 @@ class W2Benchmark:
         """
         samples: List[tuple[int, int]] = []
         marker = "__W2_CLK__"
-        pattern = re.compile(re.escape(marker) + r":(\d+)")
 
         for _ in range(self.args.clock_sync_samples):
-            t0 = time.time_ns()
-            child.sendline(f'printf "{marker}:%s\\n" "$(date +%s%N)"')
-            child.expect(pattern, timeout=self.args.timeout)
-            t1 = time.time_ns()
-            remote_ns = self._parse_epoch_to_ns(child.match.group(1))
-            self._expect_prompt(child)
+            sample_ok = False
+            for attempt in range(1, 3):
+                marker_tail = self._next_marker_tail()
+                marker_re = re.compile(
+                    re.escape(marker) + ":" + re.escape(marker_tail) + r":([^\r\n]+)"
+                )
 
-            rtt_ns = max(0, t1 - t0)
-            midpoint_local_ns = t0 + (rtt_ns // 2)
-            offset_ns = remote_ns - midpoint_local_ns
-            samples.append((rtt_ns, offset_ns))
+                t0 = time.time_ns()
+                child.sendline(f'echo "{marker}:{marker_tail}:$(date +%s%N)"')
+                self._expect_prompt(child)
+                t1 = time.time_ns()
+
+                raw_out = self._strip_ansi(child.before)
+                matches = marker_re.findall(raw_out)
+                remote_ns: Optional[int] = None
+                for ts_raw in reversed(matches):
+                    try:
+                        remote_ns = self._parse_epoch_to_ns(ts_raw)
+                        break
+                    except ValueError:
+                        continue
+
+                if remote_ns is None:
+                    print(
+                        f"  [WARN] clock_sync sample parse failed (attempt {attempt}/2), retrying...",
+                        flush=True,
+                    )
+                    continue
+
+                rtt_ns = max(0, t1 - t0)
+                midpoint_local_ns = t0 + (rtt_ns // 2)
+                offset_ns = remote_ns - midpoint_local_ns
+                samples.append((rtt_ns, offset_ns))
+                sample_ok = True
+                break
+
+            if not sample_ok:
+                print(
+                    "  [WARN] clock_sync sample dropped after retries",
+                    flush=True,
+                )
 
             if self.args.clock_sync_pause > 0:
                 time.sleep(self.args.clock_sync_pause)
 
         if not samples:
-            raise ValueError("No clock-sync samples collected")
+            raise ValueError("No clock-sync samples collected after retries")
 
         best_rtt_ns, best_offset_ns = min(samples, key=lambda x: x[0])
         uncertainty_ns = best_rtt_ns // 2
@@ -291,7 +352,9 @@ class W2Benchmark:
         report_cb: Callable[[int, float], None],
     ) -> None:
         interval = self.args.top_interval
-        marker_re = re.compile(r"W2_TOP_REFRESH:(\d+)")
+        marker_re = re.compile(
+            self._build_gapped_literal("W2_TOP_REFRESH:") + r"(\d+)"
+        )
         TOP_LOOP = (
             f"while true; do "
             f"echo \"W2_TOP_REFRESH:$(date +%s%N)\"; "
@@ -327,7 +390,10 @@ class W2Benchmark:
         iterations: int,
         report_cb: Callable[[int, float], None],
     ) -> None:
-        marker_re = re.compile(r"W2_TAIL_\d+:(\d+)")
+        marker_re = re.compile(
+            self._build_gapped_literal("W2_TAIL_") + r"\d+" + _ECHO_GAP +
+            re.escape(":") + _ECHO_GAP + r"(\d+)"
+        )
         remote_log = "/tmp/w2_test.log"
         child.sendline(f"rm -f {remote_log} && touch {remote_log}")
         self._expect_prompt(child)
@@ -371,7 +437,10 @@ class W2Benchmark:
         iterations: int,
         report_cb: Callable[[int, float], None],
     ) -> None:
-        marker_re = re.compile(r"\[(\d+\.\d+)\]\s+\d+\s+bytes from")
+        marker_re = re.compile(
+            re.escape("[") + _ECHO_GAP + r"(\d+\.\d+)" +
+            _ECHO_GAP + re.escape("]")
+        )
         ping_target = self.args.ping_target or "127.0.0.1"
         child.sendline(f"ping -D -i 0.1 {ping_target}")
         child.expect(r"PING ", timeout=self.args.timeout)
@@ -409,7 +478,7 @@ class W2Benchmark:
 
         if workload == "top":
             self._measure_top(child, self.args.iterations, report_cb)
-        elif workload == "tail":
+        elif workload == "tail -f logs":
             self._measure_tail(child, self.args.iterations, report_cb)
         elif workload == "ping":
             self._measure_ping(child, self.args.iterations, report_cb)

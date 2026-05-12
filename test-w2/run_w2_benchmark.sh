@@ -27,6 +27,7 @@ BATCH_MODE=false
 STRICT_HOST_KEY=false
 MOSH_PREDICT="never"
 TOP_INTERVAL=1.0
+PING_TARGET=""
 
 CMD=(
   python w2_continuous_monitoring_benchmark.py
@@ -48,6 +49,10 @@ CMD=(
   --mosh-predict "$MOSH_PREDICT"
   --top-interval "$TOP_INTERVAL"
 )
+
+if [[ -n "$PING_TARGET" ]]; then
+  CMD+=(--ping-target "$PING_TARGET")
+fi
 
 $SSH3_INSECURE     && CMD+=(--ssh3-insecure)
 $BATCH_MODE        && CMD+=(--batch-mode)
