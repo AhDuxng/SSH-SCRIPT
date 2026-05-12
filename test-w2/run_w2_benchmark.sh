@@ -6,7 +6,7 @@ USER_NAME="trungnt"
 SOURCE_IP="192.168.8.100"
 IDENTITY_FILE="$HOME/.ssh/id_rsa"
 
-PROTOCOLS="ssh ssh3 mosh"
+PROTOCOLS="mosh"
 WORKLOADS="top tail ping"
 
 ITERATIONS=50
