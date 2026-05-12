@@ -1,10 +1,12 @@
 ﻿#!/usr/bin/env bash
 set -euo pipefail
 
-HOST="100.66.79.93"
+# HOST="100.66.79.93"
+HOST="10.42.0.206"
 USER_NAME="pi"
-SOURCE_IP="100.70.166.91"
-IDENTITY_FILE="$HOME/.ssh/id_ed25519" 
+# SOURCE_IP="100.70.166.91"
+SOURCE_IP="10.42.0.1"
+IDENTITY_FILE="$HOME/.ssh/id_ed25519"   
 
 PROTOCOLS="ssh ssh3 mosh"
 WORKLOADS="command_loop"
