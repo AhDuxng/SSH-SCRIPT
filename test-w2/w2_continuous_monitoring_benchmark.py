@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 from __future__ import annotations
 
 import argparse
@@ -118,7 +118,8 @@ class W2Benchmark:
             return shlex.join(ssh_common)
 
         if protocol == "mosh":
-            ssh_cmd = shlex.join(ssh_common[:-1])
+            mosh_ssh = [arg for arg in ssh_common[:-1] if arg != "-tt"]
+            ssh_cmd = shlex.join(mosh_ssh)
             mosh_parts = ["mosh", f"--ssh={ssh_cmd}"]
             if self.args.mosh_predict and self.args.mosh_predict != "adaptive":
                 mosh_parts += ["--predict", self.args.mosh_predict]
@@ -245,7 +246,14 @@ class W2Benchmark:
         return n * 1_000_000_000
 
     def _event_latency_ms(self, remote_event_ns: int, recv_local_ns: int) -> float:
-        return (recv_local_ns - remote_event_ns) / 1_000_000.0
+        lat = (recv_local_ns - remote_event_ns) / 1_000_000.0
+        if lat < 0:
+            print(
+                f"  [WARN] Negative latency {lat:.2f} ms detected "
+                f"(clock offset between client and server)",
+                flush=True,
+            )
+        return lat
 
     def _measure_top(
         self,
@@ -266,11 +274,13 @@ class W2Benchmark:
         )
         child.sendline(TOP_LOOP)
 
+        expect_timeout = max(self.args.timeout, int(interval * 3) + 5)
+
         for _ in range(3):
-            child.expect(marker_re, timeout=self.args.timeout)
+            child.expect(marker_re, timeout=expect_timeout)
 
         for i in range(iterations):
-            child.expect(marker_re, timeout=self.args.timeout)
+            child.expect(marker_re, timeout=expect_timeout)
             recv_ns = time.time_ns()
             remote_event_ns = self._parse_epoch_to_ns(child.match.group(1))
             lat = self._event_latency_ms(remote_event_ns, recv_ns)
@@ -316,22 +326,29 @@ class W2Benchmark:
 
         child.sendline(f"tail -f {remote_log}")
 
-        for _ in range(10):
-            child.expect(marker_re, timeout=self.args.timeout)
+        try:
+            for _ in range(10):
+                child.expect(marker_re, timeout=self.args.timeout)
 
-        for i in range(iterations):
-            child.expect(marker_re, timeout=self.args.timeout)
-            recv_ns = time.time_ns()
-            remote_event_ns = self._parse_epoch_to_ns(child.match.group(1))
-            lat = self._event_latency_ms(remote_event_ns, recv_ns)
-            report_cb(i + 1, lat)
-
-        child.sendcontrol("c")
-        self._expect_prompt(child)
-
-        # Cleanup background writer
-        child.sendline(f"kill {bg_pid} 2>/dev/null; rm -f {remote_log}")
-        self._expect_prompt(child)
+            for i in range(iterations):
+                child.expect(marker_re, timeout=self.args.timeout)
+                recv_ns = time.time_ns()
+                remote_event_ns = self._parse_epoch_to_ns(child.match.group(1))
+                lat = self._event_latency_ms(remote_event_ns, recv_ns)
+                report_cb(i + 1, lat)
+        finally:
+            # Always cleanup: stop tail and kill background writer
+            try:
+                child.sendcontrol("c")
+                self._expect_prompt(child)
+            except Exception:
+                child.sendcontrol("c")
+                time.sleep(1)
+            try:
+                child.sendline(f"kill {bg_pid} 2>/dev/null; rm -f {remote_log}")
+                self._expect_prompt(child)
+            except Exception:
+                pass
 
     def _measure_ping(
         self,
@@ -482,8 +499,8 @@ class W2Benchmark:
             if f.protocol == protocol and f.workload == workload
         )
         n = len(data)
-        total = n + fail_n
-        success_rate = (100.0 * n / total) if total else 0.0
+        total_trials = self.args.trials
+        success_rate = (100.0 * (total_trials - fail_n) / total_trials) if total_trials else 0.0
 
         if n == 0:
             return SummaryRow(protocol, workload, 0, fail_n, success_rate, None, None, None, None, None, None, None, None)
