@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-HOST="192.168.8.102"
-USER_NAME="trungnt"
-SOURCE_IP="192.168.8.100"
-IDENTITY_FILE="$HOME/.ssh/id_rsa"
+HOST="100.66.79.93"
+USER_NAME="pi"
+SOURCE_IP="100.70.166.91"
+IDENTITY_FILE="$HOME/.ssh/id_ed25519"
 
 PROTOCOLS="ssh ssh3 mosh"
 WORKLOADS="large_output"
@@ -27,7 +27,7 @@ OUTPUT_DIR="w4_results"
 LOG_PEXPECT=false
 PROMPT="W4PROMPT# "
 
-SSH3_PATH="/ssh3-term"
+SSH3_PATH=":4433/ssh3-term"
 SSH3_INSECURE=true
 
 BATCH_MODE=false

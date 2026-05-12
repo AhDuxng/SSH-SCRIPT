@@ -1,0 +1,121 @@
+protocol,command,trial_id,session_setup_ms
+ssh,ls,1,2063.486156
+ssh,ls,2,249.814430
+ssh,ls,3,264.686914
+ssh,ls,4,247.536523
+ssh,ls,5,245.747354
+ssh,ls,6,244.538431
+ssh,ls,7,271.478810
+ssh,ls,8,245.379003
+ssh,ls,9,247.235388
+ssh,ls,10,267.996073
+ssh,df -h,1,257.583140
+ssh,df -h,2,262.352549
+ssh,df -h,3,272.047347
+ssh,df -h,4,253.605753
+ssh,df -h,5,249.511994
+ssh,df -h,6,239.373338
+ssh,df -h,7,280.403219
+ssh,df -h,8,251.674322
+ssh,df -h,9,271.404030
+ssh,df -h,10,245.310019
+ssh,ps aux,1,264.937692
+ssh,ps aux,2,244.450325
+ssh,ps aux,3,269.502996
+ssh,ps aux,4,269.459661
+ssh,ps aux,5,270.167151
+ssh,ps aux,6,251.430155
+ssh,ps aux,7,267.934483
+ssh,ps aux,8,241.686578
+ssh,ps aux,9,278.399898
+ssh,ps aux,10,274.964145
+ssh,grep -n root /etc/passwd,1,276.470497
+ssh,grep -n root /etc/passwd,2,250.116054
+ssh,grep -n root /etc/passwd,3,252.740386
+ssh,grep -n root /etc/passwd,4,261.901659
+ssh,grep -n root /etc/passwd,5,256.936757
+ssh,grep -n root /etc/passwd,6,271.378763
+ssh,grep -n root /etc/passwd,7,268.571086
+ssh,grep -n root /etc/passwd,8,265.741669
+ssh,grep -n root /etc/passwd,9,259.789443
+ssh,grep -n root /etc/passwd,10,309.360769
+ssh3,ls,1,72.682655
+ssh3,ls,2,78.230102
+ssh3,ls,3,84.458463
+ssh3,ls,4,66.421029
+ssh3,ls,5,74.227632
+ssh3,ls,6,67.269491
+ssh3,ls,7,80.321502
+ssh3,ls,8,85.635326
+ssh3,ls,9,68.884811
+ssh3,ls,10,68.165155
+ssh3,df -h,1,89.997183
+ssh3,df -h,2,77.300899
+ssh3,df -h,3,77.184098
+ssh3,df -h,4,79.473514
+ssh3,df -h,5,85.073150
+ssh3,df -h,6,93.257799
+ssh3,df -h,7,86.745037
+ssh3,df -h,8,86.564140
+ssh3,df -h,9,64.414993
+ssh3,df -h,10,78.015755
+ssh3,ps aux,1,98.262264
+ssh3,ps aux,2,81.532950
+ssh3,ps aux,3,79.944864
+ssh3,ps aux,4,74.392905
+ssh3,ps aux,5,69.846542
+ssh3,ps aux,6,73.305206
+ssh3,ps aux,7,70.296614
+ssh3,ps aux,8,79.072540
+ssh3,ps aux,9,106.654147
+ssh3,ps aux,10,77.960666
+ssh3,grep -n root /etc/passwd,1,66.018051
+ssh3,grep -n root /etc/passwd,2,74.679032
+ssh3,grep -n root /etc/passwd,3,79.266255
+ssh3,grep -n root /etc/passwd,4,99.410537
+ssh3,grep -n root /etc/passwd,5,79.358262
+ssh3,grep -n root /etc/passwd,6,64.244584
+ssh3,grep -n root /etc/passwd,7,69.682894
+ssh3,grep -n root /etc/passwd,8,74.232295
+ssh3,grep -n root /etc/passwd,9,68.368002
+ssh3,grep -n root /etc/passwd,10,74.040416
+mosh,ls,1,596.390784
+mosh,ls,2,353.907407
+mosh,ls,3,451.744702
+mosh,ls,4,403.287875
+mosh,ls,5,385.633397
+mosh,ls,6,377.843514
+mosh,ls,7,392.286027
+mosh,ls,8,395.990898
+mosh,ls,9,414.465045
+mosh,ls,10,373.310022
+mosh,df -h,1,406.463268
+mosh,df -h,2,416.215390
+mosh,df -h,3,376.560034
+mosh,df -h,4,402.791854
+mosh,df -h,5,335.437226
+mosh,df -h,6,410.716441
+mosh,df -h,7,408.073214
+mosh,df -h,8,435.081798
+mosh,df -h,9,405.161419
+mosh,df -h,10,369.923891
+mosh,ps aux,1,374.610643
+mosh,ps aux,2,393.915117
+mosh,ps aux,3,372.230314
+mosh,ps aux,4,439.737823
+mosh,ps aux,5,421.025480
+mosh,ps aux,6,363.053248
+mosh,ps aux,7,411.710061
+mosh,ps aux,8,415.153772
+mosh,ps aux,9,364.782327
+mosh,ps aux,10,442.442916
+mosh,grep -n root /etc/passwd,1,399.927609
+mosh,grep -n root /etc/passwd,2,421.992614
+mosh,grep -n root /etc/passwd,3,414.155768
+mosh,grep -n root /etc/passwd,4,371.753000
+mosh,grep -n root /etc/passwd,5,407.190454
+mosh,grep -n root /etc/passwd,6,358.558830
+mosh,grep -n root /etc/passwd,7,425.229775
+mosh,grep -n root /etc/passwd,8,400.845222
+mosh,grep -n root /etc/passwd,9,358.877790
+mosh,grep -n root /etc/passwd,10,355.040132

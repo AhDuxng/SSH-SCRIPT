@@ -1,0 +1,282 @@
+{
+  "meta": {
+    "started_at_utc": "2026-05-11T15:52:51+00:00",
+    "target": "pi@100.66.79.93",
+    "client_source_ip": "100.70.166.91",
+    "protocols": [
+      "ssh",
+      "ssh3",
+      "mosh"
+    ],
+    "workloads": [
+      "large_output"
+    ],
+    "commands": [
+      "find /",
+      "git status",
+      "docker logs $(docker ps -q | head -n 1)"
+    ],
+    "trials": 5,
+    "iterations": 100,
+    "timeout_sec": 300,
+    "command_idle_timeout_sec": 0.0,
+    "maxread_bytes": 65535,
+    "search_window_size": 8192,
+    "random_seed": 42,
+    "topology": {
+      "client": "192.168.8.100",
+      "server": "100.66.79.93"
+    },
+    "metric_name": "output_delivery_latency_ms",
+    "metric_note": "Latency = time from sendline(command) to command completion visibility. For SSH/SSH3/MOSH, stop condition is unique completion marker from '{ command; } 2>&1; printf %s\\n <marker>'. For MOSH, prompt re-appearance is a fallback if marker delivery is skipped.",
+    "additional_fields": {
+      "output_bytes": "Byte length observed before completion condition",
+      "throughput_kib_s": "output_bytes / latency window"
+    },
+    "session_setup_note": "setup_ms = time from pexpect.spawn() to first shell prompt ([#$>] regex). The 'export PS1' command is excluded from setup window."
+  },
+  "summary": [
+    {
+      "protocol": "ssh",
+      "workload": "large_output",
+      "command": "find /",
+      "n": 500,
+      "failures": 0,
+      "success_rate_pct": 100.0,
+      "min_ms": 50.245887,
+      "mean_ms": 2211.705609404,
+      "median_ms": 2089.0199945,
+      "stdev_ms": 565.3525079956553,
+      "p95_ms": 3008.6354927499992,
+      "p99_ms": 3273.7686975499996,
+      "max_ms": 10760.433406,
+      "ci95_half_width_ms": 49.55533225382852,
+      "mean_output_kib": 15200.605365234374,
+      "mean_throughput_kib_s": 6872.7977632296925
+    },
+    {
+      "protocol": "ssh",
+      "workload": "large_output",
+      "command": "git status",
+      "n": 500,
+      "failures": 0,
+      "success_rate_pct": 100.0,
+      "min_ms": 50.221318,
+      "mean_ms": 51.183185682,
+      "median_ms": 50.323986500000004,
+      "stdev_ms": 5.067793523083164,
+      "p95_ms": 50.48637125,
+      "p99_ms": 80.74179888,
+      "max_ms": 92.874653,
+      "ci95_half_width_ms": 0.4442116878910465,
+      "mean_output_kib": 0.09700390625,
+      "mean_throughput_kib_s": 1.895229946269525
+    },
+    {
+      "protocol": "ssh",
+      "workload": "large_output",
+      "command": "docker logs $(docker ps -q | head -n 1)",
+      "n": 500,
+      "failures": 0,
+      "success_rate_pct": 100.0,
+      "min_ms": 50.219226,
+      "mean_ms": 56.817709156,
+      "median_ms": 53.9754605,
+      "stdev_ms": 9.04226876315783,
+      "p95_ms": 69.39317505,
+      "p99_ms": 101.41719476,
+      "max_ms": 117.05305,
+      "ci95_half_width_ms": 0.792589802909559,
+      "mean_output_kib": 0.244873046875,
+      "mean_throughput_kib_s": 4.309801477610986
+    },
+    {
+      "protocol": "ssh3",
+      "workload": "large_output",
+      "command": "find /",
+      "n": 500,
+      "failures": 0,
+      "success_rate_pct": 100.0,
+      "min_ms": 50.312421,
+      "mean_ms": 1110.46185738,
+      "median_ms": 110.343508,
+      "stdev_ms": 1440.8184953813886,
+      "p95_ms": 3426.0977437499996,
+      "p99_ms": 3859.401854049999,
+      "max_ms": 5768.909044,
+      "ci95_half_width_ms": 126.29330947734066,
+      "mean_output_kib": 4937.164548828125,
+      "mean_throughput_kib_s": 4446.046044730222
+    },
+    {
+      "protocol": "ssh3",
+      "workload": "large_output",
+      "command": "git status",
+      "n": 500,
+      "failures": 0,
+      "success_rate_pct": 100.0,
+      "min_ms": 50.193416,
+      "mean_ms": 50.58211106,
+      "median_ms": 50.305445500000005,
+      "stdev_ms": 2.5726538414322264,
+      "p95_ms": 50.4499785,
+      "p99_ms": 50.85942169999978,
+      "max_ms": 76.768574,
+      "ci95_half_width_ms": 0.22550305178312216,
+      "mean_output_kib": 0.16242578125,
+      "mean_throughput_kib_s": 3.211130928429067
+    },
+    {
+      "protocol": "ssh3",
+      "workload": "large_output",
+      "command": "docker logs $(docker ps -q | head -n 1)",
+      "n": 500,
+      "failures": 0,
+      "success_rate_pct": 100.0,
+      "min_ms": 50.260585,
+      "mean_ms": 51.654791854,
+      "median_ms": 50.364360500000004,
+      "stdev_ms": 3.8223814456573386,
+      "p95_ms": 59.258748849999996,
+      "p99_ms": 71.81641254999997,
+      "max_ms": 78.417984,
+      "ci95_half_width_ms": 0.3350465061382101,
+      "mean_output_kib": 0.33822265625,
+      "mean_throughput_kib_s": 6.5477498623161905
+    },
+    {
+      "protocol": "mosh",
+      "workload": "large_output",
+      "command": "find /",
+      "n": 500,
+      "failures": 0,
+      "success_rate_pct": 100.0,
+      "min_ms": 50.234582,
+      "mean_ms": 1799.74278303,
+      "median_ms": 1787.3764465,
+      "stdev_ms": 159.79303692433479,
+      "p95_ms": 1896.5681023999998,
+      "p99_ms": 1977.9717833299997,
+      "max_ms": 3509.241385,
+      "ci95_half_width_ms": 14.006477241442703,
+      "mean_output_kib": 56.2551796875,
+      "mean_throughput_kib_s": 31.257344226040033
+    },
+    {
+      "protocol": "mosh",
+      "workload": "large_output",
+      "command": "git status",
+      "n": 500,
+      "failures": 0,
+      "success_rate_pct": 100.0,
+      "min_ms": 83.755671,
+      "mean_ms": 85.997896672,
+      "median_ms": 85.60312400000001,
+      "stdev_ms": 1.5997210650219589,
+      "p95_ms": 88.7061591,
+      "p99_ms": 91.8965477,
+      "max_ms": 102.667416,
+      "ci95_half_width_ms": 0.14022173381995645,
+      "mean_output_kib": 0.0,
+      "mean_throughput_kib_s": 0.0
+    },
+    {
+      "protocol": "mosh",
+      "workload": "large_output",
+      "command": "docker logs $(docker ps -q | head -n 1)",
+      "n": 500,
+      "failures": 0,
+      "success_rate_pct": 100.0,
+      "min_ms": 50.231439,
+      "mean_ms": 50.741877708,
+      "median_ms": 50.328762499999996,
+      "stdev_ms": 3.5400341396493267,
+      "p95_ms": 50.48038835,
+      "p99_ms": 55.41178791999973,
+      "max_ms": 86.225483,
+      "ci95_half_width_ms": 0.3102976735738944,
+      "mean_output_kib": 0.24090625,
+      "mean_throughput_kib_s": 4.74768102564755
+    }
+  ],
+  "session_setup": {
+    "ssh": {
+      "find /": {
+        "n": 5,
+        "mean": 396.9509268,
+        "median": 469.927611,
+        "stdev": 131.17703093317516,
+        "min": 242.042726,
+        "max": 509.223133
+      },
+      "git status": {
+        "n": 5,
+        "mean": 510.4520882,
+        "median": 510.160263,
+        "stdev": 7.025013427862287,
+        "min": 500.775516,
+        "max": 520.175648
+      },
+      "docker logs $(docker ps -q | head -n 1)": {
+        "n": 5,
+        "mean": 499.09018219999996,
+        "median": 500.671634,
+        "stdev": 15.28477463248529,
+        "min": 476.257903,
+        "max": 513.509564
+      }
+    },
+    "ssh3": {
+      "find /": {
+        "n": 5,
+        "mean": 161.1273036,
+        "median": 159.483784,
+        "stdev": 4.767478091561021,
+        "min": 156.451292,
+        "max": 167.582265
+      },
+      "git status": {
+        "n": 5,
+        "mean": 159.2017742,
+        "median": 158.818795,
+        "stdev": 4.6534721669082435,
+        "min": 153.719806,
+        "max": 164.752112
+      },
+      "docker logs $(docker ps -q | head -n 1)": {
+        "n": 5,
+        "mean": 160.9882582,
+        "median": 156.626451,
+        "stdev": 7.015138915397309,
+        "min": 154.933035,
+        "max": 170.632576
+      }
+    },
+    "mosh": {
+      "find /": {
+        "n": 5,
+        "mean": 796.2576018,
+        "median": 708.3229,
+        "stdev": 197.693357660885,
+        "min": 673.800631,
+        "max": 1145.26958
+      },
+      "git status": {
+        "n": 5,
+        "mean": 759.06213,
+        "median": 758.640895,
+        "stdev": 29.243745503371837,
+        "min": 715.144138,
+        "max": 792.105279
+      },
+      "docker logs $(docker ps -q | head -n 1)": {
+        "n": 5,
+        "mean": 768.6482771999999,
+        "median": 768.781136,
+        "stdev": 17.35673992708194,
+        "min": 748.881219,
+        "max": 793.075254
+      }
+    }
+  }
+}

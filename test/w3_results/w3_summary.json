@@ -1,13 +1,17 @@
 {
   "meta": {
-    "started_at_utc": "2026-05-11T09:41:04+00:00",
+    "started_at_utc": "2026-05-11T17:15:02+00:00",
     "target": "pi@100.66.79.93",
     "client_source_ip": "100.70.166.91",
     "protocols": [
+      "ssh",
+      "ssh3",
       "mosh"
     ],
     "workloads": [
-      "vim"
+      "interactive_shell",
+      "vim",
+      "nano"
     ],
     "trials": 10,
     "iterations": 50,
@@ -27,30 +31,218 @@
   },
   "summary": [
     {
+      "protocol": "ssh",
+      "workload": "interactive_shell",
+      "n": 500,
+      "failures": 0,
+      "success_rate_pct": 100.0,
+      "min_ms": 75.266515,
+      "mean_ms": 82.149809266,
+      "median_ms": 82.0577105,
+      "stdev_ms": 3.782684539984974,
+      "p95_ms": 87.4052931,
+      "p99_ms": 96.37665085,
+      "max_ms": 101.481929,
+      "ci95_half_width_ms": 0.33156691893868173
+    },
+    {
+      "protocol": "ssh",
+      "workload": "vim",
+      "n": 500,
+      "failures": 0,
+      "success_rate_pct": 100.0,
+      "min_ms": 75.028921,
+      "mean_ms": 85.000837968,
+      "median_ms": 83.62235949999999,
+      "stdev_ms": 6.916415787912525,
+      "p95_ms": 95.97525209999999,
+      "p99_ms": 99.35128728,
+      "max_ms": 100.283621,
+      "ci95_half_width_ms": 0.6062505738070668
+    },
+    {
+      "protocol": "ssh",
+      "workload": "nano",
+      "n": 500,
+      "failures": 0,
+      "success_rate_pct": 100.0,
+      "min_ms": 74.809736,
+      "mean_ms": 89.338585508,
+      "median_ms": 89.9188565,
+      "stdev_ms": 5.459597003533063,
+      "p95_ms": 96.22808165000001,
+      "p99_ms": 97.67408509999999,
+      "max_ms": 99.872585,
+      "ci95_half_width_ms": 0.47855477716244027
+    },
+    {
+      "protocol": "ssh3",
+      "workload": "interactive_shell",
+      "n": 500,
+      "failures": 0,
+      "success_rate_pct": 100.0,
+      "min_ms": 75.078737,
+      "mean_ms": 76.899352748,
+      "median_ms": 76.39220750000001,
+      "stdev_ms": 1.471980584295537,
+      "p95_ms": 80.0961299,
+      "p99_ms": 81.40758522,
+      "max_ms": 89.168503,
+      "ci95_half_width_ms": 0.12902478700335143
+    },
+    {
+      "protocol": "ssh3",
+      "workload": "vim",
+      "n": 500,
+      "failures": 0,
+      "success_rate_pct": 100.0,
+      "min_ms": 74.608149,
+      "mean_ms": 76.564672802,
+      "median_ms": 76.217885,
+      "stdev_ms": 1.2845900544858964,
+      "p95_ms": 79.3946133,
+      "p99_ms": 81.16243733,
+      "max_ms": 84.393334,
+      "ci95_half_width_ms": 0.1125992828539844
+    },
+    {
+      "protocol": "ssh3",
+      "workload": "nano",
+      "n": 500,
+      "failures": 0,
+      "success_rate_pct": 100.0,
+      "min_ms": 50.561592,
+      "mean_ms": 76.962874286,
+      "median_ms": 76.6020865,
+      "stdev_ms": 1.8233441765285314,
+      "p95_ms": 80.0917001,
+      "p99_ms": 81.44606974,
+      "max_ms": 85.685887,
+      "ci95_half_width_ms": 0.15982316378376996
+    },
+    {
+      "protocol": "mosh",
+      "workload": "interactive_shell",
+      "n": 500,
+      "failures": 10,
+      "success_rate_pct": 98.03921568627452,
+      "min_ms": 50.123573,
+      "mean_ms": 67.241220294,
+      "median_ms": 50.575202000000004,
+      "stdev_ms": 17.686477882452387,
+      "p95_ms": 86.72551134999999,
+      "p99_ms": 87.96087388000001,
+      "max_ms": 97.033992,
+      "ci95_half_width_ms": 1.550288139646235
+    },
+    {
       "protocol": "mosh",
       "workload": "vim",
       "n": 500,
       "failures": 0,
       "success_rate_pct": 100.0,
-      "min_ms": 102.206899,
-      "mean_ms": 126.498080264,
-      "median_ms": 107.98486700000001,
-      "stdev_ms": 117.3844154387578,
-      "p95_ms": 169.31496014999988,
-      "p99_ms": 627.8729956599999,
-      "max_ms": 1918.448168,
-      "ci95_half_width_ms": 10.289197670869418
+      "min_ms": 82.844114,
+      "mean_ms": 84.978108288,
+      "median_ms": 84.8776135,
+      "stdev_ms": 0.8634341695248128,
+      "p95_ms": 86.59329234999998,
+      "p99_ms": 88.20701224,
+      "max_ms": 89.595083,
+      "ci95_half_width_ms": 0.07568334188841949
+    },
+    {
+      "protocol": "mosh",
+      "workload": "nano",
+      "n": 500,
+      "failures": 0,
+      "success_rate_pct": 100.0,
+      "min_ms": 82.821325,
+      "mean_ms": 85.5148994,
+      "median_ms": 85.0614635,
+      "stdev_ms": 2.37083177117909,
+      "p95_ms": 87.88377235,
+      "p99_ms": 94.57108392999992,
+      "max_ms": 106.969002,
+      "ci95_half_width_ms": 0.20781256734004872
     }
   ],
   "session_setup": {
-    "mosh": {
+    "ssh": {
+      "interactive_shell": {
+        "n": 10,
+        "mean": 523.6241922,
+        "median": 496.282637,
+        "stdev": 81.41851199309005,
+        "min": 485.737264,
+        "max": 751.603541
+      },
       "vim": {
         "n": 10,
-        "mean": 1043.3848504,
-        "median": 982.4127080000001,
-        "stdev": 143.25511177187786,
-        "min": 921.865236,
-        "max": 1331.986941
+        "mean": 501.4330893,
+        "median": 500.0747415,
+        "stdev": 9.986168153654807,
+        "min": 488.016522,
+        "max": 522.027915
+      },
+      "nano": {
+        "n": 10,
+        "mean": 503.1246458,
+        "median": 503.86589100000003,
+        "stdev": 15.965008053444812,
+        "min": 480.983186,
+        "max": 525.363391
+      }
+    },
+    "ssh3": {
+      "interactive_shell": {
+        "n": 10,
+        "mean": 155.8009008,
+        "median": 151.987632,
+        "stdev": 12.09242642409931,
+        "min": 139.437694,
+        "max": 177.272879
+      },
+      "vim": {
+        "n": 10,
+        "mean": 151.912983,
+        "median": 152.352121,
+        "stdev": 3.85273758146173,
+        "min": 144.648814,
+        "max": 156.908442
+      },
+      "nano": {
+        "n": 10,
+        "mean": 153.5189145,
+        "median": 151.6988345,
+        "stdev": 11.18442661286269,
+        "min": 142.125,
+        "max": 181.24079
+      }
+    },
+    "mosh": {
+      "interactive_shell": {
+        "n": 10,
+        "mean": 728.6622365000001,
+        "median": 705.9642075,
+        "stdev": 133.04504137235799,
+        "min": 617.182939,
+        "max": 1091.82711
+      },
+      "vim": {
+        "n": 10,
+        "mean": 696.9517071,
+        "median": 706.0246625,
+        "stdev": 42.34453665446193,
+        "min": 628.156155,
+        "max": 757.918408
+      },
+      "nano": {
+        "n": 10,
+        "mean": 679.2170331,
+        "median": 689.101917,
+        "stdev": 29.748067075462707,
+        "min": 635.771967,
+        "max": 721.568037
       }
     }
   }
