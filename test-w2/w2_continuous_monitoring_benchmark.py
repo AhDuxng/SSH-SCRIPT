@@ -30,6 +30,8 @@ DEFAULT_SSH3_PATH = "/ssh3-term"
 
 _ANSI_SEQ = r"(?:\x1b\[\??[0-9;]*[a-zA-Z])"
 _ECHO_GAP = rf"(?:{_ANSI_SEQ}|[\r\n\b])*"
+_GAPPED_DIGITS = rf"(\d(?:{_ECHO_GAP}\d)*)"
+_GAPPED_FLOAT = rf"(\d(?:{_ECHO_GAP}\d)*{_ECHO_GAP}\.{_ECHO_GAP}\d(?:{_ECHO_GAP}\d)*)"
 _INITIAL_PROMPT_RE = re.compile(
     r"[#$>](?:" + _ANSI_SEQ + r"|\s)*\s*$",
     re.MULTILINE,
@@ -95,6 +97,12 @@ class W2Benchmark:
     @staticmethod
     def _build_gapped_literal(token: str) -> str:
         return "".join(re.escape(ch) + _ECHO_GAP for ch in token)
+
+    @staticmethod
+    def _strip_ansi_from_number(raw: str) -> str:
+        """Remove ANSI sequences and control characters from a captured number."""
+        cleaned = re.sub(_ANSI_SEQ, "", raw)
+        return re.sub(r"[\r\n\b\s]", "", cleaned)
 
     def _expect_prompt(self, child: pexpect.spawn) -> None:
         child.expect(self.prompt_re, timeout=self.args.timeout)
@@ -263,7 +271,7 @@ class W2Benchmark:
     ) -> None:
         interval = self.args.top_interval
         marker_re = re.compile(
-            self._build_gapped_literal("W2_TOP_REFRESH:") + r"(\d+)"
+            self._build_gapped_literal("W2_TOP_REFRESH:") + _GAPPED_DIGITS
         )
         TOP_LOOP = (
             f"while true; do "
@@ -282,7 +290,7 @@ class W2Benchmark:
         for i in range(iterations):
             child.expect(marker_re, timeout=expect_timeout)
             recv_ns = time.time_ns()
-            remote_event_ns = self._parse_epoch_to_ns(child.match.group(1))
+            remote_event_ns = self._parse_epoch_to_ns(self._strip_ansi_from_number(child.match.group(1)))
             lat = self._event_latency_ms(remote_event_ns, recv_ns)
             report_cb(i + 1, lat)
 
@@ -303,8 +311,8 @@ class W2Benchmark:
         report_cb: Callable[[int, float], None],
     ) -> None:
         marker_re = re.compile(
-            self._build_gapped_literal("W2_TAIL_") + r"\d+" + _ECHO_GAP +
-            re.escape(":") + _ECHO_GAP + r"(\d+)"
+            self._build_gapped_literal("W2_TAIL_") + r"\d(?:" + _ECHO_GAP + r"\d)*" + _ECHO_GAP +
+            re.escape(":") + _ECHO_GAP + _GAPPED_DIGITS
         )
         remote_log = "/tmp/w2_test.log"
         child.sendline(f"rm -f {remote_log} && touch {remote_log}")
@@ -333,7 +341,7 @@ class W2Benchmark:
             for i in range(iterations):
                 child.expect(marker_re, timeout=self.args.timeout)
                 recv_ns = time.time_ns()
-                remote_event_ns = self._parse_epoch_to_ns(child.match.group(1))
+                remote_event_ns = self._parse_epoch_to_ns(self._strip_ansi_from_number(child.match.group(1)))
                 lat = self._event_latency_ms(remote_event_ns, recv_ns)
                 report_cb(i + 1, lat)
         finally:
@@ -357,7 +365,7 @@ class W2Benchmark:
         report_cb: Callable[[int, float], None],
     ) -> None:
         marker_re = re.compile(
-            re.escape("[") + _ECHO_GAP + r"(\d+\.\d+)" +
+            re.escape("[") + _ECHO_GAP + _GAPPED_FLOAT +
             _ECHO_GAP + re.escape("]")
         )
         ping_target = self.args.ping_target or "127.0.0.1"
@@ -370,7 +378,7 @@ class W2Benchmark:
         for i in range(iterations):
             child.expect(marker_re, timeout=self.args.timeout)
             recv_ns = time.time_ns()
-            remote_event_ns = self._parse_epoch_to_ns(child.match.group(1))
+            remote_event_ns = self._parse_epoch_to_ns(self._strip_ansi_from_number(child.match.group(1)))
             lat = self._event_latency_ms(remote_event_ns, recv_ns)
             report_cb(i + 1, lat)
 
