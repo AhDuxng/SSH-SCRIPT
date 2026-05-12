@@ -30,9 +30,9 @@ DEFAULT_SSH3_PATH = "/ssh3-term"
 
 _ANSI_SEQ = r"(?:\x1b\[\??[0-9;]*[a-zA-Z])"
 _ECHO_GAP = rf"(?:{_ANSI_SEQ}|[\r\n\b])*"
-# date +%s%N yields a 19-digit epoch-ns timestamp on GNU date.
+
 _GAPPED_EPOCH_NS = rf"(\d(?:{_ECHO_GAP}\d){{18}})"
-# ping -D emits epoch.us (currently 10 digits seconds + 6 digits usec).
+
 _GAPPED_PING_EPOCH_US = (
     rf"(\d(?:{_ECHO_GAP}\d){{9}}"
     rf"{_ECHO_GAP}\."
@@ -75,6 +75,36 @@ class SummaryRow:
     p99_ms: Optional[float]
     max_ms: Optional[float]
     ci95_half_width_ms: Optional[float]
+    sample_ci95_half_width_ms: Optional[float]
+    trial_count: int
+    trial_mean_of_means_ms: Optional[float]
+    trial_median_of_means_ms: Optional[float]
+    trial_mean_of_medians_ms: Optional[float]
+
+@dataclass
+class TrialSummaryRecord:
+    protocol: str
+    workload: str
+    round_id: int
+    n: int
+    mean_ms: float
+    median_ms: float
+    min_ms: float
+    max_ms: float
+    stdev_ms: float
+    clock_offset_ns: int
+    clock_offset_ms: float
+
+@dataclass
+class ClockOffsetRecord:
+    protocol: str
+    workload: str
+    round_id: int
+    probes: int
+    offset_ns: int
+    offset_ms: float
+    median_rtt_ms: float
+    method: str
 
 class W2Benchmark:
     def __init__(self, args: argparse.Namespace) -> None:
@@ -94,6 +124,9 @@ class W2Benchmark:
         self.session_setups: Dict[str, Dict[str, List[float]]] = {
             p: {w: [] for w in args.workloads} for p in args.protocols
         }
+        self.trial_summaries: List[TrialSummaryRecord] = []
+        self.clock_offsets: List[ClockOffsetRecord] = []
+        self.current_clock_offset_ns: int = 0
 
     @staticmethod
     def _build_prompt_re(prompt_marker: str) -> re.Pattern[str]:
@@ -184,10 +217,11 @@ class W2Benchmark:
                 )
                 if child is not None:
                     self._close_session(child, protocol)
-                # Brief pause before retry
                 time.sleep(2 * attempt)
 
-        raise last_exc  # type: ignore[misc]
+        if last_exc is None:
+            raise RuntimeError(f"_open_session({protocol}) failed without a captured exception")
+        raise last_exc
 
     def _close_session(self, child: pexpect.spawn, protocol: str = "") -> None:
         """Close the pexpect session, forcefully killing any running processes first."""
@@ -236,7 +270,6 @@ class W2Benchmark:
         if not token:
             return []
         if token.endswith("%N") and token[:-2].isdigit():
-            # Non-GNU date may print literal %N. Fall back to epoch seconds.
             return [int(token[:-2]) * 1_000_000_000]
         if "." in token:
             sec_s, frac_s = token.split(".", 1)
@@ -250,8 +283,6 @@ class W2Benchmark:
         if len(token) <= 19:
             return [cls._digits_to_epoch_ns(token)]
 
-        # If multiple timestamps were accidentally concatenated, scan 19-digit
-        # windows and pick the one closest to local receive time.
         return [int(token[i : i + 19]) for i in range(0, len(token) - 18)]
 
     @classmethod
@@ -278,12 +309,93 @@ class W2Benchmark:
 
         return min(candidates, key=lambda ns: abs(recv_local_ns - ns))
 
+    def _estimate_clock_offset_ns(
+        self,
+        child: pexpect.spawn,
+        protocol: str,
+        workload: str,
+        trial_id: int,
+    ) -> int:
+        if self.args.clock_offset_mode != "estimate":
+            return 0
+
+        marker_re = re.compile(
+            self._build_gapped_literal("W2_CLOCK_TS:") + _GAPPED_EPOCH_NS
+        )
+        offsets_ns: List[int] = []
+        rtts_ms: List[float] = []
+        probes = max(1, self.args.clock_offset_probes)
+
+        for probe_idx in range(1, probes + 1):
+            try:
+                t0 = time.time_ns()
+                child.sendline("echo \"W2_CLOCK_TS:$(date +%s%N)\"")
+                child.expect(marker_re, timeout=self.args.timeout)
+                t1 = time.time_ns()
+                mid_local_ns = (t0 + t1) // 2
+                remote_ns = self._parse_epoch_to_ns(child.match.group(1), mid_local_ns)
+                offsets_ns.append(mid_local_ns - remote_ns)
+                rtts_ms.append((t1 - t0) / 1_000_000.0)
+                self._expect_prompt(child)
+            except (pexpect.TIMEOUT, pexpect.EOF, ValueError) as exc:
+                print(
+                    f"  [WARN] clock offset probe {probe_idx}/{probes} failed: {type(exc).__name__}. "
+                    "Fallback to zero offset for this trial.",
+                    flush=True,
+                )
+                try:
+                    child.sendcontrol("c")
+                    self._expect_prompt(child)
+                except Exception:
+                    pass
+                offsets_ns.clear()
+                rtts_ms.clear()
+                break
+
+        if not offsets_ns:
+            self.clock_offsets.append(
+                ClockOffsetRecord(
+                    protocol=protocol,
+                    workload=workload,
+                    round_id=trial_id,
+                    probes=probes,
+                    offset_ns=0,
+                    offset_ms=0.0,
+                    median_rtt_ms=0.0,
+                    method="estimate_failed_fallback_zero",
+                )
+            )
+            return 0
+
+        offset_ns = int(statistics.median(offsets_ns))
+        median_rtt_ms = statistics.median(rtts_ms)
+        self.clock_offsets.append(
+            ClockOffsetRecord(
+                protocol=protocol,
+                workload=workload,
+                round_id=trial_id,
+                probes=probes,
+                offset_ns=offset_ns,
+                offset_ms=offset_ns / 1_000_000.0,
+                median_rtt_ms=median_rtt_ms,
+                method="midpoint_round_trip",
+            )
+        )
+        print(
+            f"[{protocol:>4}/{workload:<18}] trial {trial_id:>2}/{self.args.trials}"
+            f" clock_offset_est={offset_ns / 1_000_000.0:.2f} ms (median_rtt={median_rtt_ms:.2f} ms)",
+            flush=True,
+        )
+        return offset_ns
+
     def _event_latency_ms(self, remote_event_ns: int, recv_local_ns: int) -> float:
-        lat = (recv_local_ns - remote_event_ns) / 1_000_000.0
+        raw_ns = recv_local_ns - remote_event_ns
+        corrected_ns = raw_ns - self.current_clock_offset_ns
+        lat = corrected_ns / 1_000_000.0
         if lat < 0:
             print(
                 f"  [WARN] Negative latency {lat:.2f} ms detected "
-                f"(clock offset between client and server)",
+                f"(clock offset mode={self.args.clock_offset_mode})",
                 flush=True,
             )
         return lat
@@ -381,24 +493,22 @@ class W2Benchmark:
             re.escape(":") + _ECHO_GAP + _GAPPED_EPOCH_NS
         )
         remote_log = "/tmp/w2_test.log"
+        writer_pid = ""
         child.sendline(f"rm -f {remote_log} && touch {remote_log}")
         self._expect_prompt(child)
 
         child.sendline(
+            f"(sleep 0.20; "
             f"W2_SEQ=0; while true; do "
             f"W2_SEQ=$((W2_SEQ+1)); "
             f"echo \"W2_TAIL_$W2_SEQ:$(date +%s%N)\" >> {remote_log}; "
             f"sleep 0.05; "
-            f"done &"
+            f"done) & "
+            f"W2_WRITER_PID=$!; echo W2_WRITER_PID=$W2_WRITER_PID; "
+            f"tail -n 0 -f {remote_log}"
         )
-        self._expect_prompt(child)
-
-        child.sendline("W2_WRITER_PID=$!; echo W2_WRITER_PID=$W2_WRITER_PID")
         child.expect(r"W2_WRITER_PID=(\d+)", timeout=self.args.timeout)
-        bg_pid = child.match.group(1)
-        self._expect_prompt(child)
-
-        child.sendline(f"tail -f {remote_log}")
+        writer_pid = child.match.group(1)
         dropped = 0
 
         try:
@@ -430,15 +540,19 @@ class W2Benchmark:
                 sample_id += 1
                 report_cb(sample_id, lat)
         finally:
-            # Always cleanup: stop tail and kill background writer
             try:
                 child.sendcontrol("c")
                 self._expect_prompt(child)
             except Exception:
-                child.sendcontrol("c")
-                time.sleep(1)
+                try:
+                    child.sendcontrol("c")
+                    time.sleep(1)
+                    self._expect_prompt(child)
+                except Exception:
+                    pass
+
             try:
-                child.sendline(f"kill {bg_pid} 2>/dev/null; rm -f {remote_log}")
+                child.sendline(f"kill {writer_pid} 2>/dev/null; rm -f {remote_log}")
                 self._expect_prompt(child)
             except Exception:
                 pass
@@ -495,9 +609,12 @@ class W2Benchmark:
         protocol: str,
         workload: str,
         trial_id: int,
-    ) -> None:
+    ) -> List[float]:
+        trial_samples: List[float] = []
+
         def report_cb(s_idx: int, lat: float) -> None:
             self.results[protocol][workload].append(lat)
+            trial_samples.append(lat)
             self.records.append(
                 SampleRecord(protocol, workload, trial_id, s_idx, lat)
             )
@@ -515,6 +632,34 @@ class W2Benchmark:
             self._measure_ping(child, self.args.iterations, report_cb)
         else:
             raise ValueError(f"Unsupported workload: {workload}")
+        return trial_samples
+
+    def _append_trial_summary(
+        self,
+        protocol: str,
+        workload: str,
+        trial_id: int,
+        trial_samples: List[float],
+        clock_offset_ns: int,
+    ) -> None:
+        if not trial_samples:
+            return
+        n = len(trial_samples)
+        self.trial_summaries.append(
+            TrialSummaryRecord(
+                protocol=protocol,
+                workload=workload,
+                round_id=trial_id,
+                n=n,
+                mean_ms=statistics.mean(trial_samples),
+                median_ms=statistics.median(trial_samples),
+                min_ms=min(trial_samples),
+                max_ms=max(trial_samples),
+                stdev_ms=statistics.stdev(trial_samples) if n > 1 else 0.0,
+                clock_offset_ns=clock_offset_ns,
+                clock_offset_ms=clock_offset_ns / 1_000_000.0,
+            )
+        )
 
     def _run_session_group(
         self,
@@ -532,7 +677,17 @@ class W2Benchmark:
                     flush=True,
                 )
                 try:
-                    self._run_trial(child, protocol, workload, trial_id)
+                    self.current_clock_offset_ns = self._estimate_clock_offset_ns(
+                        child, protocol, workload, trial_id
+                    )
+                    trial_samples = self._run_trial(child, protocol, workload, trial_id)
+                    self._append_trial_summary(
+                        protocol=protocol,
+                        workload=workload,
+                        trial_id=trial_id,
+                        trial_samples=trial_samples,
+                        clock_offset_ns=self.current_clock_offset_ns,
+                    )
                 except (pexpect.TIMEOUT, pexpect.EOF, ValueError) as exc:
                     self.failures.append(
                         FailureRecord(
@@ -572,6 +727,7 @@ class W2Benchmark:
                 time.sleep(3)
                 continue
             finally:
+                self.current_clock_offset_ns = 0
                 if child is not None:
                     self._close_session(child, protocol)
                 if protocol == "mosh":
@@ -586,6 +742,11 @@ class W2Benchmark:
         ]
         if self.args.shuffle_pairs:
             random.shuffle(sequence)
+        else:
+            print(
+                "  [INFO] --shuffle-pairs is disabled; enabling it is recommended to reduce order effects.",
+                flush=True,
+            )
         for protocol, workload in sequence:
             self._run_session_group(protocol, workload)
 
@@ -605,6 +766,12 @@ class W2Benchmark:
 
     def _summary_row(self, protocol: str, workload: str) -> SummaryRow:
         data = self.results[protocol][workload]
+        trial_rows = [
+            r for r in self.trial_summaries
+            if r.protocol == protocol and r.workload == workload
+        ]
+        trial_means = [r.mean_ms for r in trial_rows]
+        trial_medians = [r.median_ms for r in trial_rows]
         fail_n = sum(
             1
             for f in self.failures
@@ -614,13 +781,39 @@ class W2Benchmark:
         total_trials = self.args.trials
         success_rate = (100.0 * (total_trials - fail_n) / total_trials) if total_trials else 0.0
 
+        trial_count = len(trial_means)
+        trial_mean_of_means = statistics.mean(trial_means) if trial_means else None
+        trial_median_of_means = statistics.median(trial_means) if trial_means else None
+        trial_mean_of_medians = statistics.mean(trial_medians) if trial_medians else None
+        trial_stdev_of_means = statistics.stdev(trial_means) if trial_count > 1 else 0.0
+        trial_ci95 = (1.96 * trial_stdev_of_means / math.sqrt(trial_count)) if trial_count > 1 else 0.0
+
         if n == 0:
-            return SummaryRow(protocol, workload, 0, fail_n, success_rate, None, None, None, None, None, None, None, None)
+            return SummaryRow(
+                protocol,
+                workload,
+                0,
+                fail_n,
+                success_rate,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                trial_ci95 if trial_count else None,
+                None,
+                trial_count,
+                trial_mean_of_means,
+                trial_median_of_means,
+                trial_mean_of_medians,
+            )
 
         mean_ms = statistics.mean(data)
         median_ms = statistics.median(data)
         stdev_ms = statistics.stdev(data) if n > 1 else 0.0
-        ci95 = (1.96 * stdev_ms / math.sqrt(n)) if n > 1 else 0.0
+        sample_ci95 = (1.96 * stdev_ms / math.sqrt(n)) if n > 1 else 0.0
         return SummaryRow(
             protocol=protocol,
             workload=workload,
@@ -634,7 +827,12 @@ class W2Benchmark:
             p95_ms=self._percentile(data, 95),
             p99_ms=self._percentile(data, 99),
             max_ms=max(data),
-            ci95_half_width_ms=ci95,
+            ci95_half_width_ms=trial_ci95 if trial_count else None,
+            sample_ci95_half_width_ms=sample_ci95,
+            trial_count=trial_count,
+            trial_mean_of_means_ms=trial_mean_of_means,
+            trial_median_of_means_ms=trial_median_of_means,
+            trial_mean_of_medians_ms=trial_mean_of_medians,
         )
 
     def summaries(self) -> List[SummaryRow]:
@@ -662,18 +860,21 @@ class W2Benchmark:
         def fmt(v: Optional[float]) -> str:
             return f"{v:.2f}" if v is not None else "N/A"
 
-        width = 146
+        width = 182
         print("\n" + "=" * width)
         print(
             f"{'Protocol':<8} | {'Workload':<18} | {'N':>4} | {'Fail':>4} | {'Success%':>8} | "
-            f"{'Min':>8} | {'Mean':>8} | {'Median':>8} | {'Std':>8} | {'P95':>8} | {'P99':>8} | {'Max':>8} | {'CI95+/-':>9}"
+            f"{'Min':>8} | {'Mean':>8} | {'Median':>8} | {'Std':>8} | {'P95':>8} | {'P99':>8} | {'Max':>8} | "
+            f"{'T#':>4} | {'TMean':>8} | {'TMdn':>8} | {'CI95(T)':>9} | {'CI95(S)':>9}"
         )
         print("-" * width)
         for row in self.summaries():
             print(
                 f"{row.protocol:<8} | {row.workload:<18} | {row.n:>4} | {row.failures:>4} | "
                 f"{row.success_rate_pct:>8.1f} | {fmt(row.min_ms):>8} | {fmt(row.mean_ms):>8} | {fmt(row.median_ms):>8} | "
-                f"{fmt(row.stdev_ms):>8} | {fmt(row.p95_ms):>8} | {fmt(row.p99_ms):>8} | {fmt(row.max_ms):>8} | {fmt(row.ci95_half_width_ms):>9}"
+                f"{fmt(row.stdev_ms):>8} | {fmt(row.p95_ms):>8} | {fmt(row.p99_ms):>8} | {fmt(row.max_ms):>8} | "
+                f"{row.trial_count:>4} | {fmt(row.trial_mean_of_means_ms):>8} | {fmt(row.trial_median_of_means_ms):>8} | "
+                f"{fmt(row.ci95_half_width_ms):>9} | {fmt(row.sample_ci95_half_width_ms):>9}"
             )
         print("=" * width)
 
@@ -707,6 +908,17 @@ class W2Benchmark:
         raw_csv = outdir / "w2_raw_samples.csv"
         failures_csv = outdir / "w2_failures.csv"
         setup_csv = outdir / "w2_session_setup.csv"
+        trial_csv = outdir / "w2_trial_stats.csv"
+        clock_csv = outdir / "w2_clock_offsets.csv"
+
+        if self.args.clock_offset_mode == "estimate":
+            clock_offset_warning = None
+        else:
+            clock_offset_warning = (
+                "Clock offset correction is disabled. "
+                "Raw screen-update visibility latency can include client/server clock skew."
+            )
+
         payload = {
             "meta": {
                 "started_at_utc": self.started_at,
@@ -722,19 +934,31 @@ class W2Benchmark:
                     "client": self.args.source_ip or "unknown",
                     "server": self.args.host,
                 },
-                "metric_name": "screen_update_direct_latency_ms",
+                "metric_name": "end_to_end_screen_update_latency_ms",
+                "metric_alias": "terminal_output_visibility_latency_ms",
+                "shuffle_pairs_enabled": self.args.shuffle_pairs,
+                "fairness_recommendation": (
+                    "Use --shuffle-pairs to reduce order effects across protocol/workload runs."
+                ),
+                "clock_offset_mode": self.args.clock_offset_mode,
+                "clock_offset_probes": self.args.clock_offset_probes,
+                "clock_offset_warning": clock_offset_warning,
                 "metric_note": (
-                    "Latency is measured directly as: client_receive_time_ns - remote_event_timestamp_ns. "
-                    "No clock synchronization step is applied. "
+                    "This benchmark measures end-to-end terminal output visibility latency: "
+                    "(client_receive_time_ns - remote_event_timestamp_ns - estimated_clock_offset_ns). "
+                    "It is not a pure protocol/network RTT metric. "
                     f"top emits W2_TOP_REFRESH:<epoch_ns> every {self.args.top_interval}s; "
-                    "tail writer emits W2_TAIL_<seq>:<epoch_ns> every 50ms and client follows via tail -f; "
-                    f"ping uses 'ping -D -i 0.1 {self.args.ping_target or '127.0.0.1'}' and parses [epoch.us]. "
-                    "Results can include host clock-offset bias between client and server. "
+                    "tail uses tail -n 0 -f and a background writer emits W2_TAIL_<seq>:<epoch_ns> every 50ms; "
+                    f"ping uses 'ping -D -i 0.1 {self.args.ping_target or '127.0.0.1'}' and measures ping output update latency "
+                    "(screen visibility of ping timestamps), not ICMP network ping RTT. "
+                    "When clock offset correction is disabled, results can include host clock-offset bias. "
                     f"Samples outside [{self.args.min_valid_latency_ms:.2f}, {self.args.max_valid_latency_ms:.2f}] ms "
                     f"are treated as invalid and dropped (limit: {self.args.max_invalid_samples} per trial)."
                 ),
             },
             "summary": [asdict(row) for row in self.summaries()],
+            "trial_summary": [asdict(row) for row in self.trial_summaries],
+            "clock_offsets": [asdict(row) for row in self.clock_offsets],
             "session_setup": {
                 p: {w: self._session_setup_stats(p, w) for w in self.args.workloads}
                 for p in self.args.protocols
@@ -769,10 +993,66 @@ class W2Benchmark:
                     for trial_id, ms in enumerate(self.session_setups[p][w], start=1):
                         writer.writerow([p, w, trial_id, f"{ms:.6f}"])
 
+        with trial_csv.open("w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                "protocol",
+                "workload",
+                "trial_id",
+                "n",
+                "mean_ms",
+                "median_ms",
+                "min_ms",
+                "max_ms",
+                "stdev_ms",
+                "clock_offset_ns",
+                "clock_offset_ms",
+            ])
+            for r in self.trial_summaries:
+                writer.writerow([
+                    r.protocol,
+                    r.workload,
+                    r.round_id,
+                    r.n,
+                    f"{r.mean_ms:.6f}",
+                    f"{r.median_ms:.6f}",
+                    f"{r.min_ms:.6f}",
+                    f"{r.max_ms:.6f}",
+                    f"{r.stdev_ms:.6f}",
+                    r.clock_offset_ns,
+                    f"{r.clock_offset_ms:.6f}",
+                ])
+
+        with clock_csv.open("w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                "protocol",
+                "workload",
+                "trial_id",
+                "probes",
+                "offset_ns",
+                "offset_ms",
+                "median_rtt_ms",
+                "method",
+            ])
+            for r in self.clock_offsets:
+                writer.writerow([
+                    r.protocol,
+                    r.workload,
+                    r.round_id,
+                    r.probes,
+                    r.offset_ns,
+                    f"{r.offset_ms:.6f}",
+                    f"{r.median_rtt_ms:.6f}",
+                    r.method,
+                ])
+
         print(f"Saved summary JSON    : {summary_json}")
         print(f"Saved raw samples CSV : {raw_csv}")
         print(f"Saved failures CSV    : {failures_csv}")
         print(f"Saved session setup   : {setup_csv}")
+        print(f"Saved trial stats CSV : {trial_csv}")
+        print(f"Saved clock offset CSV: {clock_csv}")
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -799,6 +1079,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--shuffle-pairs", action="store_true", help="Shuffle protocol/workload execution order")
     p.add_argument("--reopen-on-failure", action="store_true", help="Reopen session after failure")
     p.add_argument("--log-pexpect", action="store_true", help="Save raw pexpect terminal output per protocol")
+    p.add_argument("--clock-offset-mode", default="none", choices=["none", "estimate"], help="Clock offset correction mode")
+    p.add_argument("--clock-offset-probes", type=int, default=3, help="Remote date probes per trial when --clock-offset-mode=estimate")
     p.add_argument("--min-valid-latency-ms", type=float, default=-5000.0, help="Drop samples below this latency threshold")
     p.add_argument("--max-valid-latency-ms", type=float, default=60000.0, help="Drop samples above this latency threshold")
     p.add_argument("--max-invalid-samples", type=int, default=100, help="Max dropped invalid samples per trial before failing")
@@ -817,6 +1099,8 @@ def main() -> int:
         parser.error("--max-invalid-samples must be >= 0")
     if args.max_valid_latency_ms <= args.min_valid_latency_ms:
         parser.error("--max-valid-latency-ms must be > --min-valid-latency-ms")
+    if args.clock_offset_probes <= 0:
+        parser.error("--clock-offset-probes must be > 0")
 
     bench = W2Benchmark(args)
     bench.run()
