@@ -23,12 +23,20 @@ SSH3_INSECURE=true
 
 BATCH_MODE=false
 STRICT_HOST_KEY=false
+
 MOSH_PREDICT="never"
+
 TOP_INTERVAL=1.0
 PING_TARGET=""
+
 MIN_VALID_LATENCY_MS=-5000
 MAX_VALID_LATENCY_MS=60000
 MAX_INVALID_SAMPLES=100
+
+SHUFFLE_PAIRS=true
+
+CLOCK_OFFSET_MODE="estimate"
+CLOCK_OFFSET_PROBES=5
 
 CMD=(
   python w2_continuous_monitoring_benchmark.py
@@ -47,6 +55,8 @@ CMD=(
   --ssh3-path "$SSH3_PATH"
   --mosh-predict "$MOSH_PREDICT"
   --top-interval "$TOP_INTERVAL"
+  --clock-offset-mode "$CLOCK_OFFSET_MODE"
+  --clock-offset-probes "$CLOCK_OFFSET_PROBES"
   --min-valid-latency-ms "$MIN_VALID_LATENCY_MS"
   --max-valid-latency-ms "$MAX_VALID_LATENCY_MS"
   --max-invalid-samples "$MAX_INVALID_SAMPLES"
@@ -60,12 +70,25 @@ $SSH3_INSECURE     && CMD+=(--ssh3-insecure)
 $BATCH_MODE        && CMD+=(--batch-mode)
 $STRICT_HOST_KEY   && CMD+=(--strict-host-key-checking)
 $LOG_PEXPECT       && CMD+=(--log-pexpect)
+$SHUFFLE_PAIRS     && CMD+=(--shuffle-pairs)
 
 CMD+=(--reopen-on-failure)
 
 echo "=== W2 Continuous Monitoring Benchmark ==="
+echo "Host              : $HOST"
+echo "User              : $USER_NAME"
+echo "Source IP         : $SOURCE_IP"
+echo "Protocols         : $PROTOCOLS"
+echo "Workloads         : $WORKLOADS"
+echo "Trials            : $TRIALS"
+echo "Iterations        : $ITERATIONS"
+echo "Shuffle pairs     : $SHUFFLE_PAIRS"
+echo "Clock offset mode : $CLOCK_OFFSET_MODE"
+echo "Clock probes      : $CLOCK_OFFSET_PROBES"
+echo "Output dir        : $OUTPUT_DIR"
+echo ""
 echo "Command:"
-printf '  %s \\\n' "${CMD[@]}"
+printf '  %q \\\n' "${CMD[@]}"
 echo ""
 
 exec "${CMD[@]}"
