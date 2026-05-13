@@ -336,9 +336,9 @@ class W35PaneBenchmark:
     def _pane_has_prompt(self, snap: str) -> bool:
         if self.prompt_marker in snap:
             return True
-        tail_lines = snap.splitlines()[-3:]
+        tail_lines = snap.splitlines()[-20:]
         for line in tail_lines:
-            clean = self._strip_ansi(line)
+            clean = self._strip_ansi(line).strip()
             if _PANE_PROMPT_RE.search(clean):
                 return True
         return False
@@ -346,7 +346,7 @@ class W35PaneBenchmark:
     def _wait_pane_prompt(self, child: pexpect.spawn, timeout: int) -> None:
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
-            snap = self._capture_pane_text(child)
+            snap = self._capture_pane_text(child, lines=400)
             if self._pane_has_prompt(snap):
                 return
             time.sleep(PANE_POLL_INTERVAL_SEC)
