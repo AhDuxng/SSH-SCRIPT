@@ -46,6 +46,8 @@ _INITIAL_PROMPT_RE = re.compile(
 _PANE_PROMPT_RE = re.compile(r"[^\r\n]*[#$>%]\s*$")
 _SHELL_COMMANDS = {"bash", "sh", "zsh", "fish", "dash"}
 _PANE_CMD_MARKER = "__W3_PANE_CMD__"
+_CAPTURE_BEGIN_MARKER = "__W3_CAPTURE_BEGIN__"
+_CAPTURE_END_MARKER = "__W3_CAPTURE_END__"
 
 
 @dataclass
@@ -217,10 +219,14 @@ class W35PaneBenchmark:
         )
 
     def _tmux_send_line(self, child: pexpect.spawn, command: str) -> None:
+        target = shlex.quote(self._tmux_target())
         self._run_remote(
             child,
-            f"tmux send-keys -t {shlex.quote(self._tmux_target())}"
-            f" -l {shlex.quote(command)} Enter",
+            f"tmux send-keys -t {target} -l {shlex.quote(command)}",
+        )
+        self._run_remote(
+            child,
+            f"tmux send-keys -t {target} Enter",
         )
 
     def _tmux_send_backspace(self, child: pexpect.spawn, count: int) -> None:
@@ -247,6 +253,21 @@ class W35PaneBenchmark:
             return ""
         name = name.rsplit("/", 1)[-1]
         return name.lstrip("-").lower()
+
+    @staticmethod
+    def _extract_marked_block(text: str, begin: str, end: str) -> str:
+        start = text.find(begin)
+        if start < 0:
+            return text.strip()
+        start += len(begin)
+        if start < len(text) and text[start] == "\n":
+            start += 1
+
+        stop = text.find(end, start)
+        if stop < 0:
+            stop = len(text)
+
+        return text[start:stop].strip("\r\n")
 
     def _pane_current_command(self, child: pexpect.spawn) -> str:
         marker = _PANE_CMD_MARKER
@@ -358,21 +379,74 @@ class W35PaneBenchmark:
             f"tmux kill-session -t {shlex.quote(self.args.tmux_session)} 2>/dev/null || true",
         )
 
-    def _capture_pane_text(self, child: pexpect.spawn, lines: int = 120) -> str:
+    def _capture_pane_screen(
+        self,
+        child: pexpect.spawn,
+        lines: int,
+        alternate: bool,
+    ) -> str:
+        begin = _CAPTURE_BEGIN_MARKER + ("ALT" if alternate else "NORM")
+        end = _CAPTURE_END_MARKER + ("ALT" if alternate else "NORM")
+        flags = "-q -a " if alternate else ""
         out = self._run_remote(
             child,
-            f"tmux capture-pane -p -t {shlex.quote(self._tmux_target())} -S -{int(lines)}",
+            (
+                f"printf '%s\\n' {shlex.quote(begin)}; "
+                f"tmux capture-pane -p -J {flags}-t {shlex.quote(self._tmux_target())} -S -{int(lines)}; "
+                f"printf '%s\\n' {shlex.quote(end)}"
+            ),
         )
-        return out
+        return self._extract_marked_block(out, begin, end)
+
+    def _capture_pane_text(self, child: pexpect.spawn, lines: int = 120) -> str:
+        alt = self._capture_pane_screen(child, lines=lines, alternate=True)
+        if self._strip_ansi(alt).strip():
+            return alt
+        return self._capture_pane_screen(child, lines=lines, alternate=False)
+
+    def _wait_pane_app_started(
+        self,
+        child: pexpect.spawn,
+        expected_commands: set[str],
+        app_name: str,
+        timeout: int,
+    ) -> None:
+        expected = {self._normalize_command_name(x) for x in expected_commands}
+        deadline = time.monotonic() + timeout
+        last_cmd = ""
+        last_snap = ""
+        while time.monotonic() < deadline:
+            cmd = self._normalize_command_name(self._pane_current_command(child))
+            if cmd:
+                last_cmd = cmd
+                if cmd in expected:
+                    return
+
+            snap = self._capture_pane_text(child, lines=200)
+            last_snap = snap
+            if not self._pane_has_prompt(snap):
+                return
+            time.sleep(PANE_POLL_INTERVAL_SEC)
+
+        tail = "\n".join(last_snap.splitlines()[-8:]).strip()
+        detail = f" last_cmd={last_cmd}" if last_cmd else ""
+        raise pexpect.TIMEOUT(
+            f"{app_name} did not appear to start.{detail} pane tail:\n{tail}"
+        )
 
     def _wait_pane_contains(self, child: pexpect.spawn, text: str, timeout: int) -> None:
         deadline = time.monotonic() + timeout
+        last_snap = ""
         while time.monotonic() < deadline:
             snap = self._capture_pane_text(child)
+            last_snap = snap
             if text in snap:
                 return
             time.sleep(PANE_POLL_INTERVAL_SEC)
-        raise pexpect.TIMEOUT(f"Pane did not contain expected text: {text}")
+        tail = "\n".join(last_snap.splitlines()[-8:]).strip()
+        raise pexpect.TIMEOUT(
+            f"Pane did not contain expected text: {text}; pane tail:\n{tail}"
+        )
 
     def _wait_pane_contains_any(
         self,
@@ -381,14 +455,20 @@ class W35PaneBenchmark:
         timeout: int,
     ) -> None:
         deadline = time.monotonic() + timeout
+        last_snap = ""
         while time.monotonic() < deadline:
             snap = self._capture_pane_text(child)
+            last_snap = snap
             for text in texts:
                 if text in snap:
                     return
             time.sleep(PANE_POLL_INTERVAL_SEC)
+        tail = "\n".join(last_snap.splitlines()[-8:]).strip()
         raise pexpect.TIMEOUT(
-            "Pane did not contain expected text: " + ", ".join(texts)
+            "Pane did not contain expected text: "
+            + ", ".join(texts)
+            + "; pane tail:\n"
+            + tail
         )
 
     @staticmethod
@@ -515,10 +595,13 @@ class W35PaneBenchmark:
         self._tmux_send_line(
             child, f"vim -Nu NONE -n {shlex.quote(remote_file)}"
         )
-        self._tmux_send_keys(child, "i")
-        self._wait_pane_contains_any(
-            child, ["-- INSERT --", "INSERT"], timeout=self.args.timeout
+        self._wait_pane_app_started(
+            child,
+            expected_commands={"vim", "vi", "nvim"},
+            app_name="vim",
+            timeout=self.args.timeout,
         )
+        self._tmux_send_keys(child, "i")
 
         for _ in range(warmup):
             try:
@@ -554,8 +637,11 @@ class W35PaneBenchmark:
         self._tmux_send_line(
             child, f"nano --ignorercfiles {shlex.quote(remote_file)}"
         )
-        self._wait_pane_contains_any(
-            child, ["GNU nano", "^G Help"], timeout=self.args.timeout
+        self._wait_pane_app_started(
+            child,
+            expected_commands={"nano", "nano-tiny"},
+            app_name="nano",
+            timeout=self.args.timeout,
         )
 
         for _ in range(warmup):
