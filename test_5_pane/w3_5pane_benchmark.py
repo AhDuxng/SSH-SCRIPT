@@ -164,9 +164,6 @@ class W35PaneBenchmark:
             codec_errors="ignore",
             timeout=self.args.timeout,
         )
-        # Benchmark keystroke latency must not include pexpect's built-in
-        # pre-send delay (default 50 ms), otherwise samples are artificially
-        # pinned near 50 ms regardless of real transport/editor behavior.
         child.delaybeforesend = 0
 
         start_ns = time.perf_counter_ns()
@@ -372,10 +369,9 @@ class W35PaneBenchmark:
         report_cb: Optional[Callable[[int, float], None]] = None,
     ) -> List[float]:
         remote_file = self.args.remote_vim_file
-        self._drain_pending_output(child)
         child.sendline(f"vim -Nu NONE -n {shlex.quote(remote_file)}")
         child.send("i")
-        self._ensure_tui_entered(child, "vim")
+        child.expect([r"-- INSERT --", r"INSERT"], timeout=self.args.timeout)
 
         for _ in range(warmup):
             try:
@@ -408,9 +404,8 @@ class W35PaneBenchmark:
         report_cb: Optional[Callable[[int, float], None]] = None,
     ) -> List[float]:
         remote_file = self.args.remote_nano_file
-        self._drain_pending_output(child)
         child.sendline(f"nano --ignorercfiles {shlex.quote(remote_file)}")
-        self._ensure_tui_entered(child, "nano")
+        child.expect([r"GNU nano", r"\^G Help"], timeout=self.args.timeout)
 
         for _ in range(warmup):
             try:
