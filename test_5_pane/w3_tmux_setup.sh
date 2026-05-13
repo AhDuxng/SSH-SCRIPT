@@ -59,6 +59,8 @@ tmux split-window -v -t "${SESSION}:0.2" \
 
 # ── Layout & tuning ───────────────────────────────────────────────────────────
 tmux select-layout -t "${SESSION}:0" tiled
+tmux set-option    -t "$SESSION" prefix C-b
+tmux set-option    -t "$SESSION" prefix2 None
 tmux set-option    -t "$SESSION" status off          # ẩn status bar để tối đa màn hình
 tmux select-pane   -t "${SESSION}:0.0"               # focus về pane 0
 

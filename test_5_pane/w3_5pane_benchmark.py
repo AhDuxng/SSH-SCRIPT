@@ -243,8 +243,13 @@ class W35PaneBenchmark:
         child.expect(_INITIAL_PROMPT_RE, timeout=self.args.timeout)
         child.sendline(f"export PS1={shlex.quote(self.args.prompt)}")
         self._expect_prompt(child)
+        # Reduce redraw noise from non-target panes while keeping load processes running.
+        child.sendcontrol("b")
+        child.send("z")
 
     def _detach_tmux_session(self, child: pexpect.spawn) -> None:
+        child.sendcontrol("b")
+        child.send("z")
         child.sendcontrol("b")
         child.send("d")
         self._expect_prompt(child)
@@ -335,6 +340,12 @@ class W35PaneBenchmark:
         self._ensure_vim_insert_mode(child)
         return self._probe_once(child, erase_after_echo=True)
 
+    def _assert_app_started(self, child: pexpect.spawn, app_name: str) -> None:
+        startup_timeout = max(1, min(self.args.timeout, 2))
+        idx = child.expect([self.prompt_re, pexpect.TIMEOUT], timeout=startup_timeout)
+        if idx == 0:
+            raise RuntimeError(f"{app_name} exited immediately (still at shell prompt)")
+
 
     def _measure_interactive_shell(
         self,
@@ -374,9 +385,10 @@ class W35PaneBenchmark:
         report_cb: Optional[Callable[[int, float], None]] = None,
     ) -> List[float]:
         remote_file = self.args.remote_vim_file
+        self._drain_pending_output(child)
         child.sendline(f"vim -Nu NONE -n {shlex.quote(remote_file)}")
+        self._assert_app_started(child, "vim")
         child.send("i")
-        child.expect([r"-- INSERT --", r"INSERT"], timeout=self.args.timeout)
 
         for _ in range(warmup):
             try:
@@ -409,8 +421,9 @@ class W35PaneBenchmark:
         report_cb: Optional[Callable[[int, float], None]] = None,
     ) -> List[float]:
         remote_file = self.args.remote_nano_file
+        self._drain_pending_output(child)
         child.sendline(f"nano --ignorercfiles {shlex.quote(remote_file)}")
-        child.expect([r"GNU nano", r"\^G Help"], timeout=self.args.timeout)
+        self._assert_app_started(child, "nano")
 
         for _ in range(warmup):
             try:
