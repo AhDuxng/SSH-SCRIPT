@@ -46,8 +46,6 @@ _INITIAL_PROMPT_RE = re.compile(
 _PANE_PROMPT_RE = re.compile(r"[^\r\n]*[#$>%]\s*$")
 _SHELL_COMMANDS = {"bash", "sh", "zsh", "fish", "dash"}
 _PANE_CMD_MARKER = "__W3_PANE_CMD__"
-_CAPTURE_BEGIN_MARKER = "__W3_CAPTURE_BEGIN__"
-_CAPTURE_END_MARKER = "__W3_CAPTURE_END__"
 
 
 @dataclass
@@ -97,6 +95,7 @@ class W35PaneBenchmark:
         self.pane_prompt_re = self._build_prompt_re(self.pane_prompt_marker)
         self.remote_prompt_marker = REMOTE_PROMPT
         self.remote_prompt_re = self._build_prompt_re(self.remote_prompt_marker)
+        self.tmux_pane_target: Optional[str] = None
 
         self.probe_token = PROBE_TOKEN
         self.probe_tail = self.probe_token[-PROBE_TAIL_LEN:]
@@ -202,7 +201,7 @@ class W35PaneBenchmark:
         return child.before
 
     def _tmux_target(self) -> str:
-        return f"{self.args.tmux_session}:0.0"
+        return self.tmux_pane_target or f"{self.args.tmux_session}:0.0"
 
     def _tmux_send_literal(self, child: pexpect.spawn, text: str) -> None:
         self._run_remote(
@@ -255,19 +254,16 @@ class W35PaneBenchmark:
         return name.lstrip("-").lower()
 
     @staticmethod
-    def _extract_marked_block(text: str, begin: str, end: str) -> str:
-        start = text.find(begin)
-        if start < 0:
-            return text.strip()
-        start += len(begin)
-        if start < len(text) and text[start] == "\n":
-            start += 1
-
-        stop = text.find(end, start)
-        if stop < 0:
-            stop = len(text)
-
-        return text[start:stop].strip("\r\n")
+    def _strip_capture_echo(text: str) -> str:
+        lines = text.replace("\r", "").splitlines()
+        while lines and not lines[0].strip():
+            lines.pop(0)
+        if lines and (
+            lines[0].lstrip().startswith("tmux capturep ")
+            or lines[0].lstrip().startswith("tmux capture-pane ")
+        ):
+            lines.pop(0)
+        return "\n".join(lines).strip("\n")
 
     def _pane_current_command(self, child: pexpect.spawn) -> str:
         marker = _PANE_CMD_MARKER
@@ -331,6 +327,7 @@ class W35PaneBenchmark:
 
     def _start_tmux_session(self, child: pexpect.spawn) -> None:
         session = self.args.tmux_session
+        self.tmux_pane_target = None
         self._run_remote(
             child,
             f"tmux kill-session -t {shlex.quote(session)} 2>/dev/null || true",
@@ -352,6 +349,15 @@ class W35PaneBenchmark:
             time.sleep(PANE_POLL_INTERVAL_SEC)
         else:
             raise RuntimeError(f"tmux session '{session}' did not start in time")
+
+        # Resolve pane-id once so subsequent tmux commands are shorter and avoid line wrap.
+        pane_id_out = self._run_remote(
+            child,
+            f"tmux display-message -p -t {shlex.quote(self.args.tmux_session + ':0.0')} '#{{pane_id}}'",
+        )
+        pane_id_match = re.search(r"%\d+", pane_id_out)
+        if pane_id_match:
+            self.tmux_pane_target = pane_id_match.group(0)
 
         self._wait_pane_contains(child, PANE_READY_MARKER, timeout=self.args.timeout)
         self._tmux_send_line(
@@ -385,18 +391,16 @@ class W35PaneBenchmark:
         lines: int,
         alternate: bool,
     ) -> str:
-        begin = _CAPTURE_BEGIN_MARKER + ("ALT" if alternate else "NORM")
-        end = _CAPTURE_END_MARKER + ("ALT" if alternate else "NORM")
         flags = "-q -a " if alternate else ""
+        cmd = (
+            f"tmux capturep -p -J {flags}"
+            f"-t {shlex.quote(self._tmux_target())} -S -{int(lines)}"
+        )
         out = self._run_remote(
             child,
-            (
-                f"printf '%s\\n' {shlex.quote(begin)}; "
-                f"tmux capture-pane -p -J {flags}-t {shlex.quote(self._tmux_target())} -S -{int(lines)}; "
-                f"printf '%s\\n' {shlex.quote(end)}"
-            ),
+            cmd,
         )
-        return self._extract_marked_block(out, begin, end)
+        return self._strip_capture_echo(out)
 
     def _capture_pane_text(self, child: pexpect.spawn, lines: int = 120) -> str:
         alt = self._capture_pane_screen(child, lines=lines, alternate=True)
