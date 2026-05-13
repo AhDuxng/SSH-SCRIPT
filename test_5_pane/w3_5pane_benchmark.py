@@ -333,11 +333,10 @@ class W35PaneBenchmark:
             raise RuntimeError(f"tmux session '{session}' did not start in time")
 
         self._wait_pane_contains(child, PANE_READY_MARKER, timeout=self.args.timeout)
-        self._wait_pane_command(child, _SHELL_COMMANDS, timeout=self.args.timeout)
         self._tmux_send_line(
             child, f"export PS1={shlex.quote(self.args.prompt)}"
         )
-        self._wait_pane_command(child, _SHELL_COMMANDS, timeout=self.args.timeout)
+        self._wait_pane_prompt(child, timeout=self.args.timeout)
 
     def _attach_tmux_session(self, child: pexpect.spawn) -> None:
         session = self.args.tmux_session
@@ -497,7 +496,7 @@ class W35PaneBenchmark:
                 report_cb(i + 1, lat)
 
         self._tmux_send_keys(child, "C-c", "C-c")
-        self._wait_pane_command(child, _SHELL_COMMANDS, timeout=self.args.timeout)
+        self._wait_pane_prompt(child, timeout=self.args.timeout)
         return latencies
 
     def _measure_vim(
@@ -536,7 +535,7 @@ class W35PaneBenchmark:
 
         self._tmux_send_keys(child, "Escape")
         self._tmux_send_line(child, ":q!")
-        self._wait_pane_command(child, _SHELL_COMMANDS, timeout=self.args.timeout)
+        self._wait_pane_prompt(child, timeout=self.args.timeout)
         return latencies
 
     def _measure_nano(
@@ -573,7 +572,7 @@ class W35PaneBenchmark:
                 report_cb(i + 1, lat)
 
         self._tmux_send_keys(child, "C-x", "n")
-        self._wait_pane_command(child, _SHELL_COMMANDS, timeout=self.args.timeout)
+        self._wait_pane_prompt(child, timeout=self.args.timeout)
         return latencies
 
     def _run_trial(
