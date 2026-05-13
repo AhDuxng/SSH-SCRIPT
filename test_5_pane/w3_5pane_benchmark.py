@@ -196,6 +196,36 @@ class W35PaneBenchmark:
     def _tmux_target(self) -> str:
         return f"{self.args.tmux_session}:0.0"
 
+    def _tmux_send_literal(self, child: pexpect.spawn, text: str) -> None:
+        self._run_remote(
+            child,
+            f"tmux send-keys -t {shlex.quote(self._tmux_target())}"
+            f" -l {shlex.quote(text)}",
+        )
+
+    def _tmux_send_keys(self, child: pexpect.spawn, *keys: str) -> None:
+        key_str = " ".join(keys)
+        self._run_remote(
+            child,
+            f"tmux send-keys -t {shlex.quote(self._tmux_target())} {key_str}",
+        )
+
+    def _tmux_send_line(self, child: pexpect.spawn, command: str) -> None:
+        self._run_remote(
+            child,
+            f"tmux send-keys -t {shlex.quote(self._tmux_target())}"
+            f" -l {shlex.quote(command)} Enter",
+        )
+
+    def _tmux_send_backspace(self, child: pexpect.spawn, count: int) -> None:
+        if count <= 0:
+            return
+        self._run_remote(
+            child,
+            f"tmux send-keys -t {shlex.quote(self._tmux_target())}"
+            f" -N {int(count)} BSpace",
+        )
+
     def _copy_tmux_setup_to_remote(self, child: pexpect.spawn) -> None:
         local_script = Path(self.args.tmux_setup_script)
         if not local_script.exists():
@@ -274,6 +304,23 @@ class W35PaneBenchmark:
             time.sleep(PANE_POLL_INTERVAL_SEC)
         raise pexpect.TIMEOUT(f"Pane did not contain expected text: {text}")
 
+    def _wait_pane_contains_any(
+        self,
+        child: pexpect.spawn,
+        texts: List[str],
+        timeout: int,
+    ) -> None:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            snap = self._capture_pane_text(child)
+            for text in texts:
+                if text in snap:
+                    return
+            time.sleep(PANE_POLL_INTERVAL_SEC)
+        raise pexpect.TIMEOUT(
+            "Pane did not contain expected text: " + ", ".join(texts)
+        )
+
 
     def _expect_probe_echo(self, child: pexpect.spawn) -> None:
         child.expect(
@@ -300,27 +347,32 @@ class W35PaneBenchmark:
                 break
 
     def _probe_once(self, child: pexpect.spawn, erase_after_echo: bool = False) -> float:
-        self._drain_pending_output(child)
+        prev = self._capture_pane_text(child, lines=8)
         start_ns = time.perf_counter_ns()
-        child.send(self.probe_token)
-        self._expect_probe_echo(child)
-        end_ns = time.perf_counter_ns()
-        if erase_after_echo:
-            self._erase_probe_token(child, self.probe_token)
-        return (end_ns - start_ns) / 1_000_000.0
+        self._tmux_send_literal(child, self.probe_token)
 
-    @staticmethod
-    def _recover_nano_state(child: pexpect.spawn) -> None:
-        child.sendcontrol("l")
+        deadline = time.monotonic() + self.args.timeout
+        while time.monotonic() < deadline:
+            snap = self._capture_pane_text(child, lines=8)
+            if snap != prev and (
+                self.probe_token in snap or self.probe_tail in snap
+            ):
+                end_ns = time.perf_counter_ns()
+                if erase_after_echo:
+                    self._tmux_send_backspace(child, len(self.probe_token))
+                return (end_ns - start_ns) / 1_000_000.0
+            time.sleep(PANE_POLL_INTERVAL_SEC)
 
-    @staticmethod
-    def _recover_vim_state(child: pexpect.spawn) -> None:
-        child.send("\x1b")
-        child.sendcontrol("l")
-        child.send("i")
+        raise pexpect.TIMEOUT("Probe token did not appear in tmux pane")
+
+    def _recover_nano_state(self, child: pexpect.spawn) -> None:
+        self._tmux_send_keys(child, "C-l")
+
+    def _recover_vim_state(self, child: pexpect.spawn) -> None:
+        self._tmux_send_keys(child, "Escape", "C-l", "i")
 
     def _probe_vim_once(self, child: pexpect.spawn) -> float:
-        self._ensure_vim_insert_mode(child)
+        self._tmux_send_keys(child, "Escape", "i")
         return self._probe_once(child, erase_after_echo=True)
 
     def _ensure_tui_entered(self, child: pexpect.spawn, app_name: str) -> None:
@@ -338,27 +390,20 @@ class W35PaneBenchmark:
         iterations: int,
         report_cb: Optional[Callable[[int, float], None]] = None,
     ) -> List[float]:
-        child.sendline("cat")
-        child.expect_exact("\n", timeout=self.args.timeout)
+        self._tmux_send_line(child, "cat")
 
         for _ in range(warmup):
-            child.send(self.probe_token)
-            self._expect_probe_echo(child)
+            self._probe_once(child)
 
         latencies: List[float] = []
         for i in range(iterations):
-            start_ns = time.perf_counter_ns()
-            child.send(self.probe_token)
-            self._expect_probe_echo(child)
-            end_ns = time.perf_counter_ns()
-            lat = (end_ns - start_ns) / 1_000_000.0
+            lat = self._probe_once(child)
             latencies.append(lat)
             if report_cb:
                 report_cb(i + 1, lat)
 
-        child.sendcontrol("c")
-        child.sendcontrol("c")
-        self._expect_prompt(child)
+        self._tmux_send_keys(child, "C-c", "C-c")
+        self._wait_pane_contains(child, self.prompt_marker, timeout=self.args.timeout)
         return latencies
 
     def _measure_vim(
@@ -369,9 +414,13 @@ class W35PaneBenchmark:
         report_cb: Optional[Callable[[int, float], None]] = None,
     ) -> List[float]:
         remote_file = self.args.remote_vim_file
-        child.sendline(f"vim -Nu NONE -n {shlex.quote(remote_file)}")
-        child.send("i")
-        child.expect([r"-- INSERT --", r"INSERT"], timeout=self.args.timeout)
+        self._tmux_send_line(
+            child, f"vim -Nu NONE -n {shlex.quote(remote_file)}"
+        )
+        self._tmux_send_keys(child, "i")
+        self._wait_pane_contains_any(
+            child, ["-- INSERT --", "INSERT"], timeout=self.args.timeout
+        )
 
         for _ in range(warmup):
             try:
@@ -391,9 +440,9 @@ class W35PaneBenchmark:
             if report_cb:
                 report_cb(i + 1, lat)
 
-        child.send("\x1b")
-        child.sendline(":q!")
-        self._expect_prompt(child)
+        self._tmux_send_keys(child, "Escape")
+        self._tmux_send_line(child, ":q!")
+        self._wait_pane_contains(child, self.prompt_marker, timeout=self.args.timeout)
         return latencies
 
     def _measure_nano(
@@ -404,8 +453,12 @@ class W35PaneBenchmark:
         report_cb: Optional[Callable[[int, float], None]] = None,
     ) -> List[float]:
         remote_file = self.args.remote_nano_file
-        child.sendline(f"nano --ignorercfiles {shlex.quote(remote_file)}")
-        child.expect([r"GNU nano", r"\^G Help"], timeout=self.args.timeout)
+        self._tmux_send_line(
+            child, f"nano --ignorercfiles {shlex.quote(remote_file)}"
+        )
+        self._wait_pane_contains_any(
+            child, ["GNU nano", "^G Help"], timeout=self.args.timeout
+        )
 
         for _ in range(warmup):
             try:
@@ -425,9 +478,8 @@ class W35PaneBenchmark:
             if report_cb:
                 report_cb(i + 1, lat)
 
-        child.sendcontrol("x")
-        child.send("n")
-        self._expect_prompt(child)
+        self._tmux_send_keys(child, "C-x", "n")
+        self._wait_pane_contains(child, self.prompt_marker, timeout=self.args.timeout)
         return latencies
 
     def _run_trial(
@@ -468,7 +520,6 @@ class W35PaneBenchmark:
     def _run_session_group(self, protocol: str, workload: str) -> None:
         for trial_id in range(1, self.args.trials + 1):
             child: Optional[pexpect.spawn] = None
-            tmux_attached = False
             try:
                 child, setup_ms = self._open_session(protocol)
                 self.session_setups[protocol][workload].append(setup_ms)
@@ -481,8 +532,6 @@ class W35PaneBenchmark:
                 try:
                     self._copy_tmux_setup_to_remote(child)
                     self._start_tmux_session(child)
-                    self._attach_tmux_session(child)
-                    tmux_attached = True
                     self._run_trial(child, protocol, workload, trial_id)
                 except (
                     pexpect.TIMEOUT,
@@ -507,12 +556,6 @@ class W35PaneBenchmark:
                         f" ({type(exc).__name__}: {exc})"
                     )
                     if self.args.reopen_on_failure:
-                        if tmux_attached:
-                            try:
-                                self._detach_tmux_session(child)
-                            except Exception:
-                                pass
-                            tmux_attached = False
                         try:
                             self._stop_tmux_session(child)
                         except Exception:
@@ -523,11 +566,6 @@ class W35PaneBenchmark:
 
             finally:
                 if child is not None:
-                    if tmux_attached:
-                        try:
-                            self._detach_tmux_session(child)
-                        except Exception:
-                            pass
                     try:
                         self._stop_tmux_session(child)
                     except Exception:
