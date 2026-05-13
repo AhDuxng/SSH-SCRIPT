@@ -43,6 +43,7 @@ _INITIAL_PROMPT_RE = re.compile(
     re.MULTILINE,
 )
 _PANE_PROMPT_RE = re.compile(r"[^\r\n]*[#$>]\s*$")
+_SHELL_COMMANDS = {"bash", "sh", "zsh", "fish", "dash"}
 
 
 @dataclass
@@ -230,6 +231,37 @@ class W35PaneBenchmark:
             f" -N {int(count)} BSpace",
         )
 
+    @staticmethod
+    def _last_nonempty_line(text: str) -> str:
+        for line in reversed(text.splitlines()):
+            clean = line.strip()
+            if clean:
+                return clean
+        return ""
+
+    def _pane_current_command(self, child: pexpect.spawn) -> str:
+        out = self._run_remote(
+            child,
+            f"tmux display-message -p -t {shlex.quote(self._tmux_target())} '#{{pane_current_command}}'",
+        )
+        return self._last_nonempty_line(out)
+
+    def _wait_pane_command(
+        self,
+        child: pexpect.spawn,
+        expected: set[str],
+        timeout: int,
+    ) -> None:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            cmd = self._pane_current_command(child)
+            if cmd in expected:
+                return
+            time.sleep(PANE_POLL_INTERVAL_SEC)
+        raise pexpect.TIMEOUT(
+            "Pane did not reach expected command: " + ", ".join(sorted(expected))
+        )
+
     def _copy_tmux_setup_to_remote(self, child: pexpect.spawn) -> None:
         local_script = Path(self.args.tmux_setup_script)
         if not local_script.exists():
@@ -271,10 +303,11 @@ class W35PaneBenchmark:
             raise RuntimeError(f"tmux session '{session}' did not start in time")
 
         self._wait_pane_contains(child, PANE_READY_MARKER, timeout=self.args.timeout)
+        self._wait_pane_command(child, _SHELL_COMMANDS, timeout=self.args.timeout)
         self._tmux_send_line(
             child, f"export PS1={shlex.quote(self.args.prompt)}"
         )
-        self._wait_pane_prompt(child, timeout=self.args.timeout)
+        self._wait_pane_command(child, _SHELL_COMMANDS, timeout=self.args.timeout)
 
     def _attach_tmux_session(self, child: pexpect.spawn) -> None:
         session = self.args.tmux_session
@@ -434,7 +467,7 @@ class W35PaneBenchmark:
                 report_cb(i + 1, lat)
 
         self._tmux_send_keys(child, "C-c", "C-c")
-        self._wait_pane_prompt(child, timeout=self.args.timeout)
+        self._wait_pane_command(child, _SHELL_COMMANDS, timeout=self.args.timeout)
         return latencies
 
     def _measure_vim(
@@ -473,7 +506,7 @@ class W35PaneBenchmark:
 
         self._tmux_send_keys(child, "Escape")
         self._tmux_send_line(child, ":q!")
-        self._wait_pane_prompt(child, timeout=self.args.timeout)
+        self._wait_pane_command(child, _SHELL_COMMANDS, timeout=self.args.timeout)
         return latencies
 
     def _measure_nano(
@@ -510,7 +543,7 @@ class W35PaneBenchmark:
                 report_cb(i + 1, lat)
 
         self._tmux_send_keys(child, "C-x", "n")
-        self._wait_pane_prompt(child, timeout=self.args.timeout)
+        self._wait_pane_command(child, _SHELL_COMMANDS, timeout=self.args.timeout)
         return latencies
 
     def _run_trial(
