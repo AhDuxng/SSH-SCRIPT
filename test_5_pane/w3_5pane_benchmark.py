@@ -42,6 +42,7 @@ _INITIAL_PROMPT_RE = re.compile(
     r"[#$>](?:" + _ANSI_SEQ + r"|\s)*\s*$",
     re.MULTILINE,
 )
+_PANE_PROMPT_RE = re.compile(r"[^\r\n]*[#$>]\s*$")
 
 
 @dataclass
@@ -273,9 +274,7 @@ class W35PaneBenchmark:
         self._tmux_send_line(
             child, f"export PS1={shlex.quote(self.args.prompt)}"
         )
-        self._wait_pane_contains(
-            child, self.prompt_marker, timeout=self.args.timeout
-        )
+        self._wait_pane_prompt(child, timeout=self.args.timeout)
 
     def _attach_tmux_session(self, child: pexpect.spawn) -> None:
         session = self.args.tmux_session
@@ -329,6 +328,29 @@ class W35PaneBenchmark:
         raise pexpect.TIMEOUT(
             "Pane did not contain expected text: " + ", ".join(texts)
         )
+
+    @staticmethod
+    def _strip_ansi(text: str) -> str:
+        return re.sub(_ANSI_SEQ, "", text)
+
+    def _pane_has_prompt(self, snap: str) -> bool:
+        if self.prompt_marker in snap:
+            return True
+        tail_lines = snap.splitlines()[-3:]
+        for line in tail_lines:
+            clean = self._strip_ansi(line)
+            if _PANE_PROMPT_RE.search(clean):
+                return True
+        return False
+
+    def _wait_pane_prompt(self, child: pexpect.spawn, timeout: int) -> None:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            snap = self._capture_pane_text(child)
+            if self._pane_has_prompt(snap):
+                return
+            time.sleep(PANE_POLL_INTERVAL_SEC)
+        raise pexpect.TIMEOUT("Pane did not contain expected prompt")
 
 
     def _expect_probe_echo(self, child: pexpect.spawn) -> None:
@@ -412,7 +434,7 @@ class W35PaneBenchmark:
                 report_cb(i + 1, lat)
 
         self._tmux_send_keys(child, "C-c", "C-c")
-        self._wait_pane_contains(child, self.prompt_marker, timeout=self.args.timeout)
+        self._wait_pane_prompt(child, timeout=self.args.timeout)
         return latencies
 
     def _measure_vim(
@@ -451,7 +473,7 @@ class W35PaneBenchmark:
 
         self._tmux_send_keys(child, "Escape")
         self._tmux_send_line(child, ":q!")
-        self._wait_pane_contains(child, self.prompt_marker, timeout=self.args.timeout)
+        self._wait_pane_prompt(child, timeout=self.args.timeout)
         return latencies
 
     def _measure_nano(
@@ -488,7 +510,7 @@ class W35PaneBenchmark:
                 report_cb(i + 1, lat)
 
         self._tmux_send_keys(child, "C-x", "n")
-        self._wait_pane_contains(child, self.prompt_marker, timeout=self.args.timeout)
+        self._wait_pane_prompt(child, timeout=self.args.timeout)
         return latencies
 
     def _run_trial(
