@@ -26,6 +26,7 @@ DEFAULT_PROTOCOLS = ["ssh", "ssh3", "mosh"]
 DEFAULT_WORKLOADS = ["interactive_shell", "vim", "nano"]
 DEFAULT_PROMPT = "__W3_PROMPT__#"
 DEFAULT_SSH3_PATH = "/ssh3-term"
+REMOTE_PROMPT = "__W3_REMOTE_PROMPT__#"
 
 TMUX_SESSION = "w3bench5"
 TMUX_SETUP_SCRIPT = "w3_tmux_setup.sh"
@@ -42,7 +43,7 @@ _INITIAL_PROMPT_RE = re.compile(
     r"[#$>](?:" + _ANSI_SEQ + r"|\s)*\s*$",
     re.MULTILINE,
 )
-_PANE_PROMPT_RE = re.compile(r"[^\r\n]*[#$>]\s*$")
+_PANE_PROMPT_RE = re.compile(r"[^\r\n]*[#$>%]\s*$")
 _SHELL_COMMANDS = {"bash", "sh", "zsh", "fish", "dash"}
 _PANE_CMD_MARKER = "__W3_PANE_CMD__"
 
@@ -88,10 +89,12 @@ class W35PaneBenchmark:
         self.args = args
         self.target = f"{args.user}@{args.host}"
         self.started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
-        self.prompt_marker = args.prompt.rstrip()
-        if not self.prompt_marker:
+        self.pane_prompt_marker = args.prompt.rstrip()
+        if not self.pane_prompt_marker:
             raise ValueError("Prompt must contain at least one non-space character")
-        self.prompt_re = self._build_prompt_re(self.prompt_marker)
+        self.pane_prompt_re = self._build_prompt_re(self.pane_prompt_marker)
+        self.remote_prompt_marker = REMOTE_PROMPT
+        self.remote_prompt_re = self._build_prompt_re(self.remote_prompt_marker)
 
         self.probe_token = PROBE_TOKEN
         self.probe_tail = self.probe_token[-PROBE_TAIL_LEN:]
@@ -117,11 +120,8 @@ class W35PaneBenchmark:
         parts = [re.escape(ch) + _ECHO_GAP for ch in prompt_marker]
         return re.compile("".join(parts) + rf"(?:{_ANSI_SEQ}|\s)*")
 
-    def _expect_prompt(self, child: pexpect.spawn) -> None:
-        try:
-            child.expect(self.prompt_re, timeout=self.args.timeout)
-        except pexpect.TIMEOUT:
-            child.expect(_INITIAL_PROMPT_RE, timeout=self.args.timeout)
+    def _expect_remote_prompt(self, child: pexpect.spawn) -> None:
+        child.expect(self.remote_prompt_re, timeout=self.args.timeout)
 
     def _session_command(self, protocol: str) -> str:
         target = self.target
@@ -176,8 +176,8 @@ class W35PaneBenchmark:
         child.expect(_INITIAL_PROMPT_RE, timeout=self.args.timeout)
         setup_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
 
-        child.sendline(f"export PS1={shlex.quote(self.args.prompt)}")
-        self._expect_prompt(child)
+        child.sendline(f"export PS1={shlex.quote(self.remote_prompt_marker)}")
+        self._expect_remote_prompt(child)
 
         return child, setup_ms
 
@@ -196,7 +196,7 @@ class W35PaneBenchmark:
 
     def _run_remote(self, child: pexpect.spawn, command: str) -> str:
         child.sendline(command)
-        self._expect_prompt(child)
+        self._expect_remote_prompt(child)
         return child.before
 
     def _tmux_target(self) -> str:
@@ -343,14 +343,14 @@ class W35PaneBenchmark:
         child.sendline(f"tmux attach-session -t {shlex.quote(session)}")
         child.expect(_INITIAL_PROMPT_RE, timeout=self.args.timeout)
         child.sendline(f"export PS1={shlex.quote(self.args.prompt)}")
-        self._expect_prompt(child)
+        child.expect(self.pane_prompt_re, timeout=self.args.timeout)
 
     def _detach_tmux_session(self, child: pexpect.spawn) -> None:
         # Small gap improves reliability of tmux prefix-key parsing with pexpect.
         child.sendcontrol("b")
         time.sleep(0.08)
         child.send("d")
-        self._expect_prompt(child)
+        self._expect_remote_prompt(child)
 
     def _stop_tmux_session(self, child: pexpect.spawn) -> None:
         self._run_remote(
@@ -396,7 +396,7 @@ class W35PaneBenchmark:
         return re.sub(_ANSI_SEQ, "", text)
 
     def _pane_has_prompt(self, snap: str) -> bool:
-        if self.prompt_marker in snap:
+        if self.pane_prompt_marker in snap:
             return True
         tail_lines = snap.splitlines()[-20:]
         for line in tail_lines:
@@ -407,12 +407,17 @@ class W35PaneBenchmark:
 
     def _wait_pane_prompt(self, child: pexpect.spawn, timeout: int) -> None:
         deadline = time.monotonic() + timeout
+        last_snap = ""
         while time.monotonic() < deadline:
             snap = self._capture_pane_text(child, lines=400)
+            last_snap = snap
             if self._pane_has_prompt(snap):
                 return
             time.sleep(PANE_POLL_INTERVAL_SEC)
-        raise pexpect.TIMEOUT("Pane did not contain expected prompt")
+        tail = "\n".join(last_snap.splitlines()[-8:]).strip()
+        raise pexpect.TIMEOUT(
+            "Pane did not contain expected prompt; pane tail:\n" + tail
+        )
 
 
     def _expect_probe_echo(self, child: pexpect.spawn) -> None:
@@ -472,7 +477,7 @@ class W35PaneBenchmark:
         # Under heavy tmux redraw, mode banners (like INSERT/help lines) can be
         # transient; only assert that we are no longer at the shell prompt.
         startup_timeout = max(0.5, min(2.0, float(self.args.timeout)))
-        idx = child.expect([self.prompt_re, pexpect.TIMEOUT], timeout=startup_timeout)
+        idx = child.expect([self.pane_prompt_re, pexpect.TIMEOUT], timeout=startup_timeout)
         if idx == 0:
             raise RuntimeError(f"{app_name} exited immediately (still at shell prompt)")
 
