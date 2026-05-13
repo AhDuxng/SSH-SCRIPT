@@ -249,7 +249,9 @@ class W35PaneBenchmark:
 
         child.sendline(full_cmd)
         # Use a marker line to sync command completion; prompt matching can be flaky in mosh.
-        marker_re = re.compile(rf"(?:\\r?\\n){re.escape(marker)}(?:\\r?\\n)")
+        marker_re = re.compile(
+            rf"(?:^|\\r?\\n|\\r){re.escape(marker)}(?:\\r?\\n|\\r|$)"
+        )
         child.expect(marker_re, timeout=self.args.timeout)
         output = self._strip_marker_lines(child.before or "", marker)
 
