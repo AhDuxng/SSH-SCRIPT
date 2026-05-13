@@ -44,6 +44,7 @@ _INITIAL_PROMPT_RE = re.compile(
 )
 _PANE_PROMPT_RE = re.compile(r"[^\r\n]*[#$>]\s*$")
 _SHELL_COMMANDS = {"bash", "sh", "zsh", "fish", "dash"}
+_PANE_CMD_MARKER = "__W3_PANE_CMD__"
 
 
 @dataclass
@@ -239,11 +240,27 @@ class W35PaneBenchmark:
                 return clean
         return ""
 
+    @staticmethod
+    def _normalize_command_name(cmd: str) -> str:
+        name = cmd.strip()
+        if not name:
+            return ""
+        name = name.rsplit("/", 1)[-1]
+        return name.lstrip("-").lower()
+
     def _pane_current_command(self, child: pexpect.spawn) -> str:
+        marker = _PANE_CMD_MARKER
+        fmt = f"{marker}#{{pane_current_command}}{marker}"
         out = self._run_remote(
             child,
-            f"tmux display-message -p -t {shlex.quote(self._tmux_target())} '#{{pane_current_command}}'",
+            f"tmux display-message -p -t {shlex.quote(self._tmux_target())} {shlex.quote(fmt)}",
         )
+        m = re.search(
+            re.escape(marker) + r"([^\r\n]*)" + re.escape(marker),
+            out,
+        )
+        if m:
+            return m.group(1).strip()
         return self._last_nonempty_line(out)
 
     def _wait_pane_command(
@@ -252,14 +269,27 @@ class W35PaneBenchmark:
         expected: set[str],
         timeout: int,
     ) -> None:
+        normalized_expected = {self._normalize_command_name(x) for x in expected}
+        last_seen = ""
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             cmd = self._pane_current_command(child)
-            if cmd in expected:
+            norm = self._normalize_command_name(cmd)
+            if norm:
+                last_seen = norm
+                if norm in normalized_expected:
+                    return
+
+            # Fallback: pane_current_command can be stale/empty under heavy tmux redraw.
+            snap = self._capture_pane_text(child, lines=200)
+            if self._pane_has_prompt(snap):
                 return
             time.sleep(PANE_POLL_INTERVAL_SEC)
+        detail = f" (last seen: {last_seen})" if last_seen else ""
         raise pexpect.TIMEOUT(
-            "Pane did not reach expected command: " + ", ".join(sorted(expected))
+            "Pane did not reach expected command: "
+            + ", ".join(sorted(expected))
+            + detail
         )
 
     def _copy_tmux_setup_to_remote(self, child: pexpect.spawn) -> None:
