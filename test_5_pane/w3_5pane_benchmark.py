@@ -844,6 +844,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--remote-vim-file", default="/tmp/w3_vim_bench.txt")
     p.add_argument("--remote-nano-file", default="/tmp/w3_nano_bench.txt")
     p.add_argument("--shuffle-pairs", action="store_true")
+    p.add_argument(
+        "--reopen-on-failure",
+        action="store_true",
+        help="Compatibility flag for older runner scripts (currently no-op).",
+    )
     p.add_argument("--log-pexpect", action="store_true")
 
     p.add_argument("--tmux-session", default=TMUX_SESSION)
