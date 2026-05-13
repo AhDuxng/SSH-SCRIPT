@@ -115,7 +115,10 @@ class W35PaneBenchmark:
         return re.compile("".join(parts) + rf"(?:{_ANSI_SEQ}|\s)*")
 
     def _expect_prompt(self, child: pexpect.spawn) -> None:
-        child.expect(self.prompt_re, timeout=self.args.timeout)
+        try:
+            child.expect(self.prompt_re, timeout=self.args.timeout)
+        except pexpect.TIMEOUT:
+            child.expect(_INITIAL_PROMPT_RE, timeout=self.args.timeout)
 
     def _session_command(self, protocol: str) -> str:
         target = self.target
@@ -267,6 +270,12 @@ class W35PaneBenchmark:
             raise RuntimeError(f"tmux session '{session}' did not start in time")
 
         self._wait_pane_contains(child, PANE_READY_MARKER, timeout=self.args.timeout)
+        self._tmux_send_line(
+            child, f"export PS1={shlex.quote(self.args.prompt)}"
+        )
+        self._wait_pane_contains(
+            child, self.prompt_marker, timeout=self.args.timeout
+        )
 
     def _attach_tmux_session(self, child: pexpect.spawn) -> None:
         session = self.args.tmux_session
