@@ -164,6 +164,10 @@ class W35PaneBenchmark:
             codec_errors="ignore",
             timeout=self.args.timeout,
         )
+        # Benchmark keystroke latency must not include pexpect's built-in
+        # pre-send delay (default 50 ms), otherwise samples are artificially
+        # pinned near 50 ms regardless of real transport/editor behavior.
+        child.delaybeforesend = 0
 
         start_ns = time.perf_counter_ns()
         child.expect(_INITIAL_PROMPT_RE, timeout=self.args.timeout)
@@ -243,14 +247,11 @@ class W35PaneBenchmark:
         child.expect(_INITIAL_PROMPT_RE, timeout=self.args.timeout)
         child.sendline(f"export PS1={shlex.quote(self.args.prompt)}")
         self._expect_prompt(child)
-        # Reduce redraw noise from non-target panes while keeping load processes running.
-        child.sendcontrol("b")
-        child.send("z")
 
     def _detach_tmux_session(self, child: pexpect.spawn) -> None:
+        # Small gap improves reliability of tmux prefix-key parsing with pexpect.
         child.sendcontrol("b")
-        child.send("z")
-        child.sendcontrol("b")
+        time.sleep(0.08)
         child.send("d")
         self._expect_prompt(child)
 
@@ -325,6 +326,14 @@ class W35PaneBenchmark:
         self._ensure_vim_insert_mode(child)
         return self._probe_once(child, erase_after_echo=True)
 
+    def _ensure_tui_entered(self, child: pexpect.spawn, app_name: str) -> None:
+        # Under heavy tmux redraw, mode banners (like INSERT/help lines) can be
+        # transient; only assert that we are no longer at the shell prompt.
+        startup_timeout = max(0.5, min(2.0, float(self.args.timeout)))
+        idx = child.expect([self.prompt_re, pexpect.TIMEOUT], timeout=startup_timeout)
+        if idx == 0:
+            raise RuntimeError(f"{app_name} exited immediately (still at shell prompt)")
+
     def _measure_interactive_shell(
         self,
         child: pexpect.spawn,
@@ -363,9 +372,10 @@ class W35PaneBenchmark:
         report_cb: Optional[Callable[[int, float], None]] = None,
     ) -> List[float]:
         remote_file = self.args.remote_vim_file
+        self._drain_pending_output(child)
         child.sendline(f"vim -Nu NONE -n {shlex.quote(remote_file)}")
         child.send("i")
-        child.expect([r"-- INSERT --", r"INSERT"], timeout=self.args.timeout)
+        self._ensure_tui_entered(child, "vim")
 
         for _ in range(warmup):
             try:
@@ -398,8 +408,9 @@ class W35PaneBenchmark:
         report_cb: Optional[Callable[[int, float], None]] = None,
     ) -> List[float]:
         remote_file = self.args.remote_nano_file
+        self._drain_pending_output(child)
         child.sendline(f"nano --ignorercfiles {shlex.quote(remote_file)}")
-        child.expect([r"GNU nano", r"\^G Help"], timeout=self.args.timeout)
+        self._ensure_tui_entered(child, "nano")
 
         for _ in range(warmup):
             try:
