@@ -260,21 +260,6 @@ class W35PaneBenchmark:
             f"tmux kill-session -t {shlex.quote(self.args.tmux_session)} 2>/dev/null || true",
         )
 
-    def _tmux_send_literal(self, child: pexpect.spawn, text: str) -> None:
-        self._run_remote(
-            child,
-            f"tmux send-keys -t {shlex.quote(self._tmux_target())} -l {shlex.quote(text)}",
-        )
-
-    def _tmux_send_key(self, child: pexpect.spawn, key: str) -> None:
-        self._run_remote(
-            child,
-            f"tmux send-keys -t {shlex.quote(self._tmux_target())} {key}",
-        )
-
-    def _tmux_send_enter(self, child: pexpect.spawn) -> None:
-        self._tmux_send_key(child, "Enter")
-
     def _capture_pane_text(self, child: pexpect.spawn, lines: int = 120) -> str:
         out = self._run_remote(
             child,
@@ -340,13 +325,6 @@ class W35PaneBenchmark:
         self._ensure_vim_insert_mode(child)
         return self._probe_once(child, erase_after_echo=True)
 
-    def _assert_app_started(self, child: pexpect.spawn, app_name: str) -> None:
-        startup_timeout = max(1, min(self.args.timeout, 2))
-        idx = child.expect([self.prompt_re, pexpect.TIMEOUT], timeout=startup_timeout)
-        if idx == 0:
-            raise RuntimeError(f"{app_name} exited immediately (still at shell prompt)")
-
-
     def _measure_interactive_shell(
         self,
         child: pexpect.spawn,
@@ -385,10 +363,9 @@ class W35PaneBenchmark:
         report_cb: Optional[Callable[[int, float], None]] = None,
     ) -> List[float]:
         remote_file = self.args.remote_vim_file
-        self._drain_pending_output(child)
         child.sendline(f"vim -Nu NONE -n {shlex.quote(remote_file)}")
-        self._assert_app_started(child, "vim")
         child.send("i")
+        child.expect([r"-- INSERT --", r"INSERT"], timeout=self.args.timeout)
 
         for _ in range(warmup):
             try:
@@ -421,9 +398,8 @@ class W35PaneBenchmark:
         report_cb: Optional[Callable[[int, float], None]] = None,
     ) -> List[float]:
         remote_file = self.args.remote_nano_file
-        self._drain_pending_output(child)
         child.sendline(f"nano --ignorercfiles {shlex.quote(remote_file)}")
-        self._assert_app_started(child, "nano")
+        child.expect([r"GNU nano", r"\^G Help"], timeout=self.args.timeout)
 
         for _ in range(warmup):
             try:
@@ -485,64 +461,72 @@ class W35PaneBenchmark:
 
     def _run_session_group(self, protocol: str, workload: str) -> None:
         for trial_id in range(1, self.args.trials + 1):
-            max_attempts = 2 if self.args.reopen_on_failure else 1
-            for attempt in range(1, max_attempts + 1):
-                child: Optional[pexpect.spawn] = None
-                tmux_attached = False
-                try:
-                    child, setup_ms = self._open_session(protocol)
-                    self.session_setups[protocol][workload].append(setup_ms)
-                    print(
-                        f"[{protocol:>4}/{workload:<18}]"
-                        f" trial {trial_id:>2}/{self.args.trials}"
-                        f" attempt {attempt}/{max_attempts}"
-                        f" session_setup={setup_ms:.1f} ms"
-                    )
+            child: Optional[pexpect.spawn] = None
+            tmux_attached = False
+            try:
+                child, setup_ms = self._open_session(protocol)
+                self.session_setups[protocol][workload].append(setup_ms)
+                print(
+                    f"[{protocol:>4}/{workload:<18}]"
+                    f" trial {trial_id:>2}/{self.args.trials}"
+                    f" session_setup={setup_ms:.1f} ms"
+                )
 
+                try:
                     self._copy_tmux_setup_to_remote(child)
                     self._start_tmux_session(child)
                     self._attach_tmux_session(child)
                     tmux_attached = True
                     self._run_trial(child, protocol, workload, trial_id)
-                    break
-
-                except (pexpect.TIMEOUT, pexpect.EOF, RuntimeError, ValueError, FileNotFoundError) as exc:
-                    is_last_attempt = attempt >= max_attempts
-                    if is_last_attempt:
-                        self.failures.append(
-                            FailureRecord(
-                                protocol=protocol,
-                                workload=workload,
-                                round_id=trial_id,
-                                sample_id=-1,
-                                error_type=type(exc).__name__,
-                                error_message=str(exc),
-                            )
+                except (
+                    pexpect.TIMEOUT,
+                    pexpect.EOF,
+                    RuntimeError,
+                    ValueError,
+                    FileNotFoundError,
+                ) as exc:
+                    self.failures.append(
+                        FailureRecord(
+                            protocol=protocol,
+                            workload=workload,
+                            round_id=trial_id,
+                            sample_id=-1,
+                            error_type=type(exc).__name__,
+                            error_message=str(exc),
                         )
-                        print(
-                            f"[{protocol:>4}/{workload:<18}]"
-                            f" trial {trial_id:>2}: FAIL"
-                            f" ({type(exc).__name__}: {exc})"
-                        )
-                    else:
-                        print(
-                            f"[{protocol:>4}/{workload:<18}]"
-                            f" trial {trial_id:>2}: retrying after"
-                            f" {type(exc).__name__}: {exc}"
-                        )
-
-                finally:
-                    if child is not None:
+                    )
+                    print(
+                        f"[{protocol:>4}/{workload:<18}]"
+                        f" trial {trial_id:>2}: FAIL"
+                        f" ({type(exc).__name__}: {exc})"
+                    )
+                    if self.args.reopen_on_failure:
                         if tmux_attached:
                             try:
                                 self._detach_tmux_session(child)
                             except Exception:
                                 pass
+                            tmux_attached = False
                         try:
                             self._stop_tmux_session(child)
                         except Exception:
                             pass
                         self._close_session(child)
+                        child, setup_ms = self._open_session(protocol)
+                        self.session_setups[protocol][workload].append(setup_ms)
+
+            finally:
+                if child is not None:
+                    if tmux_attached:
+                        try:
+                            self._detach_tmux_session(child)
+                        except Exception:
+                            pass
+                    try:
+                        self._stop_tmux_session(child)
+                    except Exception:
+                        pass
+                    self._close_session(child)
 
     def run(self) -> None:
         random.seed(self.args.seed)
