@@ -37,9 +37,6 @@ PANE_POLL_INTERVAL_SEC = 0.05
 
 PROBE_TOKEN = "W3_PROBE_FIXED_Q9J5V2K7M4T8X1"
 PROBE_TAIL_LEN = 10
-REMOTE_CMD_MARKER_PREFIX = "__W3_CMD_DONE__"
-REMOTE_CMD_MARKER_PAD = 8
-REMOTE_CMD_DRAIN_PROMPT_SEC = 0.5
 
 _ANSI_SEQ = r"(?:\x1b\[\??[0-9;]*[a-zA-Z])"
 _ECHO_GAP = rf"(?:{_ANSI_SEQ}|[\r\n\b])*"
@@ -102,7 +99,6 @@ class W35PaneBenchmark:
         self.remote_prompt_re = self._build_prompt_re(self.remote_prompt_marker)
 
         self.probe_counter = 0
-        self.remote_cmd_counter = 0
         self.tmux_pane_target: Optional[str] = None
 
         self.records: List[SampleRecord] = []
@@ -147,13 +143,6 @@ class W35PaneBenchmark:
     def _next_probe_token(self) -> str:
         self.probe_counter += 1
         return f"{PROBE_TOKEN}_{self.probe_counter:08d}"
-
-    def _next_remote_marker(self) -> str:
-        self.remote_cmd_counter += 1
-        return (
-            f"{REMOTE_CMD_MARKER_PREFIX}"
-            f"{self.remote_cmd_counter:0{REMOTE_CMD_MARKER_PAD}d}"
-        )
 
     def _expect_remote_prompt(self, child: pexpect.spawn) -> None:
         child.expect(self.remote_prompt_re, timeout=self.args.timeout)
@@ -236,31 +225,10 @@ class W35PaneBenchmark:
             except Exception:
                 pass
 
-    @staticmethod
-    def _strip_marker_lines(output: str, marker: str) -> str:
-        lines = output.replace("\r", "").splitlines()
-        cleaned = [line for line in lines if marker not in line]
-        return "\n".join(cleaned)
-
     def _run_remote(self, child: pexpect.spawn, command: str) -> str:
-        marker = self._next_remote_marker()
-        marker_cmd = f"printf '\\n{marker}\\n'"
-        full_cmd = f"{command}\n{marker_cmd}"
-
-        child.sendline(full_cmd)
-        # Use a marker line to sync command completion; prompt matching can be flaky in mosh.
-        marker_re = re.compile(
-            rf"(?:^|\\r?\\n|\\r){re.escape(marker)}(?:\\r?\\n|\\r|$)"
-        )
-        child.expect(marker_re, timeout=self.args.timeout)
-        output = self._strip_marker_lines(child.before or "", marker)
-
-        try:
-            child.expect(self.remote_prompt_re, timeout=REMOTE_CMD_DRAIN_PROMPT_SEC)
-        except pexpect.TIMEOUT:
-            pass
-
-        return output
+        child.sendline(command)
+        self._expect_remote_prompt(child)
+        return child.before or ""
 
     def _tmux_target(self) -> str:
         return self.tmux_pane_target or f"{self.args.tmux_session}:0.0"
