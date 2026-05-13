@@ -65,6 +65,7 @@ $SSH3_INSECURE      && CMD+=(--ssh3-insecure)
 $BATCH_MODE         && CMD+=(--batch-mode)
 $STRICT_HOST_KEY    && CMD+=(--strict-host-key-checking)
 $SHUFFLE_PAIRS      && CMD+=(--shuffle-pairs)
+$REOPEN_ON_FAILURE  && CMD+=(--reopen-on-failure)
 $LOG_PEXPECT        && CMD+=(--log-pexpect)
 
 echo "=== W3 Interactive Benchmark — 5-pane tmux load variant ==="
