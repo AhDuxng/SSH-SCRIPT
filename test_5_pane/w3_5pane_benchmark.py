@@ -99,6 +99,7 @@ class W35PaneBenchmark:
         self.remote_prompt_re = self._build_prompt_re(self.remote_prompt_marker)
 
         self.probe_counter = 0
+        self.remote_cmd_counter = 0
         self.tmux_pane_target: Optional[str] = None
 
         self.records: List[SampleRecord] = []
@@ -143,6 +144,10 @@ class W35PaneBenchmark:
     def _next_probe_token(self) -> str:
         self.probe_counter += 1
         return f"{PROBE_TOKEN}_{self.probe_counter:08d}"
+
+    def _next_remote_marker(self) -> str:
+        self.remote_cmd_counter += 1
+        return f"__W3_REMOTE_DONE_{self.remote_cmd_counter:08d}__"
 
     def _expect_remote_prompt(self, child: pexpect.spawn) -> None:
         child.expect(self.remote_prompt_re, timeout=self.args.timeout)
@@ -207,8 +212,7 @@ class W35PaneBenchmark:
         child.expect(_INITIAL_PROMPT_RE, timeout=self.args.timeout)
         setup_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
 
-        child.sendline(f"export PS1={shlex.quote(self.remote_prompt_marker)}")
-        self._expect_remote_prompt(child)
+        self._run_remote(child, f"export PS1={shlex.quote(self.remote_prompt_marker)}")
 
         return child, setup_ms
 
@@ -226,8 +230,11 @@ class W35PaneBenchmark:
                 pass
 
     def _run_remote(self, child: pexpect.spawn, command: str) -> str:
+        marker = self._next_remote_marker()
+        marker_re = self._build_probe_echo_re(marker)
         child.sendline(command)
-        self._expect_remote_prompt(child)
+        child.sendline(f"printf '%s\\n' {shlex.quote(marker)}")
+        child.expect(marker_re, timeout=self.args.timeout)
         return child.before or ""
 
     def _tmux_target(self) -> str:
