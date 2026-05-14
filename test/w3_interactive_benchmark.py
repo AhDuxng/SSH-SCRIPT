@@ -27,8 +27,8 @@ DEFAULT_WORKLOADS = ["interactive_shell", "vim", "nano"]
 DEFAULT_PROMPT    = "__W3_PROMPT__#"
 DEFAULT_SSH3_PATH = "/ssh3-term"
 
-PROBE_TOKEN = "X"
-PROBE_TAIL_LEN = 1
+PROBE_TOKEN = "Hello"
+PROBE_TAIL_LEN = len(PROBE_TOKEN)
 
 _ANSI_SEQ   = r"(?:\x1b\[\??[0-9;]*[a-zA-Z])"
 _ECHO_GAP   = rf"(?:{_ANSI_SEQ}|[\r\n\b])*"
@@ -135,10 +135,15 @@ class W3Benchmark:
             except (pexpect.TIMEOUT, pexpect.EOF):
                 break
 
+    @staticmethod
+    def _send_token(child: pexpect.spawn, token: str) -> None:
+        for ch in token:
+            child.send(ch)
+
     def _probe_once(self, child: pexpect.spawn, erase_after_echo: bool = False) -> float:
         self._drain_pending_output(child)
         start_ns = time.perf_counter_ns()
-        child.send(self.probe_token)
+        self._send_token(child, self.probe_token)
         self._expect_probe_echo(child)
         end_ns = time.perf_counter_ns()
         if erase_after_echo:
