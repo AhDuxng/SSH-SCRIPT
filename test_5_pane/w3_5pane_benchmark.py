@@ -31,7 +31,7 @@ DEFAULT_TMUX_SETUP_SCRIPT = str(Path(__file__).with_name("w3_tmux_setup.sh"))
 DEFAULT_REMOTE_TMUX_SETUP = "/tmp/w3_tmux_setup.sh"
 
 PROBE_TOKEN_PREFIX = "W3_PROBE_FIXED_Q9J5V2K7M4T8X1"
-DEFAULT_PROBE_TAIL_LEN = 12
+DEFAULT_PROBE_TAIL_LEN = 10
 
 _ANSI_SEQ = r"(?:\x1b\[\??[0-9;]*[a-zA-Z])"
 _ECHO_GAP = rf"(?:{_ANSI_SEQ}|[\r\n\b])*"
@@ -99,6 +99,11 @@ class W3Benchmark:
         }
 
     @staticmethod
+    def _build_probe_echo_re(token: str) -> re.Pattern[str]:
+        parts = [re.escape(ch) + _ECHO_GAP for ch in token]
+        return re.compile("".join(parts))
+
+    @staticmethod
     def _build_prompt_re(prompt_marker: str) -> re.Pattern[str]:
         parts = [re.escape(ch) + _ECHO_GAP for ch in prompt_marker]
         return re.compile("".join(parts) + rf"(?:{_ANSI_SEQ}|\s)*")
@@ -107,16 +112,41 @@ class W3Benchmark:
         self.probe_seq += 1
         return f"{self.probe_prefix}_{self.probe_seq:08d}"
 
-    def _expect_prompt(self, child: pexpect.spawn) -> None:
+    def _expect_prompt(
+        self,
+        child: pexpect.spawn,
+        timeout: Optional[float] = None,
+    ) -> None:
         # TUI redraw (especially over mosh) may split prompt bytes with ANSI updates.
-        child.expect(self.prompt_re, timeout=self.args.timeout)
+        wait_timeout = float(self.args.timeout) if timeout is None else float(timeout)
+        deadline = time.monotonic() + wait_timeout
+        regex_timeout = min(wait_timeout, 2.0)
+        regex_exc: Optional[Exception] = None
+        try:
+            child.expect(self.prompt_re, timeout=regex_timeout)
+            return
+        except pexpect.TIMEOUT as exc:
+            regex_exc = exc
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise regex_exc if regex_exc is not None else pexpect.TIMEOUT(
+                "prompt_echo: timeout exhausted before fallback"
+            )
+        # In 5-pane tmux, non-ANSI text from other panes can interleave prompt bytes.
+        self._expect_subsequence_any(
+            child,
+            [self.prompt_marker],
+            phase="prompt_echo",
+            timeout=remaining,
+        )
 
     def _expect_prompt_resync(self, child: pexpect.spawn, phase: str) -> None:
         attempts = self.args.prompt_resync_attempts
+        per_attempt_timeout = min(3.0, float(self.args.timeout))
         last_error: Optional[Exception] = None
         for attempt in range(1, attempts + 1):
             try:
-                self._expect_prompt(child)
+                self._expect_prompt(child, timeout=per_attempt_timeout)
                 return
             except pexpect.TIMEOUT as exc:
                 last_error = exc
@@ -137,16 +167,36 @@ class W3Benchmark:
         return text
 
     def _expect_probe_echo(self, child: pexpect.spawn, token: str) -> None:
+        wait_timeout = float(self.args.timeout)
+        deadline = time.monotonic() + wait_timeout
         targets = [token]
-        tail_len = min(len(token), self.args.probe_tail_len)
-        tail = token[-tail_len:]
-        if tail and tail != token:
-            targets.append(tail)
+        candidate_tails = [self.args.probe_tail_len, 10]
+        for tail_len_cfg in candidate_tails:
+            tail_len = min(len(token), tail_len_cfg)
+            if tail_len <= 0:
+                continue
+            tail = token[-tail_len:]
+            if tail and tail not in targets:
+                targets.append(tail)
+        # First try regex expect like baseline test workload (works well in non-tmux mode).
+        probe_res = [self._build_probe_echo_re(target) for target in targets]
+        regex_exc: Optional[Exception] = None
+        try:
+            child.expect(probe_res, timeout=min(wait_timeout, 2.0))
+            return
+        except pexpect.TIMEOUT as exc:
+            regex_exc = exc
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise regex_exc if regex_exc is not None else pexpect.TIMEOUT(
+                "probe_echo: timeout exhausted before fallback"
+            )
+        # Fallback to subsequence mode for heavily interleaved tmux redraw output.
         self._expect_subsequence_any(
             child,
             targets,
             phase="probe_echo",
-            timeout=float(self.args.timeout),
+            timeout=remaining,
         )
 
     def _expect_subsequence_any(
@@ -429,7 +479,8 @@ class W3Benchmark:
 
         child.sendcontrol("c")
         child.sendcontrol("c")
-        self._expect_prompt_resync(child, "interactive_shell_exit")
+        if self.args.check_interactive_shell_exit_prompt:
+            self._expect_prompt_resync(child, "interactive_shell_exit")
         return latencies
 
     def _measure_vim(
@@ -482,12 +533,7 @@ class W3Benchmark:
     ) -> List[float]:
         remote_file = self.args.remote_nano_file
         child.sendline(f"nano --ignorercfiles {shlex.quote(remote_file)}")
-        self._expect_subsequence_any(
-            child,
-            ["GNU nano", "^G Help"],
-            phase="nano_start",
-            timeout=self.args.app_start_timeout,
-        )
+        child.expect([r"GNU nano", r"\^G Help"], timeout=self.args.app_start_timeout)
 
         if self.args.nano_settle_seconds > 0:
             time.sleep(self.args.nano_settle_seconds)
@@ -516,7 +562,8 @@ class W3Benchmark:
 
         child.sendcontrol("x")
         child.send("n")
-        self._expect_prompt_resync(child, "nano_exit")
+        if self.args.check_nano_exit_prompt:
+            self._expect_prompt_resync(child, "nano_exit")
         return latencies
 
     def _run_trial(
@@ -921,6 +968,16 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--check-vim-exit-prompt",
         action="store_true",
         help="strictly require shell prompt detection right after :q! in vim",
+    )
+    p.add_argument(
+        "--check-interactive-shell-exit-prompt",
+        action="store_true",
+        help="strictly require prompt detection after Ctrl-C exit from cat",
+    )
+    p.add_argument(
+        "--check-nano-exit-prompt",
+        action="store_true",
+        help="strictly require prompt detection right after exiting nano",
     )
     p.add_argument(
         "--seed",
