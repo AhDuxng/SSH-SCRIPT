@@ -116,6 +116,25 @@ class W3Benchmark:
         # TUI redraw (especially over mosh) may split prompt bytes with ANSI updates.
         child.expect(self.prompt_re, timeout=self.args.timeout)
 
+    def _expect_prompt_resync(self, child: pexpect.spawn, phase: str) -> None:
+        attempts = self.args.prompt_resync_attempts
+        last_error: Optional[Exception] = None
+        for attempt in range(1, attempts + 1):
+            try:
+                self._expect_prompt(child)
+                return
+            except pexpect.TIMEOUT as exc:
+                last_error = exc
+                if attempt >= attempts:
+                    raise pexpect.TIMEOUT(
+                        f"{phase}: prompt not observed after {attempts} attempts"
+                    ) from exc
+                # Force another prompt emission attempt in noisy tmux redraws.
+                child.sendcontrol("c")
+                child.sendline("")
+        if last_error:
+            raise last_error
+
     def _expect_probe_echo(self, child: pexpect.spawn, token: str) -> None:
         full_re = self._build_probe_echo_re(token)
         tail_re = self._build_probe_echo_re(token[-PROBE_TAIL_LEN:])
@@ -318,7 +337,7 @@ class W3Benchmark:
 
         child.sendcontrol("c")
         child.sendcontrol("c")
-        self._expect_prompt(child)
+        self._expect_prompt_resync(child, "interactive_shell_exit")
         return latencies
 
     def _measure_vim(
@@ -353,7 +372,7 @@ class W3Benchmark:
 
         child.send("\x1b")
         child.sendline(":q!")
-        self._expect_prompt(child)
+        self._expect_prompt_resync(child, "vim_exit")
         return latencies
 
     def _measure_nano(
@@ -387,7 +406,7 @@ class W3Benchmark:
 
         child.sendcontrol("x")
         child.send("n")
-        self._expect_prompt(child)
+        self._expect_prompt_resync(child, "nano_exit")
         return latencies
 
     def _run_trial(
@@ -735,6 +754,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="pexpect timeout in seconds",
     )
     p.add_argument(
+        "--prompt-resync-attempts",
+        type=int,
+        default=4,
+        help="Retries when waiting prompt in noisy tmux redraw phases",
+    )
+    p.add_argument(
         "--seed",
         type=int,
         default=42,
@@ -839,6 +864,8 @@ def main() -> int:
         parser.error("--iterations must be > 0")
     if args.warmup_rounds < 0:
         parser.error("--warmup-rounds must be >= 0")
+    if args.prompt_resync_attempts <= 0:
+        parser.error("--prompt-resync-attempts must be > 0")
 
     bench = W3Benchmark(args)
     bench.run()
