@@ -6,6 +6,7 @@ import csv
 import math
 import os
 import random
+import shutil
 import re
 import shlex
 import statistics
@@ -40,6 +41,10 @@ _INITIAL_PROMPT_RE = re.compile(
     r"[#$>](?:" + _ANSI_SEQ + r"|\s)*\s*$",
     re.MULTILINE,
 )
+
+
+class MissingExecutableError(RuntimeError):
+    """Raised when a local client command such as ssh3 or mosh is missing."""
 
 
 @dataclass
@@ -91,6 +96,7 @@ class W3Benchmark:
         self.probe_tail = self.probe_token[-PROBE_TAIL_LEN:]
         self.probe_echo_re = self._build_probe_echo_re(self.probe_token)
         self.probe_tail_echo_re = self._build_probe_echo_re(self.probe_tail)
+        self.probe_seq = 0
         self.records:  List[SampleRecord]  = []
         self.failures: List[FailureRecord] = []
         self.results: Dict[str, Dict[str, List[float]]] = {
@@ -114,11 +120,15 @@ class W3Benchmark:
         # TUI redraw and tmux pane updates may split prompt bytes with ANSI updates.
         child.expect(self.prompt_re, timeout=self.args.timeout)
 
-    def _expect_probe_echo(self, child: pexpect.spawn) -> None:
-        child.expect(
-            [self.probe_echo_re, self.probe_tail_echo_re],
-            timeout=self.args.timeout,
-        )
+    def _next_probe_token(self) -> str:
+        """Return a unique token so pexpect cannot match stale echo bytes."""
+        self.probe_seq += 1
+        return f"{self.probe_token}_{self.probe_seq:08d}"
+
+    def _expect_probe_echo(self, child: pexpect.spawn, token: str) -> None:
+        # Match the full unique token only.  Matching only the tail is unsafe
+        # when tmux/background panes produce a lot of output.
+        child.expect(self._build_probe_echo_re(token), timeout=self.args.timeout)
 
     @staticmethod
     def _ensure_vim_insert_mode(child: pexpect.spawn) -> None:
@@ -139,13 +149,14 @@ class W3Benchmark:
                 break
 
     def _probe_once(self, child: pexpect.spawn, erase_after_echo: bool = False) -> float:
+        token = self._next_probe_token()
         self._drain_pending_output(child)
         start_ns = time.perf_counter_ns()
-        child.send(self.probe_token)
-        self._expect_probe_echo(child)
+        child.send(token)
+        self._expect_probe_echo(child, token)
         end_ns = time.perf_counter_ns()
         if erase_after_echo:
-            self._erase_probe_token(child, self.probe_token)
+            self._erase_probe_token(child, token)
         return (end_ns - start_ns) / 1_000_000.0
 
     @staticmethod
@@ -161,6 +172,25 @@ class W3Benchmark:
     def _probe_vim_once(self, child: pexpect.spawn) -> float:
         self._ensure_vim_insert_mode(child)
         return self._probe_once(child, erase_after_echo=True)
+
+    @staticmethod
+    def _protocol_binary(protocol: str) -> str:
+        if protocol == "ssh":
+            return "ssh"
+        if protocol == "ssh3":
+            return "ssh3"
+        if protocol == "mosh":
+            return "mosh"
+        raise ValueError(f"Unsupported protocol: {protocol}")
+
+    def _ensure_protocol_available(self, protocol: str) -> None:
+        binary = self._protocol_binary(protocol)
+        if shutil.which(binary) is None:
+            raise MissingExecutableError(
+                f"Local command '{binary}' was not found in PATH. "
+                f"Install {binary} on this client, or remove '{protocol}' "
+                f"from --protocols / PROTOCOLS. Current PATH={os.environ.get('PATH', '')}"
+            )
 
     def _session_command(self, protocol: str) -> str:
         target     = self.target
@@ -379,6 +409,7 @@ class W3Benchmark:
         return session
 
     def _open_session(self, protocol: str, workload: str, trial_id: int) -> tuple:
+        self._ensure_protocol_available(protocol)
         child = pexpect.spawn(
             self._session_command(protocol),
             encoding="utf-8",
@@ -389,6 +420,10 @@ class W3Benchmark:
             dimensions=(self.args.term_rows, self.args.term_cols),
             env={"TERM": self.args.term},
         )
+        # pexpect defaults delaybeforesend to 0.05 s.  That creates an
+        # artificial 50 ms floor in keystroke-latency measurements.
+        # None disables the pre-send sleep.
+        child.delaybeforesend = None
 
         start_ns = time.perf_counter_ns()
         child.expect(_INITIAL_PROMPT_RE, timeout=self.args.timeout)
@@ -460,16 +495,11 @@ class W3Benchmark:
         child.expect_exact("\n", timeout=self.args.timeout)
 
         for _ in range(warmup):
-            child.send(self.probe_token)
-            self._expect_probe_echo(child)
+            self._probe_once(child, erase_after_echo=False)
 
         latencies: List[float] = []
         for i in range(iterations):
-            start_ns = time.perf_counter_ns()
-            child.send(self.probe_token)
-            self._expect_probe_echo(child)
-            end_ns = time.perf_counter_ns()
-            lat = (end_ns - start_ns) / 1_000_000.0
+            lat = self._probe_once(child, erase_after_echo=False)
             latencies.append(lat)
             if report_cb:
                 report_cb(i + 1, lat)
@@ -594,11 +624,59 @@ class W3Benchmark:
 
         return latencies
 
+    def _record_failure(
+        self,
+        protocol: str,
+        workload: str,
+        trial_id: int,
+        sample_id: int,
+        exc: BaseException,
+    ) -> None:
+        self.failures.append(
+            FailureRecord(
+                protocol=protocol,
+                workload=workload,
+                round_id=trial_id,
+                sample_id=sample_id,
+                error_type=type(exc).__name__,
+                error_message=str(exc),
+            )
+        )
+
     def _run_session_group(self, protocol: str, workload: str) -> None:
+        try:
+            self._ensure_protocol_available(protocol)
+        except MissingExecutableError as exc:
+            self._record_failure(protocol, workload, 0, -1, exc)
+            print(
+                f"[{protocol:>4}/{workload:<18}] SKIP "
+                f"({type(exc).__name__}: {exc})",
+                flush=True,
+            )
+            return
+
         for trial_id in range(1, self.args.trials + 1):
             child: Optional[pexpect.spawn] = None
             try:
-                child, setup_ms = self._open_session(protocol, workload, trial_id)
+                try:
+                    child, setup_ms = self._open_session(protocol, workload, trial_id)
+                except (
+                    MissingExecutableError,
+                    pexpect.ExceptionPexpect,
+                    pexpect.TIMEOUT,
+                    pexpect.EOF,
+                    OSError,
+                    ValueError,
+                ) as exc:
+                    self._record_failure(protocol, workload, trial_id, -1, exc)
+                    print(
+                        f"[{protocol:>4}/{workload:<18}]"
+                        f" trial {trial_id:>2}/{self.args.trials}: SESSION FAIL"
+                        f" ({type(exc).__name__}: {exc})",
+                        flush=True,
+                    )
+                    continue
+
                 self.session_setups[protocol][workload].append(setup_ms)
                 pane_note = (
                     f", tmux_panes={self.args.tmux_panes}"
@@ -607,33 +685,45 @@ class W3Benchmark:
                 print(
                     f"[{protocol:>4}/{workload:<18}]"
                     f" trial {trial_id:>2}/{self.args.trials}"
-                    f" session_setup={setup_ms:.1f} ms{pane_note}"
+                    f" session_setup={setup_ms:.1f} ms{pane_note}",
+                    flush=True,
                 )
 
                 try:
                     self._run_trial(child, protocol, workload, trial_id)
                 except (pexpect.TIMEOUT, pexpect.EOF, ValueError) as exc:
-                    self.failures.append(
-                        FailureRecord(
-                            protocol=protocol,
-                            workload=workload,
-                            round_id=trial_id,
-                            sample_id=-1,
-                            error_type=type(exc).__name__,
-                            error_message=str(exc),
-                        )
-                    )
+                    self._record_failure(protocol, workload, trial_id, -1, exc)
                     print(
                         f"[{protocol:>4}/{workload:<18}]"
                         f" trial {trial_id:>2}: FAIL"
-                        f" ({type(exc).__name__}: {exc})"
+                        f" ({type(exc).__name__}: {exc})",
+                        flush=True,
                     )
                     if self.args.reopen_on_failure:
                         if child is not None:
                             self._close_session(child)
-                        child, setup_ms = self._open_session(
-                            protocol, workload, trial_id
-                        )
+                            child = None
+                        try:
+                            child, setup_ms = self._open_session(
+                                protocol, workload, trial_id
+                            )
+                        except (
+                            MissingExecutableError,
+                            pexpect.ExceptionPexpect,
+                            pexpect.TIMEOUT,
+                            pexpect.EOF,
+                            OSError,
+                            ValueError,
+                        ) as reopen_exc:
+                            self._record_failure(
+                                protocol, workload, trial_id, -1, reopen_exc
+                            )
+                            print(
+                                f"[{protocol:>4}/{workload:<18}]"
+                                f" trial {trial_id:>2}: REOPEN FAIL"
+                                f" ({type(reopen_exc).__name__}: {reopen_exc})",
+                                flush=True,
+                            )
 
             finally:
                 if child is not None:
