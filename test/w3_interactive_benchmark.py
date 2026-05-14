@@ -28,7 +28,7 @@ DEFAULT_PROMPT    = "__W3_PROMPT__#"
 DEFAULT_SSH3_PATH = "/ssh3-term"
 
 PROBE_TOKEN = "Hello"
-PROBE_TAIL_LEN = len(PROBE_TOKEN)
+PROBE_SUFFIX_MOD = 100
 
 _ANSI_SEQ   = r"(?:\x1b\[\??[0-9;]*[a-zA-Z])"
 _ECHO_GAP   = rf"(?:{_ANSI_SEQ}|[\r\n\b])*"
@@ -82,10 +82,8 @@ class W3Benchmark:
             raise ValueError("Prompt must contain at least one non-space character")
         self.prompt_re = self._build_prompt_re(self.prompt_marker)
         self.probe_token = PROBE_TOKEN
-        self.probe_tail = self.probe_token[-PROBE_TAIL_LEN:]
-        self.probe_echo_re = self._build_probe_echo_re(self.probe_token)
-        self.probe_tail_echo_re = self._build_probe_echo_re(self.probe_tail)
         self.probe_counter = 0
+        self.probe_char_echo_res: Dict[str, re.Pattern[str]] = {}
         self.records:  List[SampleRecord]  = []
         self.failures: List[FailureRecord] = []
         self.results: Dict[str, Dict[str, List[float]]] = {
@@ -109,15 +107,6 @@ class W3Benchmark:
         # TUI redraw (especially over mosh) may split prompt bytes with ANSI updates.
         child.expect(self.prompt_re, timeout=self.args.timeout)
 
-    def _expect_probe_echo(
-        self,
-        child: pexpect.spawn,
-    ) -> None:
-        child.expect(
-            [self.probe_echo_re, self.probe_tail_echo_re],
-            timeout=self.args.timeout,
-        )
-
     @staticmethod
     def _ensure_vim_insert_mode(child: pexpect.spawn) -> None:
         child.send("\x1b")
@@ -136,13 +125,15 @@ class W3Benchmark:
             except (pexpect.TIMEOUT, pexpect.EOF):
                 break
 
-    @staticmethod
-    def _send_token(child: pexpect.spawn, token: str) -> None:
-        for ch in token:
-            child.send(ch)
+    def _probe_char_echo_re(self, char: str) -> re.Pattern[str]:
+        echo_re = self.probe_char_echo_res.get(char)
+        if echo_re is None:
+            echo_re = self._build_probe_echo_re(char)
+            self.probe_char_echo_res[char] = echo_re
+        return echo_re
 
     def _next_probe_token(self) -> str:
-        self.probe_counter += 1
+        self.probe_counter = (self.probe_counter + 1) % PROBE_SUFFIX_MOD
         return f"{self.probe_token}{self.probe_counter:02d}"
 
     def _probe_once(self, child: pexpect.spawn, erase_after_echo: bool = False) -> float:
@@ -150,9 +141,10 @@ class W3Benchmark:
         token = self._next_probe_token()
         total_ms = 0.0
         for ch in token:
+            echo_re = self._probe_char_echo_re(ch)
             start_ns = time.perf_counter_ns()
             child.send(ch)
-            child.expect(self._build_probe_echo_re(ch), timeout=self.args.timeout)
+            child.expect(echo_re, timeout=self.args.timeout)
             end_ns = time.perf_counter_ns()
             total_ms += (end_ns - start_ns) / 1_000_000.0
         if erase_after_echo:
@@ -220,6 +212,7 @@ class W3Benchmark:
             codec_errors="ignore",
             timeout=self.args.timeout,
         )
+        child.delaybeforesend = 0
 
         start_ns = time.perf_counter_ns()
         child.expect(_INITIAL_PROMPT_RE, timeout=self.args.timeout)
