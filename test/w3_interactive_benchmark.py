@@ -142,13 +142,16 @@ class W3Benchmark:
 
     def _probe_once(self, child: pexpect.spawn, erase_after_echo: bool = False) -> float:
         self._drain_pending_output(child)
-        start_ns = time.perf_counter_ns()
-        self._send_token(child, self.probe_token)
-        self._expect_probe_echo(child)
-        end_ns = time.perf_counter_ns()
+        total_ms = 0.0
+        for ch in self.probe_token:
+            start_ns = time.perf_counter_ns()
+            child.send(ch)
+            child.expect(self._build_probe_echo_re(ch), timeout=self.args.timeout)
+            end_ns = time.perf_counter_ns()
+            total_ms += (end_ns - start_ns) / 1_000_000.0
         if erase_after_echo:
             self._erase_probe_token(child, self.probe_token)
-        return (end_ns - start_ns) / 1_000_000.0
+        return total_ms
 
     @staticmethod
     def _recover_nano_state(child: pexpect.spawn) -> None:
