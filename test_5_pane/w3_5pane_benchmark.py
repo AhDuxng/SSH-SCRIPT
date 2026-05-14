@@ -24,73 +24,72 @@ except ImportError as exc:
 
 DEFAULT_PROTOCOLS = ["ssh", "ssh3", "mosh"]
 DEFAULT_WORKLOADS = ["interactive_shell", "vim", "nano"]
-DEFAULT_PROMPT    = "__W3_PROMPT__#"
+DEFAULT_PROMPT = "__W3_PROMPT__#"
 DEFAULT_SSH3_PATH = "/ssh3-term"
 DEFAULT_TMUX_SESSION = "w3bench5"
-DEFAULT_TMUX_LOGFILE = "/tmp/w3_pane4_5pane.log"
 DEFAULT_TMUX_SETUP_SCRIPT = str(Path(__file__).with_name("w3_tmux_setup.sh"))
 DEFAULT_REMOTE_TMUX_SETUP = "/tmp/w3_tmux_setup.sh"
 TMUX_READY_TOKEN = "__W3_5PANE_PANE0_READY__"
 
-PROBE_TOKEN = "W3_PROBE_FIXED_Q9J5V2K7M4T8X1"
+PROBE_TOKEN_PREFIX = "W3_PROBE_FIXED_Q9J5V2K7M4T8X1"
 PROBE_TAIL_LEN = 10
 
-_ANSI_SEQ   = r"(?:\x1b\[\??[0-9;]*[a-zA-Z])"
-_ECHO_GAP   = rf"(?:{_ANSI_SEQ}|[\r\n\b])*"
+_ANSI_SEQ = r"(?:\x1b\[\??[0-9;]*[a-zA-Z])"
+_ECHO_GAP = rf"(?:{_ANSI_SEQ}|[\r\n\b])*"
 _INITIAL_PROMPT_RE = re.compile(
     r"[#$>](?:" + _ANSI_SEQ + r"|\s)*\s*$",
     re.MULTILINE,
 )
 
+
 @dataclass
 class SampleRecord:
-    protocol:   str
-    workload:   str
-    round_id:   int
-    sample_id:  int
+    protocol: str
+    workload: str
+    round_id: int
+    sample_id: int
     latency_ms: float
 
 
 @dataclass
 class FailureRecord:
-    protocol:      str
-    workload:      str
-    round_id:      int
-    sample_id:     int
-    error_type:    str
+    protocol: str
+    workload: str
+    round_id: int
+    sample_id: int
+    error_type: str
     error_message: str
 
 
 @dataclass
 class SummaryRow:
-    protocol:           str
-    workload:           str
-    n:                  int
-    failures:           int
-    success_rate_pct:   float
-    min_ms:             Optional[float]
-    mean_ms:            Optional[float]
-    median_ms:          Optional[float]
-    stdev_ms:           Optional[float]
-    p95_ms:             Optional[float]
-    p99_ms:             Optional[float]
-    max_ms:             Optional[float]
+    protocol: str
+    workload: str
+    n: int
+    failures: int
+    success_rate_pct: float
+    min_ms: Optional[float]
+    mean_ms: Optional[float]
+    median_ms: Optional[float]
+    stdev_ms: Optional[float]
+    p95_ms: Optional[float]
+    p99_ms: Optional[float]
+    max_ms: Optional[float]
     ci95_half_width_ms: Optional[float]
+
 
 class W3Benchmark:
     def __init__(self, args: argparse.Namespace) -> None:
-        self.args       = args
-        self.target     = f"{args.user}@{args.host}"
+        self.args = args
+        self.target = f"{args.user}@{args.host}"
         self.started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
         self.prompt_marker = args.prompt.rstrip()
         if not self.prompt_marker:
             raise ValueError("Prompt must contain at least one non-space character")
         self.prompt_re = self._build_prompt_re(self.prompt_marker)
-        self.probe_token = PROBE_TOKEN
-        self.probe_tail = self.probe_token[-PROBE_TAIL_LEN:]
-        self.probe_echo_re = self._build_probe_echo_re(self.probe_token)
-        self.probe_tail_echo_re = self._build_probe_echo_re(self.probe_tail)
-        self.records:  List[SampleRecord]  = []
+        self.probe_prefix = PROBE_TOKEN_PREFIX
+        self.probe_seq = 0
+        self.records: List[SampleRecord] = []
         self.failures: List[FailureRecord] = []
         self.results: Dict[str, Dict[str, List[float]]] = {
             p: {w: [] for w in args.workloads} for p in args.protocols
@@ -109,18 +108,18 @@ class W3Benchmark:
         parts = [re.escape(ch) + _ECHO_GAP for ch in prompt_marker]
         return re.compile("".join(parts) + rf"(?:{_ANSI_SEQ}|\s)*")
 
+    def _next_probe_token(self) -> str:
+        self.probe_seq += 1
+        return f"{self.probe_prefix}_{self.probe_seq:08d}"
+
     def _expect_prompt(self, child: pexpect.spawn) -> None:
         # TUI redraw (especially over mosh) may split prompt bytes with ANSI updates.
         child.expect(self.prompt_re, timeout=self.args.timeout)
 
-    def _expect_probe_echo(
-        self,
-        child: pexpect.spawn,
-    ) -> None:
-        child.expect(
-            [self.probe_echo_re, self.probe_tail_echo_re],
-            timeout=self.args.timeout,
-        )
+    def _expect_probe_echo(self, child: pexpect.spawn, token: str) -> None:
+        full_re = self._build_probe_echo_re(token)
+        tail_re = self._build_probe_echo_re(token[-PROBE_TAIL_LEN:])
+        child.expect([full_re, tail_re], timeout=self.args.timeout)
 
     @staticmethod
     def _ensure_vim_insert_mode(child: pexpect.spawn) -> None:
@@ -141,13 +140,14 @@ class W3Benchmark:
                 break
 
     def _probe_once(self, child: pexpect.spawn, erase_after_echo: bool = False) -> float:
+        probe_token = self._next_probe_token()
         self._drain_pending_output(child)
         start_ns = time.perf_counter_ns()
-        child.send(self.probe_token)
-        self._expect_probe_echo(child)
+        child.send(probe_token)
+        self._expect_probe_echo(child, probe_token)
         end_ns = time.perf_counter_ns()
         if erase_after_echo:
-            self._erase_probe_token(child, self.probe_token)
+            self._erase_probe_token(child, probe_token)
         return (end_ns - start_ns) / 1_000_000.0
 
     @staticmethod
@@ -160,12 +160,25 @@ class W3Benchmark:
         child.sendcontrol("l")
         child.send("i")
 
-    def _upload_tmux_setup_script(self, child: pexpect.spawn) -> None:
-        local_path = Path(self.args.tmux_setup_script)
-        if not local_path.exists():
-            raise ValueError(f"tmux setup script not found: {local_path}")
+    def _resolve_tmux_setup_script_path(self) -> Path:
+        direct = Path(self.args.tmux_setup_script)
+        if direct.exists():
+            return direct
 
+        local_name = Path(self.args.tmux_setup_script).name
+        beside_script = Path(__file__).with_name(local_name)
+        if beside_script.exists():
+            return beside_script
+
+        raise ValueError(
+            "tmux setup script not found: "
+            f"{self.args.tmux_setup_script} (also tried {beside_script})"
+        )
+
+    def _upload_tmux_setup_script(self, child: pexpect.spawn) -> None:
+        local_path = self._resolve_tmux_setup_script_path()
         script_content = local_path.read_text(encoding="utf-8")
+
         token_base = "__W3_TMUX_SETUP_EOF__"
         token = token_base
         counter = 1
@@ -180,16 +193,15 @@ class W3Benchmark:
         child.send(script_content)
         child.sendline(token)
         self._expect_prompt(child)
+
         child.sendline(f"chmod +x {shlex.quote(remote_path)}")
         self._expect_prompt(child)
 
     def _setup_tmux_5pane(self, child: pexpect.spawn) -> None:
-        session = self.args.tmux_session
         self._upload_tmux_setup_script(child)
-        remote_path = self.args.remote_tmux_setup
-        child.sendline(
-            f"NO_ATTACH=1 {shlex.quote(remote_path)} {shlex.quote(session)}"
-        )
+        session = shlex.quote(self.args.tmux_session)
+        remote_path = shlex.quote(self.args.remote_tmux_setup)
+        child.sendline(f"NO_ATTACH=1 {remote_path} {session}")
         self._expect_prompt(child)
 
     def _attach_tmux_5pane(self, child: pexpect.spawn) -> None:
@@ -201,12 +213,19 @@ class W3Benchmark:
         child.send("d")
         self._expect_prompt(child)
 
+    def _kill_tmux_session(self, child: pexpect.spawn) -> None:
+        child.sendline(
+            f"tmux kill-session -t {shlex.quote(self.args.tmux_session)}"
+            " 2>/dev/null || true"
+        )
+        self._expect_prompt(child)
+
     def _probe_vim_once(self, child: pexpect.spawn) -> float:
         self._ensure_vim_insert_mode(child)
         return self._probe_once(child, erase_after_echo=True)
 
     def _session_command(self, protocol: str) -> str:
-        target     = self.target
+        target = self.target
         ssh_common = ["ssh", "-tt"]
         if self.args.source_ip:
             ssh_common += ["-b", self.args.source_ip]
@@ -214,8 +233,10 @@ class W3Benchmark:
             ssh_common += ["-o", "StrictHostKeyChecking=yes"]
         else:
             ssh_common += [
-                "-o", "StrictHostKeyChecking=no",
-                "-o", "UserKnownHostsFile=/dev/null",
+                "-o",
+                "StrictHostKeyChecking=no",
+                "-o",
+                "UserKnownHostsFile=/dev/null",
             ]
         if self.args.identity_file:
             ssh_common += ["-i", self.args.identity_file]
@@ -227,7 +248,7 @@ class W3Benchmark:
             return shlex.join(ssh_common)
 
         if protocol == "mosh":
-            ssh_cmd    = shlex.join(ssh_common[:-1])
+            ssh_cmd = shlex.join(ssh_common[:-1])
             mosh_parts = ["mosh", f"--ssh={ssh_cmd}"]
             if self.args.mosh_predict and self.args.mosh_predict != "adaptive":
                 mosh_parts += ["--predict", self.args.mosh_predict]
@@ -286,16 +307,11 @@ class W3Benchmark:
         child.expect_exact("\n", timeout=self.args.timeout)
 
         for _ in range(warmup):
-            child.send(self.probe_token)
-            self._expect_probe_echo(child)
+            self._probe_once(child)
 
         latencies: List[float] = []
         for i in range(iterations):
-            start_ns = time.perf_counter_ns()
-            child.send(self.probe_token)
-            self._expect_probe_echo(child)
-            end_ns = time.perf_counter_ns()
-            lat = (end_ns - start_ns) / 1_000_000.0
+            lat = self._probe_once(child)
             latencies.append(lat)
             if report_cb:
                 report_cb(i + 1, lat)
@@ -383,15 +399,13 @@ class W3Benchmark:
     ) -> List[float]:
         def report_cb(s_idx: int, lat: float) -> None:
             self.results[protocol][workload].append(lat)
-            self.records.append(
-                SampleRecord(protocol, workload, trial_id, s_idx, lat)
-            )
+            self.records.append(SampleRecord(protocol, workload, trial_id, s_idx, lat))
             print(
                 f"[{protocol:>4}/{workload:<18}]"
                 f" trial {trial_id:>2}"
                 f" measure {s_idx:>3}/{self.args.iterations}:"
                 f" {lat:.2f} ms",
-                flush=True
+                flush=True,
             )
 
         def run_workload() -> List[float]:
@@ -423,20 +437,21 @@ class W3Benchmark:
 
         attached = False
         self._setup_tmux_5pane(child)
-        self._attach_tmux_5pane(child)
-        attached = True
         try:
+            self._attach_tmux_5pane(child)
+            attached = True
             return run_workload()
         finally:
             if attached:
-                self._detach_tmux(child)
-                if not self.args.tmux_keep_session:
-                    child.sendline(
-                        f"tmux kill-session -t {shlex.quote(self.args.tmux_session)}"
-                    )
-                    self._expect_prompt(child)
-
-        return latencies
+                try:
+                    self._detach_tmux(child)
+                except Exception:
+                    pass
+            if not self.args.tmux_keep_session:
+                try:
+                    self._kill_tmux_session(child)
+                except Exception:
+                    pass
 
     def _run_session_group(self, protocol: str, workload: str) -> None:
         for trial_id in range(1, self.args.trials + 1):
@@ -471,19 +486,14 @@ class W3Benchmark:
                     if self.args.reopen_on_failure:
                         if child is not None:
                             self._close_session(child)
-                        child, setup_ms = self._open_session(protocol)
-
+                        child, _ = self._open_session(protocol)
             finally:
                 if child is not None:
                     self._close_session(child)
 
     def run(self) -> None:
         random.seed(self.args.seed)
-        pairs = [
-            (p, w)
-            for p in self.args.protocols
-            for w in self.args.workloads
-        ]
+        pairs = [(p, w) for p in self.args.protocols for w in self.args.workloads]
         if self.args.shuffle_pairs:
             random.shuffle(pairs)
         for protocol, workload in pairs:
@@ -495,8 +505,8 @@ class W3Benchmark:
             return None
         if len(values) == 1:
             return values[0]
-        s     = sorted(values)
-        k     = (len(s) - 1) * (p / 100.0)
+        s = sorted(values)
+        k = (len(s) - 1) * (p / 100.0)
         lower = math.floor(k)
         upper = math.ceil(k)
         if lower == upper:
@@ -504,12 +514,11 @@ class W3Benchmark:
         return s[lower] + (s[upper] - s[lower]) * (k - lower)
 
     def _summary_row(self, protocol: str, workload: str) -> SummaryRow:
-        data   = self.results[protocol][workload]
+        data = self.results[protocol][workload]
         fail_n = sum(
-            1 for f in self.failures
-            if f.protocol == protocol and f.workload == workload
+            1 for f in self.failures if f.protocol == protocol and f.workload == workload
         )
-        n     = len(data)
+        n = len(data)
         total = n + fail_n
         success_rate = (100.0 * n / total) if total else 0.0
 
@@ -519,10 +528,10 @@ class W3Benchmark:
                 None, None, None, None, None, None, None, None,
             )
 
-        mean_ms   = statistics.mean(data)
+        mean_ms = statistics.mean(data)
         median_ms = statistics.median(data)
-        stdev_ms  = statistics.stdev(data) if n > 1 else 0.0
-        ci95      = (1.96 * stdev_ms / math.sqrt(n)) if n > 1 else 0.0
+        stdev_ms = statistics.stdev(data) if n > 1 else 0.0
+        ci95 = (1.96 * stdev_ms / math.sqrt(n)) if n > 1 else 0.0
         return SummaryRow(
             protocol=protocol,
             workload=workload,
@@ -549,8 +558,7 @@ class W3Benchmark:
     def _session_setup_stats(self, protocol: str, workload: str) -> dict:
         data = self.session_setups[protocol][workload]
         if not data:
-            return dict(n=0, mean=None, median=None, stdev=None,
-                        min=None, max=None)
+            return dict(n=0, mean=None, median=None, stdev=None, min=None, max=None)
         n = len(data)
         return dict(
             n=n,
@@ -612,8 +620,8 @@ class W3Benchmark:
         outdir = Path(self.args.output_dir)
         outdir.mkdir(parents=True, exist_ok=True)
 
-        line_csv = outdir / "w3_line_log.csv"
-        setup_csv = outdir / "w3_session_setup.csv"
+        line_csv = outdir / "w3_5pane_line_log.csv"
+        setup_csv = outdir / "w3_5pane_session_setup.csv"
 
         with line_csv.open("w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
@@ -658,14 +666,10 @@ class W3Benchmark:
 
         with setup_csv.open("w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
-            writer.writerow(
-                ["protocol", "workload", "trial_id", "session_setup_ms"]
-            )
+            writer.writerow(["protocol", "workload", "trial_id", "session_setup_ms"])
             for p in self.args.protocols:
                 for w in self.args.workloads:
-                    for trial_id, ms in enumerate(
-                        self.session_setups[p][w], start=1
-                    ):
+                    for trial_id, ms in enumerate(self.session_setups[p][w], start=1):
                         writer.writerow([p, w, trial_id, f"{ms:.6f}"])
 
         print(f"Saved line log CSV    : {line_csv}")
@@ -673,17 +677,20 @@ class W3Benchmark:
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="W3 Interactive Editing benchmark")
+    p = argparse.ArgumentParser(description="W3 Interactive Editing benchmark (5-pane)")
     p.add_argument(
-        "--host", default="192.168.8.102",
+        "--host",
+        default="192.168.8.102",
         help="Target host IP or hostname",
     )
     p.add_argument(
-        "--user", default="trungnt",
+        "--user",
+        default="trungnt",
         help="Remote username",
     )
     p.add_argument(
-        "--source-ip", default="192.168.8.100",
+        "--source-ip",
+        default="192.168.8.100",
         help="Client source IP for SSH / Mosh where supported",
     )
     p.add_argument(
@@ -692,111 +699,139 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="SSH private key path",
     )
     p.add_argument(
-        "--protocols", nargs="+",
-        default=DEFAULT_PROTOCOLS, choices=DEFAULT_PROTOCOLS,
+        "--protocols",
+        nargs="+",
+        default=DEFAULT_PROTOCOLS,
+        choices=DEFAULT_PROTOCOLS,
     )
     p.add_argument(
-        "--workloads", nargs="+",
-        default=DEFAULT_WORKLOADS, choices=DEFAULT_WORKLOADS,
+        "--workloads",
+        nargs="+",
+        default=DEFAULT_WORKLOADS,
+        choices=DEFAULT_WORKLOADS,
     )
     p.add_argument(
-        "--trials", type=int, default=15,
+        "--trials",
+        type=int,
+        default=15,
         help="Independent sessions per protocol/workload pair",
     )
     p.add_argument(
-        "--iterations", type=int, default=100,
+        "--iterations",
+        type=int,
+        default=100,
         help="Recorded samples per trial",
     )
     p.add_argument(
-        "--warmup-rounds", type=int, default=5,
+        "--warmup-rounds",
+        type=int,
+        default=5,
         help="Warmup samples per trial (not recorded)",
     )
     p.add_argument(
-        "--timeout", type=int, default=20,
+        "--timeout",
+        type=int,
+        default=20,
         help="pexpect timeout in seconds",
     )
     p.add_argument(
-        "--seed", type=int, default=42,
+        "--seed",
+        type=int,
+        default=42,
         help="Random seed",
     )
     p.add_argument(
-        "--output-dir", default="w3_results",
-        help="Directory for JSON/CSV outputs",
+        "--output-dir",
+        default="w3_5pane_results",
+        help="Directory for CSV outputs",
     )
     p.add_argument(
-        "--prompt", default=DEFAULT_PROMPT,
+        "--prompt",
+        default=DEFAULT_PROMPT,
         help="Unique shell prompt marker used after session is ready",
     )
     p.add_argument(
-        "--ssh3-path", default=DEFAULT_SSH3_PATH,
+        "--ssh3-path",
+        default=DEFAULT_SSH3_PATH,
         help="SSH3 terminal path suffix",
     )
     p.add_argument(
-        "--ssh3-insecure", action="store_true",
+        "--ssh3-insecure",
+        action="store_true",
         help="Pass -insecure to ssh3",
     )
     p.add_argument(
-        "--batch-mode", action="store_true",
+        "--batch-mode",
+        action="store_true",
         help="Enable BatchMode for SSHv2 / Mosh bootstrap SSH",
     )
     p.add_argument(
-        "--strict-host-key-checking", action="store_true",
+        "--strict-host-key-checking",
+        action="store_true",
         help="Keep strict host key checking enabled",
     )
     p.add_argument(
-        "--mosh-predict", default="adaptive",
+        "--mosh-predict",
+        default="adaptive",
         choices=["adaptive", "always", "never"],
         help="Mosh prediction mode",
     )
     p.add_argument(
-        "--remote-vim-file", default="/tmp/w3_vim_bench.txt",
+        "--remote-vim-file",
+        default="/tmp/w3_vim_bench.txt",
         help="Remote file path used for the vim workload",
     )
     p.add_argument(
-        "--remote-nano-file", default="/tmp/w3_nano_bench.txt",
+        "--remote-nano-file",
+        default="/tmp/w3_nano_bench.txt",
         help="Remote file path used for the nano workload",
     )
     p.add_argument(
-        "--tmux-load", action="store_true",
+        "--tmux-load",
+        action="store_true",
         help="Enable 5-pane tmux background load for all workloads",
     )
     p.add_argument(
-        "--tmux-session", default=DEFAULT_TMUX_SESSION,
+        "--tmux-session",
+        default=DEFAULT_TMUX_SESSION,
         help="tmux session name used for background load",
     )
     p.add_argument(
-        "--tmux-logfile", default=DEFAULT_TMUX_LOGFILE,
-        help="tmux pane 4 logfile used by the background load",
-    )
-    p.add_argument(
-        "--tmux-keep-session", action="store_true",
+        "--tmux-keep-session",
+        action="store_true",
         help="Keep tmux session after workload for inspection",
     )
     p.add_argument(
-        "--tmux-setup-script", default=DEFAULT_TMUX_SETUP_SCRIPT,
+        "--tmux-setup-script",
+        default=DEFAULT_TMUX_SETUP_SCRIPT,
         help="Local tmux setup script for background load",
     )
     p.add_argument(
-        "--remote-tmux-setup", default=DEFAULT_REMOTE_TMUX_SETUP,
+        "--remote-tmux-setup",
+        default=DEFAULT_REMOTE_TMUX_SETUP,
         help="Remote path for the tmux setup script",
     )
     p.add_argument(
-        "--shuffle-pairs", action="store_true",
+        "--shuffle-pairs",
+        action="store_true",
         help="Shuffle protocol/workload execution order",
     )
     p.add_argument(
-        "--reopen-on-failure", action="store_true",
+        "--reopen-on-failure",
+        action="store_true",
         help="Reopen session after each failed measured sample",
     )
     p.add_argument(
-        "--log-pexpect", action="store_true",
+        "--log-pexpect",
+        action="store_true",
         help="Deprecated compatibility flag (no-op): pexpect logs are disabled",
     )
     return p
 
+
 def main() -> int:
     parser = build_arg_parser()
-    args   = parser.parse_args()
+    args = parser.parse_args()
 
     if args.trials <= 0:
         parser.error("--trials must be > 0")
