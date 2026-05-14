@@ -17,6 +17,10 @@ ITERATIONS=100
 WARMUP_ROUNDS=10
 TRIALS=3
 TIMEOUT=30
+ATTACH_TIMEOUT=45
+APP_START_TIMEOUT=45
+PROBE_POLL_TIMEOUT=0.2
+PROBE_TAIL_LEN=12
 SEED=42
 
 OUTPUT_DIR="w3_5pane_results"
@@ -54,6 +58,10 @@ CMD=(
     --warmup-rounds     "$WARMUP_ROUNDS"
     --trials            "$TRIALS"
     --timeout           "$TIMEOUT"
+    --attach-timeout    "$ATTACH_TIMEOUT"
+    --app-start-timeout "$APP_START_TIMEOUT"
+    --probe-poll-timeout "$PROBE_POLL_TIMEOUT"
+    --probe-tail-len    "$PROBE_TAIL_LEN"
     --seed              "$SEED"
     --output-dir        "$OUTPUT_DIR"
     --prompt            "$PROMPT"

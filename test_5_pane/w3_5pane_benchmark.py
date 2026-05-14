@@ -29,9 +29,9 @@ DEFAULT_SSH3_PATH = "/ssh3-term"
 DEFAULT_TMUX_SESSION = "w3bench5"
 DEFAULT_TMUX_SETUP_SCRIPT = str(Path(__file__).with_name("w3_tmux_setup.sh"))
 DEFAULT_REMOTE_TMUX_SETUP = "/tmp/w3_tmux_setup.sh"
-TMUX_READY_TOKEN = "__W3_5PANE_PANE0_READY__"
 
 PROBE_TOKEN_PREFIX = "W3_PROBE_FIXED_Q9J5V2K7M4T8X1"
+DEFAULT_PROBE_TAIL_LEN = 12
 
 _ANSI_SEQ = r"(?:\x1b\[\??[0-9;]*[a-zA-Z])"
 _ECHO_GAP = rf"(?:{_ANSI_SEQ}|[\r\n\b])*"
@@ -137,9 +137,14 @@ class W3Benchmark:
         return text
 
     def _expect_probe_echo(self, child: pexpect.spawn, token: str) -> None:
+        targets = [token]
+        tail_len = min(len(token), self.args.probe_tail_len)
+        tail = token[-tail_len:]
+        if tail and tail != token:
+            targets.append(tail)
         self._expect_subsequence_any(
             child,
-            [token],
+            targets,
             phase="probe_echo",
             timeout=float(self.args.timeout),
         )
@@ -163,12 +168,18 @@ class W3Benchmark:
             raise ValueError(f"{phase}: all targets are empty")
 
         progress = [0] * len(normalized_targets)
+        max_progress = [0] * len(normalized_targets)
 
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
+                progress_note = ", ".join(
+                    f"{t}:{m}/{len(t)}"
+                    for t, m in zip(normalized_targets, max_progress)
+                )
                 raise pexpect.TIMEOUT(
-                    f"{phase}: none of targets observed before timeout: {normalized_targets!r}"
+                    f"{phase}: none of targets observed before timeout: "
+                    f"{normalized_targets!r}; progress={progress_note}"
                 )
             try:
                 chunk = child.read_nonblocking(
@@ -184,10 +195,19 @@ class W3Benchmark:
 
             for ch in normalized:
                 for i, target in enumerate(normalized_targets):
-                    if ch == target[progress[i]]:
-                        progress[i] += 1
-                        if progress[i] >= len(target):
+                    cur = progress[i]
+                    if ch == target[cur]:
+                        cur += 1
+                        progress[i] = cur
+                        if cur > max_progress[i]:
+                            max_progress[i] = cur
+                        if cur >= len(target):
                             return target
+                    elif ch == target[0]:
+                        # Restart matching from this char for robustness.
+                        progress[i] = 1
+                        if max_progress[i] < 1:
+                            max_progress[i] = 1
 
     @staticmethod
     def _ensure_vim_insert_mode(child: pexpect.spawn) -> None:
@@ -220,6 +240,7 @@ class W3Benchmark:
 
     @staticmethod
     def _recover_nano_state(child: pexpect.spawn) -> None:
+        child.send("\x1b")
         child.sendcontrol("l")
 
     @staticmethod
@@ -267,14 +288,32 @@ class W3Benchmark:
 
     def _setup_tmux_5pane(self, child: pexpect.spawn) -> None:
         self._upload_tmux_setup_script(child)
-        session = shlex.quote(self.args.tmux_session)
+        session = self.args.tmux_session
+        session_q = shlex.quote(session)
         remote_path = shlex.quote(self.args.remote_tmux_setup)
-        child.sendline(f"NO_ATTACH=1 {remote_path} {session}")
+        child.sendline(f"NO_ATTACH=1 {remote_path} {session_q}")
+        self._expect_prompt(child)
+
+        # Keep benchmark input pinned to pane 0 and avoid accidental broadcast.
+        child.sendline(f"tmux select-pane -t {shlex.quote(f'{session}:0.0')}")
+        self._expect_prompt(child)
+        child.sendline(
+            "tmux set-window-option"
+            f" -t {shlex.quote(f'{session}:0')}"
+            " synchronize-panes off"
+        )
         self._expect_prompt(child)
 
     def _attach_tmux_5pane(self, child: pexpect.spawn) -> None:
-        child.sendline(f"tmux attach -t {shlex.quote(self.args.tmux_session)}")
-        child.expect_exact(TMUX_READY_TOKEN, timeout=self.args.timeout)
+        child.sendline(f"tmux attach -d -t {shlex.quote(self.args.tmux_session)}")
+        ready_marker = f"__W3_ATTACH_READY__{time.time_ns()}__"
+        child.sendline(f"printf '{ready_marker}\\n'")
+        self._expect_subsequence_any(
+            child,
+            [ready_marker],
+            phase="tmux_attach_ready",
+            timeout=self.args.attach_timeout,
+        )
 
     def _detach_tmux(self, child: pexpect.spawn) -> None:
         child.send("\x02")
@@ -831,10 +870,22 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="per-read timeout while waiting probe token (seconds)",
     )
     p.add_argument(
+        "--probe-tail-len",
+        type=int,
+        default=DEFAULT_PROBE_TAIL_LEN,
+        help="allow matching only the trailing N chars of probe token",
+    )
+    p.add_argument(
         "--app-start-timeout",
         type=float,
         default=30.0,
         help="timeout waiting startup markers for vim/nano (seconds)",
+    )
+    p.add_argument(
+        "--attach-timeout",
+        type=float,
+        default=30.0,
+        help="timeout waiting tmux attach handshake marker (seconds)",
     )
     p.add_argument(
         "--seed",
@@ -947,8 +998,12 @@ def main() -> int:
         parser.error("--probe-read-size must be > 0")
     if args.probe_poll_timeout <= 0:
         parser.error("--probe-poll-timeout must be > 0")
+    if args.probe_tail_len <= 0:
+        parser.error("--probe-tail-len must be > 0")
     if args.app_start_timeout <= 0:
         parser.error("--app-start-timeout must be > 0")
+    if args.attach_timeout <= 0:
+        parser.error("--attach-timeout must be > 0")
 
     bench = W3Benchmark(args)
     bench.run()
