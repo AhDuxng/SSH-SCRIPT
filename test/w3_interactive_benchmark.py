@@ -143,7 +143,7 @@ class W3Benchmark:
 
     def _next_probe_token(self) -> str:
         self.probe_counter += 1
-        return f"{self.probe_token}{self.probe_counter}"
+        return f"{self.probe_token}{self.probe_counter:02d}"
 
     def _probe_once(self, child: pexpect.spawn, erase_after_echo: bool = False) -> float:
         self._drain_pending_output(child)
