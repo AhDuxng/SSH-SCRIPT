@@ -403,8 +403,11 @@ class W3Benchmark:
         child.sendcontrol("c")
         child.sendcontrol("c")
         self._detach_tmux(child)
-        child.sendline(f"tmux kill-session -t {shlex.quote(self.args.tmux_session)}")
-        self._expect_prompt(child)
+        if not self.args.tmux_keep_session:
+            child.sendline(
+                f"tmux kill-session -t {shlex.quote(self.args.tmux_session)}"
+            )
+            self._expect_prompt(child)
         return latencies
 
     def _run_trial(
@@ -785,6 +788,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--tmux-logfile", default=DEFAULT_TMUX_LOGFILE,
         help="tmux pane 4 logfile used for tmux_5pane workload",
+    )
+    p.add_argument(
+        "--tmux-keep-session", action="store_true",
+        help="Keep tmux session after tmux_5pane workload for inspection",
     )
     p.add_argument(
         "--tmux-setup-script", default=DEFAULT_TMUX_SETUP_SCRIPT,
