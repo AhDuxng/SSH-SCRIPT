@@ -14,8 +14,13 @@ TRIALS=10
 TIMEOUT=30
 SEED=42
 
+<<<<<<< HEAD
 OUTPUT_DIR="w2_results_low"
 LOG_PEXPECT=true
+=======
+OUTPUT_DIR="w2_results"
+LOG_PEXPECT=false
+>>>>>>> master
 PROMPT="__W2_PROMPT__# "
 
 SSH3_PATH=":4433/ssh3-term"
@@ -37,6 +42,7 @@ SHUFFLE_PAIRS=true
 
 CLOCK_OFFSET_MODE="estimate"
 CLOCK_OFFSET_PROBES=5
+NEGATIVE_LATENCY_TOLERANCE_MS=50
 
 CMD=(
   python w2_continuous_monitoring_benchmark.py
@@ -57,6 +63,7 @@ CMD=(
   --top-interval "$TOP_INTERVAL"
   --clock-offset-mode "$CLOCK_OFFSET_MODE"
   --clock-offset-probes "$CLOCK_OFFSET_PROBES"
+  --negative-latency-tolerance-ms "$NEGATIVE_LATENCY_TOLERANCE_MS"
   --min-valid-latency-ms "$MIN_VALID_LATENCY_MS"
   --max-valid-latency-ms "$MAX_VALID_LATENCY_MS"
   --max-invalid-samples "$MAX_INVALID_SAMPLES"
@@ -86,10 +93,16 @@ echo "Iterations        : $ITERATIONS"
 echo "Shuffle pairs     : $SHUFFLE_PAIRS"
 echo "Clock offset mode : $CLOCK_OFFSET_MODE"
 echo "Clock probes      : $CLOCK_OFFSET_PROBES"
+echo "Neg latency tol   : $NEGATIVE_LATENCY_TOLERANCE_MS ms"
 echo "Output dir        : $OUTPUT_DIR"
 echo ""
 echo "Command:"
 printf '  %q \\\n' "${CMD[@]}"
 echo ""
 
-exec "${CMD[@]}"
+"${CMD[@]}"
+
+python plot_trend.py \
+  --output-dir "$OUTPUT_DIR" \
+  --prefix "w2" \
+  --group-fields protocol workload

@@ -1,0 +1,1478 @@
+=== W3 Interactive Benchmark | scenario=13 | run_tag=20260513_233420 ===
+Output: w3_results/13/20260513_233420
+Command:
+  python \
+  w3_interactive_benchmark.py \
+  --host \
+  100.66.79.93 \
+  --user \
+  pi \
+  --source-ip \
+  100.70.166.91 \
+  --identity-file \
+  /home/twan/.ssh/id_ed25519 \
+  --protocols \
+  ssh \
+  ssh3 \
+  mosh \
+  --workloads \
+  interactive_shell \
+  vim \
+  nano \
+  --iterations \
+  30 \
+  --warmup-rounds \
+  10 \
+  --trials \
+  5 \
+  --timeout \
+  20 \
+  --seed \
+  42 \
+  --output-dir \
+  w3_results/13/20260513_233420 \
+  --prompt \
+  __W3_PROMPT__#  \
+  --ssh3-path \
+  :4433/ssh3-term \
+  --mosh-predict \
+  never \
+  --remote-vim-file \
+  /tmp/w3_vim_bench.txt \
+  --remote-nano-file \
+  /tmp/w3_nano_bench.txt \
+  --ssh3-insecure \
+  --reopen-on-failure \
+
+[ ssh/interactive_shell ] trial  1/5 session_setup=1342.2 ms
+[ ssh/interactive_shell ] trial  1 measure   1/30: 103.89 ms
+[ ssh/interactive_shell ] trial  1 measure   2/30: 105.00 ms
+[ ssh/interactive_shell ] trial  1 measure   3/30: 108.39 ms
+[ ssh/interactive_shell ] trial  1 measure   4/30: 103.68 ms
+[ ssh/interactive_shell ] trial  1 measure   5/30: 105.23 ms
+[ ssh/interactive_shell ] trial  1 measure   6/30: 107.95 ms
+[ ssh/interactive_shell ] trial  1 measure   7/30: 103.46 ms
+[ ssh/interactive_shell ] trial  1 measure   8/30: 106.62 ms
+[ ssh/interactive_shell ] trial  1 measure   9/30: 108.77 ms
+[ ssh/interactive_shell ] trial  1 measure  10/30: 107.39 ms
+[ ssh/interactive_shell ] trial  1 measure  11/30: 103.16 ms
+[ ssh/interactive_shell ] trial  1 measure  12/30: 106.77 ms
+[ ssh/interactive_shell ] trial  1 measure  13/30: 103.63 ms
+[ ssh/interactive_shell ] trial  1 measure  14/30: 104.54 ms
+[ ssh/interactive_shell ] trial  1 measure  15/30: 108.01 ms
+[ ssh/interactive_shell ] trial  1 measure  16/30: 102.51 ms
+[ ssh/interactive_shell ] trial  1 measure  17/30: 104.84 ms
+[ ssh/interactive_shell ] trial  1 measure  18/30: 105.07 ms
+[ ssh/interactive_shell ] trial  1 measure  19/30: 102.80 ms
+[ ssh/interactive_shell ] trial  1 measure  20/30: 106.42 ms
+[ ssh/interactive_shell ] trial  1 measure  21/30: 104.91 ms
+[ ssh/interactive_shell ] trial  1 measure  22/30: 104.83 ms
+[ ssh/interactive_shell ] trial  1 measure  23/30: 106.55 ms
+[ ssh/interactive_shell ] trial  1 measure  24/30: 110.35 ms
+[ ssh/interactive_shell ] trial  1 measure  25/30: 99.69 ms
+[ ssh/interactive_shell ] trial  1 measure  26/30: 107.46 ms
+[ ssh/interactive_shell ] trial  1 measure  27/30: 104.76 ms
+[ ssh/interactive_shell ] trial  1 measure  28/30: 106.93 ms
+[ ssh/interactive_shell ] trial  1 measure  29/30: 104.93 ms
+[ ssh/interactive_shell ] trial  1 measure  30/30: 104.65 ms
+[ ssh/interactive_shell ] trial  2/5 session_setup=741.0 ms
+[ ssh/interactive_shell ] trial  2 measure   1/30: 105.60 ms
+[ ssh/interactive_shell ] trial  2 measure   2/30: 102.07 ms
+[ ssh/interactive_shell ] trial  2 measure   3/30: 102.67 ms
+[ ssh/interactive_shell ] trial  2 measure   4/30: 104.82 ms
+[ ssh/interactive_shell ] trial  2 measure   5/30: 102.71 ms
+[ ssh/interactive_shell ] trial  2 measure   6/30: 101.67 ms
+[ ssh/interactive_shell ] trial  2 measure   7/30: 105.11 ms
+[ ssh/interactive_shell ] trial  2 measure   8/30: 100.98 ms
+[ ssh/interactive_shell ] trial  2 measure   9/30: 102.30 ms
+[ ssh/interactive_shell ] trial  2 measure  10/30: 101.80 ms
+[ ssh/interactive_shell ] trial  2 measure  11/30: 109.21 ms
+[ ssh/interactive_shell ] trial  2 measure  12/30: 100.41 ms
+[ ssh/interactive_shell ] trial  2 measure  13/30: 102.45 ms
+[ ssh/interactive_shell ] trial  2 measure  14/30: 109.14 ms
+[ ssh/interactive_shell ] trial  2 measure  15/30: 101.39 ms
+[ ssh/interactive_shell ] trial  2 measure  16/30: 107.80 ms
+[ ssh/interactive_shell ] trial  2 measure  17/30: 113.50 ms
+[ ssh/interactive_shell ] trial  2 measure  18/30: 102.65 ms
+[ ssh/interactive_shell ] trial  2 measure  19/30: 106.94 ms
+[ ssh/interactive_shell ] trial  2 measure  20/30: 100.39 ms
+[ ssh/interactive_shell ] trial  2 measure  21/30: 123.04 ms
+[ ssh/interactive_shell ] trial  2 measure  22/30: 102.78 ms
+[ ssh/interactive_shell ] trial  2 measure  23/30: 100.81 ms
+[ ssh/interactive_shell ] trial  2 measure  24/30: 104.93 ms
+[ ssh/interactive_shell ] trial  2 measure  25/30: 101.43 ms
+[ ssh/interactive_shell ] trial  2 measure  26/30: 103.82 ms
+[ ssh/interactive_shell ] trial  2 measure  27/30: 102.58 ms
+[ ssh/interactive_shell ] trial  2 measure  28/30: 101.58 ms
+[ ssh/interactive_shell ] trial  2 measure  29/30: 104.48 ms
+[ ssh/interactive_shell ] trial  2 measure  30/30: 103.44 ms
+[ ssh/interactive_shell ] trial  3/5 session_setup=717.0 ms
+[ ssh/interactive_shell ] trial  3 measure   1/30: 103.68 ms
+[ ssh/interactive_shell ] trial  3 measure   2/30: 104.05 ms
+[ ssh/interactive_shell ] trial  3 measure   3/30: 99.01 ms
+[ ssh/interactive_shell ] trial  3 measure   4/30: 103.89 ms
+[ ssh/interactive_shell ] trial  3 measure   5/30: 102.21 ms
+[ ssh/interactive_shell ] trial  3 measure   6/30: 102.79 ms
+[ ssh/interactive_shell ] trial  3 measure   7/30: 103.35 ms
+[ ssh/interactive_shell ] trial  3 measure   8/30: 97.92 ms
+[ ssh/interactive_shell ] trial  3 measure   9/30: 104.89 ms
+[ ssh/interactive_shell ] trial  3 measure  10/30: 102.83 ms
+[ ssh/interactive_shell ] trial  3 measure  11/30: 103.50 ms
+[ ssh/interactive_shell ] trial  3 measure  12/30: 98.79 ms
+[ ssh/interactive_shell ] trial  3 measure  13/30: 100.67 ms
+[ ssh/interactive_shell ] trial  3 measure  14/30: 104.24 ms
+[ ssh/interactive_shell ] trial  3 measure  15/30: 98.47 ms
+[ ssh/interactive_shell ] trial  3 measure  16/30: 101.99 ms
+[ ssh/interactive_shell ] trial  3 measure  17/30: 98.80 ms
+[ ssh/interactive_shell ] trial  3 measure  18/30: 102.99 ms
+[ ssh/interactive_shell ] trial  3 measure  19/30: 102.88 ms
+[ ssh/interactive_shell ] trial  3 measure  20/30: 100.39 ms
+[ ssh/interactive_shell ] trial  3 measure  21/30: 100.46 ms
+[ ssh/interactive_shell ] trial  3 measure  22/30: 104.44 ms
+[ ssh/interactive_shell ] trial  3 measure  23/30: 98.74 ms
+[ ssh/interactive_shell ] trial  3 measure  24/30: 101.65 ms
+[ ssh/interactive_shell ] trial  3 measure  25/30: 101.71 ms
+[ ssh/interactive_shell ] trial  3 measure  26/30: 99.85 ms
+[ ssh/interactive_shell ] trial  3 measure  27/30: 101.90 ms
+[ ssh/interactive_shell ] trial  3 measure  28/30: 104.37 ms
+[ ssh/interactive_shell ] trial  3 measure  29/30: 101.86 ms
+[ ssh/interactive_shell ] trial  3 measure  30/30: 106.73 ms
+[ ssh/interactive_shell ] trial  4/5 session_setup=744.1 ms
+[ ssh/interactive_shell ] trial  4 measure   1/30: 97.65 ms
+[ ssh/interactive_shell ] trial  4 measure   2/30: 95.85 ms
+[ ssh/interactive_shell ] trial  4 measure   3/30: 97.93 ms
+[ ssh/interactive_shell ] trial  4 measure   4/30: 97.10 ms
+[ ssh/interactive_shell ] trial  4 measure   5/30: 119.67 ms
+[ ssh/interactive_shell ] trial  4 measure   6/30: 108.07 ms
+[ ssh/interactive_shell ] trial  4 measure   7/30: 97.83 ms
+[ ssh/interactive_shell ] trial  4 measure   8/30: 95.42 ms
+[ ssh/interactive_shell ] trial  4 measure   9/30: 96.44 ms
+[ ssh/interactive_shell ] trial  4 measure  10/30: 98.46 ms
+[ ssh/interactive_shell ] trial  4 measure  11/30: 101.17 ms
+[ ssh/interactive_shell ] trial  4 measure  12/30: 111.72 ms
+[ ssh/interactive_shell ] trial  4 measure  13/30: 96.24 ms
+[ ssh/interactive_shell ] trial  4 measure  14/30: 115.95 ms
+[ ssh/interactive_shell ] trial  4 measure  15/30: 112.71 ms
+[ ssh/interactive_shell ] trial  4 measure  16/30: 96.47 ms
+[ ssh/interactive_shell ] trial  4 measure  17/30: 112.95 ms
+[ ssh/interactive_shell ] trial  4 measure  18/30: 97.86 ms
+[ ssh/interactive_shell ] trial  4 measure  19/30: 114.99 ms
+[ ssh/interactive_shell ] trial  4 measure  20/30: 97.68 ms
+[ ssh/interactive_shell ] trial  4 measure  21/30: 113.04 ms
+[ ssh/interactive_shell ] trial  4 measure  22/30: 96.70 ms
+[ ssh/interactive_shell ] trial  4 measure  23/30: 115.33 ms
+[ ssh/interactive_shell ] trial  4 measure  24/30: 100.25 ms
+[ ssh/interactive_shell ] trial  4 measure  25/30: 114.32 ms
+[ ssh/interactive_shell ] trial  4 measure  26/30: 97.81 ms
+[ ssh/interactive_shell ] trial  4 measure  27/30: 96.86 ms
+[ ssh/interactive_shell ] trial  4 measure  28/30: 96.91 ms
+[ ssh/interactive_shell ] trial  4 measure  29/30: 97.51 ms
+[ ssh/interactive_shell ] trial  4 measure  30/30: 96.96 ms
+[ ssh/interactive_shell ] trial  5/5 session_setup=729.8 ms
+[ ssh/interactive_shell ] trial  5 measure   1/30: 115.67 ms
+[ ssh/interactive_shell ] trial  5 measure   2/30: 115.56 ms
+[ ssh/interactive_shell ] trial  5 measure   3/30: 98.32 ms
+[ ssh/interactive_shell ] trial  5 measure   4/30: 114.24 ms
+[ ssh/interactive_shell ] trial  5 measure   5/30: 115.21 ms
+[ ssh/interactive_shell ] trial  5 measure   6/30: 96.64 ms
+[ ssh/interactive_shell ] trial  5 measure   7/30: 98.34 ms
+[ ssh/interactive_shell ] trial  5 measure   8/30: 113.16 ms
+[ ssh/interactive_shell ] trial  5 measure   9/30: 96.20 ms
+[ ssh/interactive_shell ] trial  5 measure  10/30: 100.71 ms
+[ ssh/interactive_shell ] trial  5 measure  11/30: 115.06 ms
+[ ssh/interactive_shell ] trial  5 measure  12/30: 99.24 ms
+[ ssh/interactive_shell ] trial  5 measure  13/30: 115.64 ms
+[ ssh/interactive_shell ] trial  5 measure  14/30: 114.15 ms
+[ ssh/interactive_shell ] trial  5 measure  15/30: 113.27 ms
+[ ssh/interactive_shell ] trial  5 measure  16/30: 97.73 ms
+[ ssh/interactive_shell ] trial  5 measure  17/30: 115.89 ms
+[ ssh/interactive_shell ] trial  5 measure  18/30: 113.46 ms
+[ ssh/interactive_shell ] trial  5 measure  19/30: 97.46 ms
+[ ssh/interactive_shell ] trial  5 measure  20/30: 96.86 ms
+[ ssh/interactive_shell ] trial  5 measure  21/30: 95.82 ms
+[ ssh/interactive_shell ] trial  5 measure  22/30: 118.10 ms
+[ ssh/interactive_shell ] trial  5 measure  23/30: 96.93 ms
+[ ssh/interactive_shell ] trial  5 measure  24/30: 97.70 ms
+[ ssh/interactive_shell ] trial  5 measure  25/30: 97.41 ms
+[ ssh/interactive_shell ] trial  5 measure  26/30: 115.00 ms
+[ ssh/interactive_shell ] trial  5 measure  27/30: 114.95 ms
+[ ssh/interactive_shell ] trial  5 measure  28/30: 98.15 ms
+[ ssh/interactive_shell ] trial  5 measure  29/30: 96.68 ms
+[ ssh/interactive_shell ] trial  5 measure  30/30: 96.79 ms
+[ ssh/vim               ] trial  1/5 session_setup=727.7 ms
+[ ssh/vim               ] trial  1 measure   1/30: 108.65 ms
+[ ssh/vim               ] trial  1 measure   2/30: 113.59 ms
+[ ssh/vim               ] trial  1 measure   3/30: 110.21 ms
+[ ssh/vim               ] trial  1 measure   4/30: 110.87 ms
+[ ssh/vim               ] trial  1 measure   5/30: 112.09 ms
+[ ssh/vim               ] trial  1 measure   6/30: 105.08 ms
+[ ssh/vim               ] trial  1 measure   7/30: 110.95 ms
+[ ssh/vim               ] trial  1 measure   8/30: 112.09 ms
+[ ssh/vim               ] trial  1 measure   9/30: 106.83 ms
+[ ssh/vim               ] trial  1 measure  10/30: 109.39 ms
+[ ssh/vim               ] trial  1 measure  11/30: 110.42 ms
+[ ssh/vim               ] trial  1 measure  12/30: 107.20 ms
+[ ssh/vim               ] trial  1 measure  13/30: 109.43 ms
+[ ssh/vim               ] trial  1 measure  14/30: 108.78 ms
+[ ssh/vim               ] trial  1 measure  15/30: 110.58 ms
+[ ssh/vim               ] trial  1 measure  16/30: 106.66 ms
+[ ssh/vim               ] trial  1 measure  17/30: 109.27 ms
+[ ssh/vim               ] trial  1 measure  18/30: 109.78 ms
+[ ssh/vim               ] trial  1 measure  19/30: 113.17 ms
+[ ssh/vim               ] trial  1 measure  20/30: 112.13 ms
+[ ssh/vim               ] trial  1 measure  21/30: 111.14 ms
+[ ssh/vim               ] trial  1 measure  22/30: 108.16 ms
+[ ssh/vim               ] trial  1 measure  23/30: 105.88 ms
+[ ssh/vim               ] trial  1 measure  24/30: 110.72 ms
+[ ssh/vim               ] trial  1 measure  25/30: 107.55 ms
+[ ssh/vim               ] trial  1 measure  26/30: 112.75 ms
+[ ssh/vim               ] trial  1 measure  27/30: 111.96 ms
+[ ssh/vim               ] trial  1 measure  28/30: 109.99 ms
+[ ssh/vim               ] trial  1 measure  29/30: 107.39 ms
+[ ssh/vim               ] trial  1 measure  30/30: 111.53 ms
+[ ssh/vim               ] trial  2/5 session_setup=738.7 ms
+[ ssh/vim               ] trial  2 measure   1/30: 114.20 ms
+[ ssh/vim               ] trial  2 measure   2/30: 99.12 ms
+[ ssh/vim               ] trial  2 measure   3/30: 113.78 ms
+[ ssh/vim               ] trial  2 measure   4/30: 114.80 ms
+[ ssh/vim               ] trial  2 measure   5/30: 115.78 ms
+[ ssh/vim               ] trial  2 measure   6/30: 111.44 ms
+[ ssh/vim               ] trial  2 measure   7/30: 116.14 ms
+[ ssh/vim               ] trial  2 measure   8/30: 98.63 ms
+[ ssh/vim               ] trial  2 measure   9/30: 119.42 ms
+[ ssh/vim               ] trial  2 measure  10/30: 114.97 ms
+[ ssh/vim               ] trial  2 measure  11/30: 116.51 ms
+[ ssh/vim               ] trial  2 measure  12/30: 114.71 ms
+[ ssh/vim               ] trial  2 measure  13/30: 113.18 ms
+[ ssh/vim               ] trial  2 measure  14/30: 118.90 ms
+[ ssh/vim               ] trial  2 measure  15/30: 118.05 ms
+[ ssh/vim               ] trial  2 measure  16/30: 118.31 ms
+[ ssh/vim               ] trial  2 measure  17/30: 115.24 ms
+[ ssh/vim               ] trial  2 measure  18/30: 112.18 ms
+[ ssh/vim               ] trial  2 measure  19/30: 99.39 ms
+[ ssh/vim               ] trial  2 measure  20/30: 114.81 ms
+[ ssh/vim               ] trial  2 measure  21/30: 113.04 ms
+[ ssh/vim               ] trial  2 measure  22/30: 116.56 ms
+[ ssh/vim               ] trial  2 measure  23/30: 98.42 ms
+[ ssh/vim               ] trial  2 measure  24/30: 115.75 ms
+[ ssh/vim               ] trial  2 measure  25/30: 101.94 ms
+[ ssh/vim               ] trial  2 measure  26/30: 108.62 ms
+[ ssh/vim               ] trial  2 measure  27/30: 114.57 ms
+[ ssh/vim               ] trial  2 measure  28/30: 98.26 ms
+[ ssh/vim               ] trial  2 measure  29/30: 96.82 ms
+[ ssh/vim               ] trial  2 measure  30/30: 117.24 ms
+[ ssh/vim               ] trial  3/5 session_setup=731.8 ms
+[ ssh/vim               ] trial  3 measure   1/30: 107.68 ms
+[ ssh/vim               ] trial  3 measure   2/30: 108.70 ms
+[ ssh/vim               ] trial  3 measure   3/30: 111.05 ms
+[ ssh/vim               ] trial  3 measure   4/30: 107.52 ms
+[ ssh/vim               ] trial  3 measure   5/30: 110.24 ms
+[ ssh/vim               ] trial  3 measure   6/30: 107.97 ms
+[ ssh/vim               ] trial  3 measure   7/30: 112.03 ms
+[ ssh/vim               ] trial  3 measure   8/30: 108.04 ms
+[ ssh/vim               ] trial  3 measure   9/30: 104.54 ms
+[ ssh/vim               ] trial  3 measure  10/30: 114.16 ms
+[ ssh/vim               ] trial  3 measure  11/30: 110.01 ms
+[ ssh/vim               ] trial  3 measure  12/30: 109.29 ms
+[ ssh/vim               ] trial  3 measure  13/30: 108.24 ms
+[ ssh/vim               ] trial  3 measure  14/30: 110.28 ms
+[ ssh/vim               ] trial  3 measure  15/30: 112.37 ms
+[ ssh/vim               ] trial  3 measure  16/30: 106.53 ms
+[ ssh/vim               ] trial  3 measure  17/30: 108.41 ms
+[ ssh/vim               ] trial  3 measure  18/30: 111.54 ms
+[ ssh/vim               ] trial  3 measure  19/30: 108.49 ms
+[ ssh/vim               ] trial  3 measure  20/30: 105.90 ms
+[ ssh/vim               ] trial  3 measure  21/30: 106.88 ms
+[ ssh/vim               ] trial  3 measure  22/30: 110.17 ms
+[ ssh/vim               ] trial  3 measure  23/30: 109.91 ms
+[ ssh/vim               ] trial  3 measure  24/30: 111.41 ms
+[ ssh/vim               ] trial  3 measure  25/30: 110.04 ms
+[ ssh/vim               ] trial  3 measure  26/30: 107.18 ms
+[ ssh/vim               ] trial  3 measure  27/30: 109.37 ms
+[ ssh/vim               ] trial  3 measure  28/30: 111.47 ms
+[ ssh/vim               ] trial  3 measure  29/30: 116.31 ms
+[ ssh/vim               ] trial  3 measure  30/30: 101.74 ms
+[ ssh/vim               ] trial  4/5 session_setup=727.5 ms
+[ ssh/vim               ] trial  4 measure   1/30: 96.71 ms
+[ ssh/vim               ] trial  4 measure   2/30: 102.56 ms
+[ ssh/vim               ] trial  4 measure   3/30: 101.30 ms
+[ ssh/vim               ] trial  4 measure   4/30: 113.96 ms
+[ ssh/vim               ] trial  4 measure   5/30: 113.52 ms
+[ ssh/vim               ] trial  4 measure   6/30: 100.43 ms
+[ ssh/vim               ] trial  4 measure   7/30: 115.54 ms
+[ ssh/vim               ] trial  4 measure   8/30: 99.35 ms
+[ ssh/vim               ] trial  4 measure   9/30: 97.09 ms
+[ ssh/vim               ] trial  4 measure  10/30: 98.08 ms
+[ ssh/vim               ] trial  4 measure  11/30: 98.21 ms
+[ ssh/vim               ] trial  4 measure  12/30: 97.48 ms
+[ ssh/vim               ] trial  4 measure  13/30: 97.49 ms
+[ ssh/vim               ] trial  4 measure  14/30: 100.55 ms
+[ ssh/vim               ] trial  4 measure  15/30: 114.10 ms
+[ ssh/vim               ] trial  4 measure  16/30: 99.39 ms
+[ ssh/vim               ] trial  4 measure  17/30: 114.04 ms
+[ ssh/vim               ] trial  4 measure  18/30: 100.61 ms
+[ ssh/vim               ] trial  4 measure  19/30: 98.86 ms
+[ ssh/vim               ] trial  4 measure  20/30: 99.23 ms
+[ ssh/vim               ] trial  4 measure  21/30: 99.01 ms
+[ ssh/vim               ] trial  4 measure  22/30: 95.48 ms
+[ ssh/vim               ] trial  4 measure  23/30: 98.74 ms
+[ ssh/vim               ] trial  4 measure  24/30: 114.93 ms
+[ ssh/vim               ] trial  4 measure  25/30: 98.35 ms
+[ ssh/vim               ] trial  4 measure  26/30: 95.77 ms
+[ ssh/vim               ] trial  4 measure  27/30: 96.45 ms
+[ ssh/vim               ] trial  4 measure  28/30: 113.69 ms
+[ ssh/vim               ] trial  4 measure  29/30: 98.01 ms
+[ ssh/vim               ] trial  4 measure  30/30: 96.41 ms
+[ ssh/vim               ] trial  5/5 session_setup=739.6 ms
+[ ssh/vim               ] trial  5 measure   1/30: 110.14 ms
+[ ssh/vim               ] trial  5 measure   2/30: 112.59 ms
+[ ssh/vim               ] trial  5 measure   3/30: 110.60 ms
+[ ssh/vim               ] trial  5 measure   4/30: 108.97 ms
+[ ssh/vim               ] trial  5 measure   5/30: 108.30 ms
+[ ssh/vim               ] trial  5 measure   6/30: 109.31 ms
+[ ssh/vim               ] trial  5 measure   7/30: 110.08 ms
+[ ssh/vim               ] trial  5 measure   8/30: 103.85 ms
+[ ssh/vim               ] trial  5 measure   9/30: 109.09 ms
+[ ssh/vim               ] trial  5 measure  10/30: 109.51 ms
+[ ssh/vim               ] trial  5 measure  11/30: 107.81 ms
+[ ssh/vim               ] trial  5 measure  12/30: 111.03 ms
+[ ssh/vim               ] trial  5 measure  13/30: 112.21 ms
+[ ssh/vim               ] trial  5 measure  14/30: 108.31 ms
+[ ssh/vim               ] trial  5 measure  15/30: 109.15 ms
+[ ssh/vim               ] trial  5 measure  16/30: 107.71 ms
+[ ssh/vim               ] trial  5 measure  17/30: 104.56 ms
+[ ssh/vim               ] trial  5 measure  18/30: 108.99 ms
+[ ssh/vim               ] trial  5 measure  19/30: 109.83 ms
+[ ssh/vim               ] trial  5 measure  20/30: 102.21 ms
+[ ssh/vim               ] trial  5 measure  21/30: 106.31 ms
+[ ssh/vim               ] trial  5 measure  22/30: 112.67 ms
+[ ssh/vim               ] trial  5 measure  23/30: 108.08 ms
+[ ssh/vim               ] trial  5 measure  24/30: 107.92 ms
+[ ssh/vim               ] trial  5 measure  25/30: 104.12 ms
+[ ssh/vim               ] trial  5 measure  26/30: 111.29 ms
+[ ssh/vim               ] trial  5 measure  27/30: 109.71 ms
+[ ssh/vim               ] trial  5 measure  28/30: 111.19 ms
+[ ssh/vim               ] trial  5 measure  29/30: 113.44 ms
+[ ssh/vim               ] trial  5 measure  30/30: 109.31 ms
+[ ssh/nano              ] trial  1/5 session_setup=752.9 ms
+[ ssh/nano              ] trial  1 measure   1/30: 111.72 ms
+[ ssh/nano              ] trial  1 measure   2/30: 115.69 ms
+[ ssh/nano              ] trial  1 measure   3/30: 111.81 ms
+[ ssh/nano              ] trial  1 measure   4/30: 113.73 ms
+[ ssh/nano              ] trial  1 measure   5/30: 109.63 ms
+[ ssh/nano              ] trial  1 measure   6/30: 112.35 ms
+[ ssh/nano              ] trial  1 measure   7/30: 113.10 ms
+[ ssh/nano              ] trial  1 measure   8/30: 112.23 ms
+[ ssh/nano              ] trial  1 measure   9/30: 113.93 ms
+[ ssh/nano              ] trial  1 measure  10/30: 111.97 ms
+[ ssh/nano              ] trial  1 measure  11/30: 113.27 ms
+[ ssh/nano              ] trial  1 measure  12/30: 114.47 ms
+[ ssh/nano              ] trial  1 measure  13/30: 115.05 ms
+[ ssh/nano              ] trial  1 measure  14/30: 110.18 ms
+[ ssh/nano              ] trial  1 measure  15/30: 112.03 ms
+[ ssh/nano              ] trial  1 measure  16/30: 115.12 ms
+[ ssh/nano              ] trial  1 measure  17/30: 112.30 ms
+[ ssh/nano              ] trial  1 measure  18/30: 109.54 ms
+[ ssh/nano              ] trial  1 measure  19/30: 114.86 ms
+[ ssh/nano              ] trial  1 measure  20/30: 111.01 ms
+[ ssh/nano              ] trial  1 measure  21/30: 113.63 ms
+[ ssh/nano              ] trial  1 measure  22/30: 113.87 ms
+[ ssh/nano              ] trial  1 measure  23/30: 110.53 ms
+[ ssh/nano              ] trial  1 measure  24/30: 119.54 ms
+[ ssh/nano              ] trial  1 measure  25/30: 112.20 ms
+[ ssh/nano              ] trial  1 measure  26/30: 111.66 ms
+[ ssh/nano              ] trial  1 measure  27/30: 114.61 ms
+[ ssh/nano              ] trial  1 measure  28/30: 113.44 ms
+[ ssh/nano              ] trial  1 measure  29/30: 111.11 ms
+[ ssh/nano              ] trial  1 measure  30/30: 109.34 ms
+[ ssh/nano              ] trial  2/5 session_setup=752.4 ms
+[ ssh/nano              ] trial  2 measure   1/30: 113.65 ms
+[ ssh/nano              ] trial  2 measure   2/30: 112.03 ms
+[ ssh/nano              ] trial  2 measure   3/30: 113.22 ms
+[ ssh/nano              ] trial  2 measure   4/30: 108.92 ms
+[ ssh/nano              ] trial  2 measure   5/30: 115.92 ms
+[ ssh/nano              ] trial  2 measure   6/30: 111.30 ms
+[ ssh/nano              ] trial  2 measure   7/30: 113.65 ms
+[ ssh/nano              ] trial  2 measure   8/30: 107.96 ms
+[ ssh/nano              ] trial  2 measure   9/30: 110.05 ms
+[ ssh/nano              ] trial  2 measure  10/30: 107.66 ms
+[ ssh/nano              ] trial  2 measure  11/30: 115.09 ms
+[ ssh/nano              ] trial  2 measure  12/30: 114.80 ms
+[ ssh/nano              ] trial  2 measure  13/30: 111.53 ms
+[ ssh/nano              ] trial  2 measure  14/30: 110.90 ms
+[ ssh/nano              ] trial  2 measure  15/30: 106.64 ms
+[ ssh/nano              ] trial  2 measure  16/30: 114.66 ms
+[ ssh/nano              ] trial  2 measure  17/30: 108.03 ms
+[ ssh/nano              ] trial  2 measure  18/30: 110.63 ms
+[ ssh/nano              ] trial  2 measure  19/30: 112.41 ms
+[ ssh/nano              ] trial  2 measure  20/30: 110.44 ms
+[ ssh/nano              ] trial  2 measure  21/30: 116.03 ms
+[ ssh/nano              ] trial  2 measure  22/30: 112.46 ms
+[ ssh/nano              ] trial  2 measure  23/30: 115.84 ms
+[ ssh/nano              ] trial  2 measure  24/30: 112.69 ms
+[ ssh/nano              ] trial  2 measure  25/30: 109.30 ms
+[ ssh/nano              ] trial  2 measure  26/30: 111.73 ms
+[ ssh/nano              ] trial  2 measure  27/30: 112.32 ms
+[ ssh/nano              ] trial  2 measure  28/30: 112.49 ms
+[ ssh/nano              ] trial  2 measure  29/30: 108.91 ms
+[ ssh/nano              ] trial  2 measure  30/30: 112.87 ms
+[ ssh/nano              ] trial  3/5 session_setup=728.3 ms
+[ ssh/nano              ] trial  3 measure   1/30: 119.38 ms
+[ ssh/nano              ] trial  3 measure   2/30: 111.76 ms
+[ ssh/nano              ] trial  3 measure   3/30: 111.66 ms
+[ ssh/nano              ] trial  3 measure   4/30: 112.53 ms
+[ ssh/nano              ] trial  3 measure   5/30: 113.52 ms
+[ ssh/nano              ] trial  3 measure   6/30: 108.60 ms
+[ ssh/nano              ] trial  3 measure   7/30: 114.26 ms
+[ ssh/nano              ] trial  3 measure   8/30: 109.94 ms
+[ ssh/nano              ] trial  3 measure   9/30: 110.49 ms
+[ ssh/nano              ] trial  3 measure  10/30: 112.19 ms
+[ ssh/nano              ] trial  3 measure  11/30: 111.60 ms
+[ ssh/nano              ] trial  3 measure  12/30: 112.48 ms
+[ ssh/nano              ] trial  3 measure  13/30: 110.68 ms
+[ ssh/nano              ] trial  3 measure  14/30: 115.91 ms
+[ ssh/nano              ] trial  3 measure  15/30: 110.64 ms
+[ ssh/nano              ] trial  3 measure  16/30: 112.26 ms
+[ ssh/nano              ] trial  3 measure  17/30: 109.55 ms
+[ ssh/nano              ] trial  3 measure  18/30: 112.57 ms
+[ ssh/nano              ] trial  3 measure  19/30: 113.18 ms
+[ ssh/nano              ] trial  3 measure  20/30: 109.19 ms
+[ ssh/nano              ] trial  3 measure  21/30: 109.46 ms
+[ ssh/nano              ] trial  3 measure  22/30: 110.71 ms
+[ ssh/nano              ] trial  3 measure  23/30: 109.86 ms
+[ ssh/nano              ] trial  3 measure  24/30: 116.13 ms
+[ ssh/nano              ] trial  3 measure  25/30: 113.92 ms
+[ ssh/nano              ] trial  3 measure  26/30: 112.98 ms
+[ ssh/nano              ] trial  3 measure  27/30: 112.45 ms
+[ ssh/nano              ] trial  3 measure  28/30: 108.71 ms
+[ ssh/nano              ] trial  3 measure  29/30: 111.49 ms
+[ ssh/nano              ] trial  3 measure  30/30: 111.37 ms
+[ ssh/nano              ] trial  4/5 session_setup=743.6 ms
+[ ssh/nano              ] trial  4 measure   1/30: 110.55 ms
+[ ssh/nano              ] trial  4 measure   2/30: 109.11 ms
+[ ssh/nano              ] trial  4 measure   3/30: 107.32 ms
+[ ssh/nano              ] trial  4 measure   4/30: 111.45 ms
+[ ssh/nano              ] trial  4 measure   5/30: 112.52 ms
+[ ssh/nano              ] trial  4 measure   6/30: 110.04 ms
+[ ssh/nano              ] trial  4 measure   7/30: 109.96 ms
+[ ssh/nano              ] trial  4 measure   8/30: 109.48 ms
+[ ssh/nano              ] trial  4 measure   9/30: 109.76 ms
+[ ssh/nano              ] trial  4 measure  10/30: 109.81 ms
+[ ssh/nano              ] trial  4 measure  11/30: 107.49 ms
+[ ssh/nano              ] trial  4 measure  12/30: 109.61 ms
+[ ssh/nano              ] trial  4 measure  13/30: 106.94 ms
+[ ssh/nano              ] trial  4 measure  14/30: 108.24 ms
+[ ssh/nano              ] trial  4 measure  15/30: 106.62 ms
+[ ssh/nano              ] trial  4 measure  16/30: 109.78 ms
+[ ssh/nano              ] trial  4 measure  17/30: 106.96 ms
+[ ssh/nano              ] trial  4 measure  18/30: 106.82 ms
+[ ssh/nano              ] trial  4 measure  19/30: 107.92 ms
+[ ssh/nano              ] trial  4 measure  20/30: 108.25 ms
+[ ssh/nano              ] trial  4 measure  21/30: 108.89 ms
+[ ssh/nano              ] trial  4 measure  22/30: 104.92 ms
+[ ssh/nano              ] trial  4 measure  23/30: 109.82 ms
+[ ssh/nano              ] trial  4 measure  24/30: 112.31 ms
+[ ssh/nano              ] trial  4 measure  25/30: 109.56 ms
+[ ssh/nano              ] trial  4 measure  26/30: 106.32 ms
+[ ssh/nano              ] trial  4 measure  27/30: 104.79 ms
+[ ssh/nano              ] trial  4 measure  28/30: 107.99 ms
+[ ssh/nano              ] trial  4 measure  29/30: 111.18 ms
+[ ssh/nano              ] trial  4 measure  30/30: 108.45 ms
+[ ssh/nano              ] trial  5/5 session_setup=757.0 ms
+[ ssh/nano              ] trial  5 measure   1/30: 103.19 ms
+[ ssh/nano              ] trial  5 measure   2/30: 103.34 ms
+[ ssh/nano              ] trial  5 measure   3/30: 100.65 ms
+[ ssh/nano              ] trial  5 measure   4/30: 103.31 ms
+[ ssh/nano              ] trial  5 measure   5/30: 101.84 ms
+[ ssh/nano              ] trial  5 measure   6/30: 103.05 ms
+[ ssh/nano              ] trial  5 measure   7/30: 103.91 ms
+[ ssh/nano              ] trial  5 measure   8/30: 106.20 ms
+[ ssh/nano              ] trial  5 measure   9/30: 100.79 ms
+[ ssh/nano              ] trial  5 measure  10/30: 100.79 ms
+[ ssh/nano              ] trial  5 measure  11/30: 106.42 ms
+[ ssh/nano              ] trial  5 measure  12/30: 103.07 ms
+[ ssh/nano              ] trial  5 measure  13/30: 101.39 ms
+[ ssh/nano              ] trial  5 measure  14/30: 106.47 ms
+[ ssh/nano              ] trial  5 measure  15/30: 101.64 ms
+[ ssh/nano              ] trial  5 measure  16/30: 98.79 ms
+[ ssh/nano              ] trial  5 measure  17/30: 108.38 ms
+[ ssh/nano              ] trial  5 measure  18/30: 104.68 ms
+[ ssh/nano              ] trial  5 measure  19/30: 102.60 ms
+[ ssh/nano              ] trial  5 measure  20/30: 101.28 ms
+[ ssh/nano              ] trial  5 measure  21/30: 101.81 ms
+[ ssh/nano              ] trial  5 measure  22/30: 104.57 ms
+[ ssh/nano              ] trial  5 measure  23/30: 103.07 ms
+[ ssh/nano              ] trial  5 measure  24/30: 102.32 ms
+[ ssh/nano              ] trial  5 measure  25/30: 102.49 ms
+[ ssh/nano              ] trial  5 measure  26/30: 101.29 ms
+[ ssh/nano              ] trial  5 measure  27/30: 102.84 ms
+[ ssh/nano              ] trial  5 measure  28/30: 104.46 ms
+[ ssh/nano              ] trial  5 measure  29/30: 101.82 ms
+[ ssh/nano              ] trial  5 measure  30/30: 100.50 ms
+[ssh3/interactive_shell ] trial  1/5 session_setup=207.7 ms
+[ssh3/interactive_shell ] trial  1 measure   1/30: 100.57 ms
+[ssh3/interactive_shell ] trial  1 measure   2/30: 97.29 ms
+[ssh3/interactive_shell ] trial  1 measure   3/30: 97.68 ms
+[ssh3/interactive_shell ] trial  1 measure   4/30: 97.97 ms
+[ssh3/interactive_shell ] trial  1 measure   5/30: 98.15 ms
+[ssh3/interactive_shell ] trial  1 measure   6/30: 99.38 ms
+[ssh3/interactive_shell ] trial  1 measure   7/30: 96.89 ms
+[ssh3/interactive_shell ] trial  1 measure   8/30: 97.20 ms
+[ssh3/interactive_shell ] trial  1 measure   9/30: 96.93 ms
+[ssh3/interactive_shell ] trial  1 measure  10/30: 96.32 ms
+[ssh3/interactive_shell ] trial  1 measure  11/30: 96.42 ms
+[ssh3/interactive_shell ] trial  1 measure  12/30: 96.19 ms
+[ssh3/interactive_shell ] trial  1 measure  13/30: 96.07 ms
+[ssh3/interactive_shell ] trial  1 measure  14/30: 97.00 ms
+[ssh3/interactive_shell ] trial  1 measure  15/30: 96.26 ms
+[ssh3/interactive_shell ] trial  1 measure  16/30: 96.76 ms
+[ssh3/interactive_shell ] trial  1 measure  17/30: 96.51 ms
+[ssh3/interactive_shell ] trial  1 measure  18/30: 97.41 ms
+[ssh3/interactive_shell ] trial  1 measure  19/30: 97.06 ms
+[ssh3/interactive_shell ] trial  1 measure  20/30: 96.26 ms
+[ssh3/interactive_shell ] trial  1 measure  21/30: 96.84 ms
+[ssh3/interactive_shell ] trial  1 measure  22/30: 98.47 ms
+[ssh3/interactive_shell ] trial  1 measure  23/30: 95.82 ms
+[ssh3/interactive_shell ] trial  1 measure  24/30: 97.00 ms
+[ssh3/interactive_shell ] trial  1 measure  25/30: 96.67 ms
+[ssh3/interactive_shell ] trial  1 measure  26/30: 96.11 ms
+[ssh3/interactive_shell ] trial  1 measure  27/30: 96.47 ms
+[ssh3/interactive_shell ] trial  1 measure  28/30: 96.23 ms
+[ssh3/interactive_shell ] trial  1 measure  29/30: 96.56 ms
+[ssh3/interactive_shell ] trial  1 measure  30/30: 95.68 ms
+[ssh3/interactive_shell ] trial  2/5 session_setup=207.1 ms
+[ssh3/interactive_shell ] trial  2 measure   1/30: 95.92 ms
+[ssh3/interactive_shell ] trial  2 measure   2/30: 96.85 ms
+[ssh3/interactive_shell ] trial  2 measure   3/30: 96.70 ms
+[ssh3/interactive_shell ] trial  2 measure   4/30: 96.56 ms
+[ssh3/interactive_shell ] trial  2 measure   5/30: 96.83 ms
+[ssh3/interactive_shell ] trial  2 measure   6/30: 96.12 ms
+[ssh3/interactive_shell ] trial  2 measure   7/30: 97.65 ms
+[ssh3/interactive_shell ] trial  2 measure   8/30: 96.70 ms
+[ssh3/interactive_shell ] trial  2 measure   9/30: 97.35 ms
+[ssh3/interactive_shell ] trial  2 measure  10/30: 97.29 ms
+[ssh3/interactive_shell ] trial  2 measure  11/30: 98.27 ms
+[ssh3/interactive_shell ] trial  2 measure  12/30: 97.72 ms
+[ssh3/interactive_shell ] trial  2 measure  13/30: 96.80 ms
+[ssh3/interactive_shell ] trial  2 measure  14/30: 97.05 ms
+[ssh3/interactive_shell ] trial  2 measure  15/30: 99.91 ms
+[ssh3/interactive_shell ] trial  2 measure  16/30: 98.22 ms
+[ssh3/interactive_shell ] trial  2 measure  17/30: 103.99 ms
+[ssh3/interactive_shell ] trial  2 measure  18/30: 96.96 ms
+[ssh3/interactive_shell ] trial  2 measure  19/30: 97.73 ms
+[ssh3/interactive_shell ] trial  2 measure  20/30: 97.23 ms
+[ssh3/interactive_shell ] trial  2 measure  21/30: 96.35 ms
+[ssh3/interactive_shell ] trial  2 measure  22/30: 96.08 ms
+[ssh3/interactive_shell ] trial  2 measure  23/30: 96.79 ms
+[ssh3/interactive_shell ] trial  2 measure  24/30: 95.57 ms
+[ssh3/interactive_shell ] trial  2 measure  25/30: 98.73 ms
+[ssh3/interactive_shell ] trial  2 measure  26/30: 96.94 ms
+[ssh3/interactive_shell ] trial  2 measure  27/30: 97.19 ms
+[ssh3/interactive_shell ] trial  2 measure  28/30: 97.08 ms
+[ssh3/interactive_shell ] trial  2 measure  29/30: 96.57 ms
+[ssh3/interactive_shell ] trial  2 measure  30/30: 96.44 ms
+[ssh3/interactive_shell ] trial  3/5 session_setup=211.2 ms
+[ssh3/interactive_shell ] trial  3 measure   1/30: 96.56 ms
+[ssh3/interactive_shell ] trial  3 measure   2/30: 96.58 ms
+[ssh3/interactive_shell ] trial  3 measure   3/30: 96.06 ms
+[ssh3/interactive_shell ] trial  3 measure   4/30: 96.83 ms
+[ssh3/interactive_shell ] trial  3 measure   5/30: 96.32 ms
+[ssh3/interactive_shell ] trial  3 measure   6/30: 96.31 ms
+[ssh3/interactive_shell ] trial  3 measure   7/30: 97.27 ms
+[ssh3/interactive_shell ] trial  3 measure   8/30: 97.61 ms
+[ssh3/interactive_shell ] trial  3 measure   9/30: 98.32 ms
+[ssh3/interactive_shell ] trial  3 measure  10/30: 96.82 ms
+[ssh3/interactive_shell ] trial  3 measure  11/30: 98.77 ms
+[ssh3/interactive_shell ] trial  3 measure  12/30: 96.34 ms
+[ssh3/interactive_shell ] trial  3 measure  13/30: 97.79 ms
+[ssh3/interactive_shell ] trial  3 measure  14/30: 97.30 ms
+[ssh3/interactive_shell ] trial  3 measure  15/30: 96.84 ms
+[ssh3/interactive_shell ] trial  3 measure  16/30: 97.25 ms
+[ssh3/interactive_shell ] trial  3 measure  17/30: 98.77 ms
+[ssh3/interactive_shell ] trial  3 measure  18/30: 97.12 ms
+[ssh3/interactive_shell ] trial  3 measure  19/30: 97.06 ms
+[ssh3/interactive_shell ] trial  3 measure  20/30: 96.97 ms
+[ssh3/interactive_shell ] trial  3 measure  21/30: 97.75 ms
+[ssh3/interactive_shell ] trial  3 measure  22/30: 98.16 ms
+[ssh3/interactive_shell ] trial  3 measure  23/30: 99.22 ms
+[ssh3/interactive_shell ] trial  3 measure  24/30: 98.59 ms
+[ssh3/interactive_shell ] trial  3 measure  25/30: 99.24 ms
+[ssh3/interactive_shell ] trial  3 measure  26/30: 100.54 ms
+[ssh3/interactive_shell ] trial  3 measure  27/30: 99.54 ms
+[ssh3/interactive_shell ] trial  3 measure  28/30: 96.77 ms
+[ssh3/interactive_shell ] trial  3 measure  29/30: 96.86 ms
+[ssh3/interactive_shell ] trial  3 measure  30/30: 97.37 ms
+[ssh3/interactive_shell ] trial  4/5 session_setup=205.5 ms
+[ssh3/interactive_shell ] trial  4 measure   1/30: 97.78 ms
+[ssh3/interactive_shell ] trial  4 measure   2/30: 98.04 ms
+[ssh3/interactive_shell ] trial  4 measure   3/30: 96.29 ms
+[ssh3/interactive_shell ] trial  4 measure   4/30: 96.04 ms
+[ssh3/interactive_shell ] trial  4 measure   5/30: 97.02 ms
+[ssh3/interactive_shell ] trial  4 measure   6/30: 96.44 ms
+[ssh3/interactive_shell ] trial  4 measure   7/30: 97.94 ms
+[ssh3/interactive_shell ] trial  4 measure   8/30: 99.65 ms
+[ssh3/interactive_shell ] trial  4 measure   9/30: 97.17 ms
+[ssh3/interactive_shell ] trial  4 measure  10/30: 99.33 ms
+[ssh3/interactive_shell ] trial  4 measure  11/30: 98.78 ms
+[ssh3/interactive_shell ] trial  4 measure  12/30: 99.74 ms
+[ssh3/interactive_shell ] trial  4 measure  13/30: 100.21 ms
+[ssh3/interactive_shell ] trial  4 measure  14/30: 95.84 ms
+[ssh3/interactive_shell ] trial  4 measure  15/30: 97.66 ms
+[ssh3/interactive_shell ] trial  4 measure  16/30: 96.66 ms
+[ssh3/interactive_shell ] trial  4 measure  17/30: 97.06 ms
+[ssh3/interactive_shell ] trial  4 measure  18/30: 98.14 ms
+[ssh3/interactive_shell ] trial  4 measure  19/30: 96.55 ms
+[ssh3/interactive_shell ] trial  4 measure  20/30: 96.95 ms
+[ssh3/interactive_shell ] trial  4 measure  21/30: 97.14 ms
+[ssh3/interactive_shell ] trial  4 measure  22/30: 97.08 ms
+[ssh3/interactive_shell ] trial  4 measure  23/30: 97.15 ms
+[ssh3/interactive_shell ] trial  4 measure  24/30: 97.38 ms
+[ssh3/interactive_shell ] trial  4 measure  25/30: 99.79 ms
+[ssh3/interactive_shell ] trial  4 measure  26/30: 97.89 ms
+[ssh3/interactive_shell ] trial  4 measure  27/30: 97.89 ms
+[ssh3/interactive_shell ] trial  4 measure  28/30: 97.17 ms
+[ssh3/interactive_shell ] trial  4 measure  29/30: 99.19 ms
+[ssh3/interactive_shell ] trial  4 measure  30/30: 99.45 ms
+[ssh3/interactive_shell ] trial  5/5 session_setup=225.9 ms
+[ssh3/interactive_shell ] trial  5 measure   1/30: 96.50 ms
+[ssh3/interactive_shell ] trial  5 measure   2/30: 96.58 ms
+[ssh3/interactive_shell ] trial  5 measure   3/30: 97.76 ms
+[ssh3/interactive_shell ] trial  5 measure   4/30: 96.95 ms
+[ssh3/interactive_shell ] trial  5 measure   5/30: 96.46 ms
+[ssh3/interactive_shell ] trial  5 measure   6/30: 96.64 ms
+[ssh3/interactive_shell ] trial  5 measure   7/30: 97.00 ms
+[ssh3/interactive_shell ] trial  5 measure   8/30: 100.09 ms
+[ssh3/interactive_shell ] trial  5 measure   9/30: 98.22 ms
+[ssh3/interactive_shell ] trial  5 measure  10/30: 96.67 ms
+[ssh3/interactive_shell ] trial  5 measure  11/30: 97.06 ms
+[ssh3/interactive_shell ] trial  5 measure  12/30: 96.99 ms
+[ssh3/interactive_shell ] trial  5 measure  13/30: 97.35 ms
+[ssh3/interactive_shell ] trial  5 measure  14/30: 96.07 ms
+[ssh3/interactive_shell ] trial  5 measure  15/30: 96.40 ms
+[ssh3/interactive_shell ] trial  5 measure  16/30: 96.36 ms
+[ssh3/interactive_shell ] trial  5 measure  17/30: 96.48 ms
+[ssh3/interactive_shell ] trial  5 measure  18/30: 96.50 ms
+[ssh3/interactive_shell ] trial  5 measure  19/30: 98.61 ms
+[ssh3/interactive_shell ] trial  5 measure  20/30: 96.98 ms
+[ssh3/interactive_shell ] trial  5 measure  21/30: 96.29 ms
+[ssh3/interactive_shell ] trial  5 measure  22/30: 96.55 ms
+[ssh3/interactive_shell ] trial  5 measure  23/30: 97.52 ms
+[ssh3/interactive_shell ] trial  5 measure  24/30: 98.48 ms
+[ssh3/interactive_shell ] trial  5 measure  25/30: 97.21 ms
+[ssh3/interactive_shell ] trial  5 measure  26/30: 100.83 ms
+[ssh3/interactive_shell ] trial  5 measure  27/30: 98.69 ms
+[ssh3/interactive_shell ] trial  5 measure  28/30: 98.68 ms
+[ssh3/interactive_shell ] trial  5 measure  29/30: 97.61 ms
+[ssh3/interactive_shell ] trial  5 measure  30/30: 98.03 ms
+[ssh3/vim               ] trial  1/5 session_setup=226.2 ms
+[ssh3/vim               ] trial  1 measure   1/30: 95.56 ms
+[ssh3/vim               ] trial  1 measure   2/30: 96.96 ms
+[ssh3/vim               ] trial  1 measure   3/30: 96.91 ms
+[ssh3/vim               ] trial  1 measure   4/30: 96.93 ms
+[ssh3/vim               ] trial  1 measure   5/30: 97.39 ms
+[ssh3/vim               ] trial  1 measure   6/30: 95.33 ms
+[ssh3/vim               ] trial  1 measure   7/30: 96.44 ms
+[ssh3/vim               ] trial  1 measure   8/30: 96.94 ms
+[ssh3/vim               ] trial  1 measure   9/30: 96.97 ms
+[ssh3/vim               ] trial  1 measure  10/30: 96.22 ms
+[ssh3/vim               ] trial  1 measure  11/30: 98.01 ms
+[ssh3/vim               ] trial  1 measure  12/30: 96.26 ms
+[ssh3/vim               ] trial  1 measure  13/30: 97.26 ms
+[ssh3/vim               ] trial  1 measure  14/30: 97.29 ms
+[ssh3/vim               ] trial  1 measure  15/30: 98.46 ms
+[ssh3/vim               ] trial  1 measure  16/30: 97.15 ms
+[ssh3/vim               ] trial  1 measure  17/30: 97.01 ms
+[ssh3/vim               ] trial  1 measure  18/30: 96.10 ms
+[ssh3/vim               ] trial  1 measure  19/30: 96.10 ms
+[ssh3/vim               ] trial  1 measure  20/30: 96.24 ms
+[ssh3/vim               ] trial  1 measure  21/30: 96.20 ms
+[ssh3/vim               ] trial  1 measure  22/30: 96.74 ms
+[ssh3/vim               ] trial  1 measure  23/30: 97.10 ms
+[ssh3/vim               ] trial  1 measure  24/30: 96.60 ms
+[ssh3/vim               ] trial  1 measure  25/30: 95.89 ms
+[ssh3/vim               ] trial  1 measure  26/30: 96.18 ms
+[ssh3/vim               ] trial  1 measure  27/30: 98.68 ms
+[ssh3/vim               ] trial  1 measure  28/30: 97.85 ms
+[ssh3/vim               ] trial  1 measure  29/30: 96.30 ms
+[ssh3/vim               ] trial  1 measure  30/30: 96.81 ms
+[ssh3/vim               ] trial  2/5 session_setup=213.0 ms
+[ssh3/vim               ] trial  2 measure   1/30: 98.00 ms
+[ssh3/vim               ] trial  2 measure   2/30: 100.20 ms
+[ssh3/vim               ] trial  2 measure   3/30: 97.22 ms
+[ssh3/vim               ] trial  2 measure   4/30: 97.43 ms
+[ssh3/vim               ] trial  2 measure   5/30: 96.34 ms
+[ssh3/vim               ] trial  2 measure   6/30: 97.04 ms
+[ssh3/vim               ] trial  2 measure   7/30: 96.97 ms
+[ssh3/vim               ] trial  2 measure   8/30: 100.11 ms
+[ssh3/vim               ] trial  2 measure   9/30: 98.61 ms
+[ssh3/vim               ] trial  2 measure  10/30: 96.32 ms
+[ssh3/vim               ] trial  2 measure  11/30: 95.26 ms
+[ssh3/vim               ] trial  2 measure  12/30: 98.78 ms
+[ssh3/vim               ] trial  2 measure  13/30: 98.19 ms
+[ssh3/vim               ] trial  2 measure  14/30: 98.63 ms
+[ssh3/vim               ] trial  2 measure  15/30: 96.91 ms
+[ssh3/vim               ] trial  2 measure  16/30: 96.65 ms
+[ssh3/vim               ] trial  2 measure  17/30: 95.94 ms
+[ssh3/vim               ] trial  2 measure  18/30: 95.96 ms
+[ssh3/vim               ] trial  2 measure  19/30: 97.19 ms
+[ssh3/vim               ] trial  2 measure  20/30: 99.44 ms
+[ssh3/vim               ] trial  2 measure  21/30: 97.45 ms
+[ssh3/vim               ] trial  2 measure  22/30: 96.53 ms
+[ssh3/vim               ] trial  2 measure  23/30: 96.50 ms
+[ssh3/vim               ] trial  2 measure  24/30: 96.01 ms
+[ssh3/vim               ] trial  2 measure  25/30: 98.75 ms
+[ssh3/vim               ] trial  2 measure  26/30: 96.94 ms
+[ssh3/vim               ] trial  2 measure  27/30: 96.96 ms
+[ssh3/vim               ] trial  2 measure  28/30: 97.27 ms
+[ssh3/vim               ] trial  2 measure  29/30: 96.72 ms
+[ssh3/vim               ] trial  2 measure  30/30: 96.32 ms
+[ssh3/vim               ] trial  3/5 session_setup=215.3 ms
+[ssh3/vim               ] trial  3 measure   1/30: 97.35 ms
+[ssh3/vim               ] trial  3 measure   2/30: 96.90 ms
+[ssh3/vim               ] trial  3 measure   3/30: 96.28 ms
+[ssh3/vim               ] trial  3 measure   4/30: 97.07 ms
+[ssh3/vim               ] trial  3 measure   5/30: 98.32 ms
+[ssh3/vim               ] trial  3 measure   6/30: 97.73 ms
+[ssh3/vim               ] trial  3 measure   7/30: 96.35 ms
+[ssh3/vim               ] trial  3 measure   8/30: 99.00 ms
+[ssh3/vim               ] trial  3 measure   9/30: 97.19 ms
+[ssh3/vim               ] trial  3 measure  10/30: 95.96 ms
+[ssh3/vim               ] trial  3 measure  11/30: 96.22 ms
+[ssh3/vim               ] trial  3 measure  12/30: 97.48 ms
+[ssh3/vim               ] trial  3 measure  13/30: 97.07 ms
+[ssh3/vim               ] trial  3 measure  14/30: 96.00 ms
+[ssh3/vim               ] trial  3 measure  15/30: 96.76 ms
+[ssh3/vim               ] trial  3 measure  16/30: 96.01 ms
+[ssh3/vim               ] trial  3 measure  17/30: 97.34 ms
+[ssh3/vim               ] trial  3 measure  18/30: 96.50 ms
+[ssh3/vim               ] trial  3 measure  19/30: 95.94 ms
+[ssh3/vim               ] trial  3 measure  20/30: 96.02 ms
+[ssh3/vim               ] trial  3 measure  21/30: 97.76 ms
+[ssh3/vim               ] trial  3 measure  22/30: 96.47 ms
+[ssh3/vim               ] trial  3 measure  23/30: 96.10 ms
+[ssh3/vim               ] trial  3 measure  24/30: 96.06 ms
+[ssh3/vim               ] trial  3 measure  25/30: 96.54 ms
+[ssh3/vim               ] trial  3 measure  26/30: 96.60 ms
+[ssh3/vim               ] trial  3 measure  27/30: 99.47 ms
+[ssh3/vim               ] trial  3 measure  28/30: 96.60 ms
+[ssh3/vim               ] trial  3 measure  29/30: 96.69 ms
+[ssh3/vim               ] trial  3 measure  30/30: 97.54 ms
+[ssh3/vim               ] trial  4/5 session_setup=217.9 ms
+[ssh3/vim               ] trial  4 measure   1/30: 95.98 ms
+[ssh3/vim               ] trial  4 measure   2/30: 95.60 ms
+[ssh3/vim               ] trial  4 measure   3/30: 96.15 ms
+[ssh3/vim               ] trial  4 measure   4/30: 96.53 ms
+[ssh3/vim               ] trial  4 measure   5/30: 95.76 ms
+[ssh3/vim               ] trial  4 measure   6/30: 95.99 ms
+[ssh3/vim               ] trial  4 measure   7/30: 96.52 ms
+[ssh3/vim               ] trial  4 measure   8/30: 96.17 ms
+[ssh3/vim               ] trial  4 measure   9/30: 96.92 ms
+[ssh3/vim               ] trial  4 measure  10/30: 96.69 ms
+[ssh3/vim               ] trial  4 measure  11/30: 96.83 ms
+[ssh3/vim               ] trial  4 measure  12/30: 96.59 ms
+[ssh3/vim               ] trial  4 measure  13/30: 96.91 ms
+[ssh3/vim               ] trial  4 measure  14/30: 96.82 ms
+[ssh3/vim               ] trial  4 measure  15/30: 96.49 ms
+[ssh3/vim               ] trial  4 measure  16/30: 96.63 ms
+[ssh3/vim               ] trial  4 measure  17/30: 96.23 ms
+[ssh3/vim               ] trial  4 measure  18/30: 95.91 ms
+[ssh3/vim               ] trial  4 measure  19/30: 96.24 ms
+[ssh3/vim               ] trial  4 measure  20/30: 96.65 ms
+[ssh3/vim               ] trial  4 measure  21/30: 98.18 ms
+[ssh3/vim               ] trial  4 measure  22/30: 96.76 ms
+[ssh3/vim               ] trial  4 measure  23/30: 97.46 ms
+[ssh3/vim               ] trial  4 measure  24/30: 99.70 ms
+[ssh3/vim               ] trial  4 measure  25/30: 94.70 ms
+[ssh3/vim               ] trial  4 measure  26/30: 131.56 ms
+[ssh3/vim               ] trial  4 measure  27/30: 100.39 ms
+[ssh3/vim               ] trial  4 measure  28/30: 99.86 ms
+[ssh3/vim               ] trial  4 measure  29/30: 96.31 ms
+[ssh3/vim               ] trial  4 measure  30/30: 97.34 ms
+[ssh3/vim               ] trial  5/5 session_setup=250.8 ms
+[ssh3/vim               ] trial  5 measure   1/30: 98.91 ms
+[ssh3/vim               ] trial  5 measure   2/30: 97.92 ms
+[ssh3/vim               ] trial  5 measure   3/30: 95.88 ms
+[ssh3/vim               ] trial  5 measure   4/30: 97.04 ms
+[ssh3/vim               ] trial  5 measure   5/30: 98.11 ms
+[ssh3/vim               ] trial  5 measure   6/30: 96.70 ms
+[ssh3/vim               ] trial  5 measure   7/30: 97.25 ms
+[ssh3/vim               ] trial  5 measure   8/30: 96.33 ms
+[ssh3/vim               ] trial  5 measure   9/30: 100.63 ms
+[ssh3/vim               ] trial  5 measure  10/30: 97.01 ms
+[ssh3/vim               ] trial  5 measure  11/30: 96.83 ms
+[ssh3/vim               ] trial  5 measure  12/30: 96.23 ms
+[ssh3/vim               ] trial  5 measure  13/30: 98.25 ms
+[ssh3/vim               ] trial  5 measure  14/30: 96.35 ms
+[ssh3/vim               ] trial  5 measure  15/30: 99.33 ms
+[ssh3/vim               ] trial  5 measure  16/30: 96.84 ms
+[ssh3/vim               ] trial  5 measure  17/30: 97.72 ms
+[ssh3/vim               ] trial  5 measure  18/30: 99.62 ms
+[ssh3/vim               ] trial  5 measure  19/30: 97.68 ms
+[ssh3/vim               ] trial  5 measure  20/30: 96.39 ms
+[ssh3/vim               ] trial  5 measure  21/30: 95.90 ms
+[ssh3/vim               ] trial  5 measure  22/30: 95.94 ms
+[ssh3/vim               ] trial  5 measure  23/30: 96.91 ms
+[ssh3/vim               ] trial  5 measure  24/30: 100.43 ms
+[ssh3/vim               ] trial  5 measure  25/30: 96.58 ms
+[ssh3/vim               ] trial  5 measure  26/30: 96.33 ms
+[ssh3/vim               ] trial  5 measure  27/30: 96.93 ms
+[ssh3/vim               ] trial  5 measure  28/30: 95.94 ms
+[ssh3/vim               ] trial  5 measure  29/30: 95.97 ms
+[ssh3/vim               ] trial  5 measure  30/30: 97.44 ms
+[ssh3/nano              ] trial  1/5 session_setup=234.9 ms
+[ssh3/nano              ] trial  1 measure   1/30: 96.68 ms
+[ssh3/nano              ] trial  1 measure   2/30: 96.54 ms
+[ssh3/nano              ] trial  1 measure   3/30: 107.95 ms
+[ssh3/nano              ] trial  1 measure   4/30: 97.24 ms
+[ssh3/nano              ] trial  1 measure   5/30: 97.01 ms
+[ssh3/nano              ] trial  1 measure   6/30: 99.78 ms
+[ssh3/nano              ] trial  1 measure   7/30: 97.60 ms
+[ssh3/nano              ] trial  1 measure   8/30: 96.83 ms
+[ssh3/nano              ] trial  1 measure   9/30: 97.06 ms
+[ssh3/nano              ] trial  1 measure  10/30: 97.14 ms
+[ssh3/nano              ] trial  1 measure  11/30: 96.11 ms
+[ssh3/nano              ] trial  1 measure  12/30: 96.65 ms
+[ssh3/nano              ] trial  1 measure  13/30: 99.18 ms
+[ssh3/nano              ] trial  1 measure  14/30: 97.59 ms
+[ssh3/nano              ] trial  1 measure  15/30: 96.28 ms
+[ssh3/nano              ] trial  1 measure  16/30: 95.39 ms
+[ssh3/nano              ] trial  1 measure  17/30: 98.01 ms
+[ssh3/nano              ] trial  1 measure  18/30: 96.01 ms
+[ssh3/nano              ] trial  1 measure  19/30: 97.67 ms
+[ssh3/nano              ] trial  1 measure  20/30: 96.94 ms
+[ssh3/nano              ] trial  1 measure  21/30: 96.18 ms
+[ssh3/nano              ] trial  1 measure  22/30: 96.03 ms
+[ssh3/nano              ] trial  1 measure  23/30: 99.42 ms
+[ssh3/nano              ] trial  1 measure  24/30: 96.91 ms
+[ssh3/nano              ] trial  1 measure  25/30: 96.16 ms
+[ssh3/nano              ] trial  1 measure  26/30: 98.38 ms
+[ssh3/nano              ] trial  1 measure  27/30: 97.41 ms
+[ssh3/nano              ] trial  1 measure  28/30: 98.34 ms
+[ssh3/nano              ] trial  1 measure  29/30: 95.39 ms
+[ssh3/nano              ] trial  1 measure  30/30: 96.29 ms
+[ssh3/nano              ] trial  2/5 session_setup=224.0 ms
+[ssh3/nano              ] trial  2 measure   1/30: 95.90 ms
+[ssh3/nano              ] trial  2 measure   2/30: 96.89 ms
+[ssh3/nano              ] trial  2 measure   3/30: 96.49 ms
+[ssh3/nano              ] trial  2 measure   4/30: 96.41 ms
+[ssh3/nano              ] trial  2 measure   5/30: 97.04 ms
+[ssh3/nano              ] trial  2 measure   6/30: 97.38 ms
+[ssh3/nano              ] trial  2 measure   7/30: 96.98 ms
+[ssh3/nano              ] trial  2 measure   8/30: 98.82 ms
+[ssh3/nano              ] trial  2 measure   9/30: 103.98 ms
+[ssh3/nano              ] trial  2 measure  10/30: 99.57 ms
+[ssh3/nano              ] trial  2 measure  11/30: 98.05 ms
+[ssh3/nano              ] trial  2 measure  12/30: 98.61 ms
+[ssh3/nano              ] trial  2 measure  13/30: 98.60 ms
+[ssh3/nano              ] trial  2 measure  14/30: 96.63 ms
+[ssh3/nano              ] trial  2 measure  15/30: 96.11 ms
+[ssh3/nano              ] trial  2 measure  16/30: 95.80 ms
+[ssh3/nano              ] trial  2 measure  17/30: 98.90 ms
+[ssh3/nano              ] trial  2 measure  18/30: 97.29 ms
+[ssh3/nano              ] trial  2 measure  19/30: 96.96 ms
+[ssh3/nano              ] trial  2 measure  20/30: 97.09 ms
+[ssh3/nano              ] trial  2 measure  21/30: 98.05 ms
+[ssh3/nano              ] trial  2 measure  22/30: 96.43 ms
+[ssh3/nano              ] trial  2 measure  23/30: 96.91 ms
+[ssh3/nano              ] trial  2 measure  24/30: 96.47 ms
+[ssh3/nano              ] trial  2 measure  25/30: 96.68 ms
+[ssh3/nano              ] trial  2 measure  26/30: 97.92 ms
+[ssh3/nano              ] trial  2 measure  27/30: 96.59 ms
+[ssh3/nano              ] trial  2 measure  28/30: 97.06 ms
+[ssh3/nano              ] trial  2 measure  29/30: 97.40 ms
+[ssh3/nano              ] trial  2 measure  30/30: 97.54 ms
+[ssh3/nano              ] trial  3/5 session_setup=203.7 ms
+[ssh3/nano              ] trial  3 measure   1/30: 95.72 ms
+[ssh3/nano              ] trial  3 measure   2/30: 96.59 ms
+[ssh3/nano              ] trial  3 measure   3/30: 98.97 ms
+[ssh3/nano              ] trial  3 measure   4/30: 98.27 ms
+[ssh3/nano              ] trial  3 measure   5/30: 98.94 ms
+[ssh3/nano              ] trial  3 measure   6/30: 96.81 ms
+[ssh3/nano              ] trial  3 measure   7/30: 97.81 ms
+[ssh3/nano              ] trial  3 measure   8/30: 97.37 ms
+[ssh3/nano              ] trial  3 measure   9/30: 102.34 ms
+[ssh3/nano              ] trial  3 measure  10/30: 95.99 ms
+[ssh3/nano              ] trial  3 measure  11/30: 96.53 ms
+[ssh3/nano              ] trial  3 measure  12/30: 101.07 ms
+[ssh3/nano              ] trial  3 measure  13/30: 97.45 ms
+[ssh3/nano              ] trial  3 measure  14/30: 97.82 ms
+[ssh3/nano              ] trial  3 measure  15/30: 96.60 ms
+[ssh3/nano              ] trial  3 measure  16/30: 97.30 ms
+[ssh3/nano              ] trial  3 measure  17/30: 97.16 ms
+[ssh3/nano              ] trial  3 measure  18/30: 96.02 ms
+[ssh3/nano              ] trial  3 measure  19/30: 96.51 ms
+[ssh3/nano              ] trial  3 measure  20/30: 95.76 ms
+[ssh3/nano              ] trial  3 measure  21/30: 96.38 ms
+[ssh3/nano              ] trial  3 measure  22/30: 97.38 ms
+[ssh3/nano              ] trial  3 measure  23/30: 97.58 ms
+[ssh3/nano              ] trial  3 measure  24/30: 96.90 ms
+[ssh3/nano              ] trial  3 measure  25/30: 97.05 ms
+[ssh3/nano              ] trial  3 measure  26/30: 100.91 ms
+[ssh3/nano              ] trial  3 measure  27/30: 97.06 ms
+[ssh3/nano              ] trial  3 measure  28/30: 96.67 ms
+[ssh3/nano              ] trial  3 measure  29/30: 96.34 ms
+[ssh3/nano              ] trial  3 measure  30/30: 96.11 ms
+[ssh3/nano              ] trial  4/5 session_setup=222.1 ms
+[ssh3/nano              ] trial  4 measure   1/30: 96.22 ms
+[ssh3/nano              ] trial  4 measure   2/30: 98.06 ms
+[ssh3/nano              ] trial  4 measure   3/30: 97.68 ms
+[ssh3/nano              ] trial  4 measure   4/30: 96.08 ms
+[ssh3/nano              ] trial  4 measure   5/30: 97.17 ms
+[ssh3/nano              ] trial  4 measure   6/30: 98.51 ms
+[ssh3/nano              ] trial  4 measure   7/30: 98.00 ms
+[ssh3/nano              ] trial  4 measure   8/30: 99.92 ms
+[ssh3/nano              ] trial  4 measure   9/30: 98.24 ms
+[ssh3/nano              ] trial  4 measure  10/30: 97.06 ms
+[ssh3/nano              ] trial  4 measure  11/30: 96.70 ms
+[ssh3/nano              ] trial  4 measure  12/30: 97.31 ms
+[ssh3/nano              ] trial  4 measure  13/30: 97.60 ms
+[ssh3/nano              ] trial  4 measure  14/30: 96.81 ms
+[ssh3/nano              ] trial  4 measure  15/30: 97.44 ms
+[ssh3/nano              ] trial  4 measure  16/30: 97.36 ms
+[ssh3/nano              ] trial  4 measure  17/30: 97.48 ms
+[ssh3/nano              ] trial  4 measure  18/30: 98.07 ms
+[ssh3/nano              ] trial  4 measure  19/30: 96.49 ms
+[ssh3/nano              ] trial  4 measure  20/30: 97.84 ms
+[ssh3/nano              ] trial  4 measure  21/30: 98.06 ms
+[ssh3/nano              ] trial  4 measure  22/30: 98.58 ms
+[ssh3/nano              ] trial  4 measure  23/30: 97.88 ms
+[ssh3/nano              ] trial  4 measure  24/30: 96.99 ms
+[ssh3/nano              ] trial  4 measure  25/30: 98.61 ms
+[ssh3/nano              ] trial  4 measure  26/30: 97.55 ms
+[ssh3/nano              ] trial  4 measure  27/30: 100.75 ms
+[ssh3/nano              ] trial  4 measure  28/30: 99.39 ms
+[ssh3/nano              ] trial  4 measure  29/30: 99.63 ms
+[ssh3/nano              ] trial  4 measure  30/30: 96.83 ms
+[ssh3/nano              ] trial  5/5 session_setup=241.5 ms
+[ssh3/nano              ] trial  5 measure   1/30: 100.17 ms
+[ssh3/nano              ] trial  5 measure   2/30: 99.00 ms
+[ssh3/nano              ] trial  5 measure   3/30: 98.21 ms
+[ssh3/nano              ] trial  5 measure   4/30: 100.45 ms
+[ssh3/nano              ] trial  5 measure   5/30: 98.38 ms
+[ssh3/nano              ] trial  5 measure   6/30: 97.86 ms
+[ssh3/nano              ] trial  5 measure   7/30: 100.76 ms
+[ssh3/nano              ] trial  5 measure   8/30: 96.36 ms
+[ssh3/nano              ] trial  5 measure   9/30: 96.24 ms
+[ssh3/nano              ] trial  5 measure  10/30: 97.49 ms
+[ssh3/nano              ] trial  5 measure  11/30: 97.73 ms
+[ssh3/nano              ] trial  5 measure  12/30: 99.32 ms
+[ssh3/nano              ] trial  5 measure  13/30: 96.57 ms
+[ssh3/nano              ] trial  5 measure  14/30: 97.57 ms
+[ssh3/nano              ] trial  5 measure  15/30: 97.62 ms
+[ssh3/nano              ] trial  5 measure  16/30: 96.72 ms
+[ssh3/nano              ] trial  5 measure  17/30: 97.31 ms
+[ssh3/nano              ] trial  5 measure  18/30: 97.06 ms
+[ssh3/nano              ] trial  5 measure  19/30: 96.81 ms
+[ssh3/nano              ] trial  5 measure  20/30: 98.07 ms
+[ssh3/nano              ] trial  5 measure  21/30: 97.40 ms
+[ssh3/nano              ] trial  5 measure  22/30: 99.89 ms
+[ssh3/nano              ] trial  5 measure  23/30: 98.26 ms
+[ssh3/nano              ] trial  5 measure  24/30: 96.93 ms
+[ssh3/nano              ] trial  5 measure  25/30: 98.20 ms
+[ssh3/nano              ] trial  5 measure  26/30: 96.28 ms
+[ssh3/nano              ] trial  5 measure  27/30: 97.69 ms
+[ssh3/nano              ] trial  5 measure  28/30: 98.25 ms
+[ssh3/nano              ] trial  5 measure  29/30: 98.03 ms
+[ssh3/nano              ] trial  5 measure  30/30: 97.70 ms
+[mosh/interactive_shell ] trial  1/5 session_setup=985.8 ms
+[mosh/interactive_shell ] trial  1 measure   1/30: 127.94 ms
+[mosh/interactive_shell ] trial  1 measure   2/30: 106.72 ms
+[mosh/interactive_shell ] trial  1 measure   3/30: 125.79 ms
+[mosh/interactive_shell ] trial  1 measure   4/30: 105.77 ms
+[mosh/interactive_shell ] trial  1 measure   5/30: 125.33 ms
+[mosh/interactive_shell ] trial  1 measure   6/30: 105.33 ms
+[mosh/interactive_shell ] trial  1 measure   7/30: 126.20 ms
+[mosh/interactive_shell ] trial  1 measure   8/30: 105.95 ms
+[mosh/interactive_shell ] trial  1 measure   9/30: 106.01 ms
+[mosh/interactive_shell ] trial  1 measure  10/30: 127.93 ms
+[mosh/interactive_shell ] trial  1 measure  11/30: 104.93 ms
+[mosh/interactive_shell ] trial  1 measure  12/30: 126.74 ms
+[mosh/interactive_shell ] trial  1 measure  13/30: 106.88 ms
+[mosh/interactive_shell ] trial  1 measure  14/30: 125.99 ms
+[mosh/interactive_shell ] trial  1 measure  15/30: 105.94 ms
+[mosh/interactive_shell ] trial  1 measure  16/30: 127.85 ms
+[mosh/interactive_shell ] trial  1 measure  17/30: 105.85 ms
+[mosh/interactive_shell ] trial  1 measure  18/30: 105.88 ms
+[mosh/interactive_shell ] trial  1 measure  19/30: 126.22 ms
+[mosh/interactive_shell ] trial  1 measure  20/30: 104.97 ms
+[mosh/interactive_shell ] trial  1 measure  21/30: 126.87 ms
+[mosh/interactive_shell ] trial  1 measure  22/30: 105.54 ms
+[mosh/interactive_shell ] trial  1 measure  23/30: 125.27 ms
+[mosh/interactive_shell ] trial  1 measure  24/30: 105.26 ms
+[mosh/interactive_shell ] trial  1 measure  25/30: 50.22 ms
+[mosh/interactive_shell ] trial  1 measure  26/30: 50.31 ms
+[mosh/interactive_shell ] trial  1 measure  27/30: 50.23 ms
+[mosh/interactive_shell ] trial  1 measure  28/30: 50.34 ms
+[mosh/interactive_shell ] trial  1 measure  29/30: 50.22 ms
+[mosh/interactive_shell ] trial  1 measure  30/30: 50.31 ms
+[mosh/interactive_shell ] trial  2/5 session_setup=958.2 ms
+[mosh/interactive_shell ] trial  2 measure   1/30: 105.39 ms
+[mosh/interactive_shell ] trial  2 measure   2/30: 126.79 ms
+[mosh/interactive_shell ] trial  2 measure   3/30: 105.77 ms
+[mosh/interactive_shell ] trial  2 measure   4/30: 105.66 ms
+[mosh/interactive_shell ] trial  2 measure   5/30: 127.23 ms
+[mosh/interactive_shell ] trial  2 measure   6/30: 105.23 ms
+[mosh/interactive_shell ] trial  2 measure   7/30: 124.85 ms
+[mosh/interactive_shell ] trial  2 measure   8/30: 105.81 ms
+[mosh/interactive_shell ] trial  2 measure   9/30: 124.92 ms
+[mosh/interactive_shell ] trial  2 measure  10/30: 104.88 ms
+[mosh/interactive_shell ] trial  2 measure  11/30: 123.91 ms
+[mosh/interactive_shell ] trial  2 measure  12/30: 105.06 ms
+[mosh/interactive_shell ] trial  2 measure  13/30: 108.81 ms
+[mosh/interactive_shell ] trial  2 measure  14/30: 122.87 ms
+[mosh/interactive_shell ] trial  2 measure  15/30: 106.73 ms
+[mosh/interactive_shell ] trial  2 measure  16/30: 124.07 ms
+[mosh/interactive_shell ] trial  2 measure  17/30: 106.22 ms
+[mosh/interactive_shell ] trial  2 measure  18/30: 124.73 ms
+[mosh/interactive_shell ] trial  2 measure  19/30: 105.05 ms
+[mosh/interactive_shell ] trial  2 measure  20/30: 126.46 ms
+[mosh/interactive_shell ] trial  2 measure  21/30: 105.07 ms
+[mosh/interactive_shell ] trial  2 measure  22/30: 126.82 ms
+[mosh/interactive_shell ] trial  2 measure  23/30: 107.47 ms
+[mosh/interactive_shell ] trial  2 measure  24/30: 124.13 ms
+[mosh/interactive_shell ] trial  2 measure  25/30: 50.23 ms
+[mosh/interactive_shell ] trial  2 measure  26/30: 50.23 ms
+[mosh/interactive_shell ] trial  2 measure  27/30: 50.24 ms
+[mosh/interactive_shell ] trial  2 measure  28/30: 50.52 ms
+[mosh/interactive_shell ] trial  2 measure  29/30: 50.25 ms
+[mosh/interactive_shell ] trial  2 measure  30/30: 50.23 ms
+[mosh/interactive_shell ] trial  3/5 session_setup=885.9 ms
+[mosh/interactive_shell ] trial  3 measure   1/30: 105.95 ms
+[mosh/interactive_shell ] trial  3 measure   2/30: 125.53 ms
+[mosh/interactive_shell ] trial  3 measure   3/30: 113.20 ms
+[mosh/interactive_shell ] trial  3 measure   4/30: 116.65 ms
+[mosh/interactive_shell ] trial  3 measure   5/30: 105.39 ms
+[mosh/interactive_shell ] trial  3 measure   6/30: 125.67 ms
+[mosh/interactive_shell ] trial  3 measure   7/30: 105.47 ms
+[mosh/interactive_shell ] trial  3 measure   8/30: 105.03 ms
+[mosh/interactive_shell ] trial  3 measure   9/30: 126.42 ms
+[mosh/interactive_shell ] trial  3 measure  10/30: 105.66 ms
+[mosh/interactive_shell ] trial  3 measure  11/30: 127.14 ms
+[mosh/interactive_shell ] trial  3 measure  12/30: 106.33 ms
+[mosh/interactive_shell ] trial  3 measure  13/30: 125.50 ms
+[mosh/interactive_shell ] trial  3 measure  14/30: 106.46 ms
+[mosh/interactive_shell ] trial  3 measure  15/30: 126.28 ms
+[mosh/interactive_shell ] trial  3 measure  16/30: 107.69 ms
+[mosh/interactive_shell ] trial  3 measure  17/30: 123.79 ms
+[mosh/interactive_shell ] trial  3 measure  18/30: 106.43 ms
+[mosh/interactive_shell ] trial  3 measure  19/30: 124.81 ms
+[mosh/interactive_shell ] trial  3 measure  20/30: 105.31 ms
+[mosh/interactive_shell ] trial  3 measure  21/30: 126.29 ms
+[mosh/interactive_shell ] trial  3 measure  22/30: 105.21 ms
+[mosh/interactive_shell ] trial  3 measure  23/30: 128.59 ms
+[mosh/interactive_shell ] trial  3 measure  24/30: 105.13 ms
+[mosh/interactive_shell ] trial  3 measure  25/30: 50.23 ms
+[mosh/interactive_shell ] trial  3 measure  26/30: 50.22 ms
+[mosh/interactive_shell ] trial  3 measure  27/30: 50.21 ms
+[mosh/interactive_shell ] trial  3 measure  28/30: 50.39 ms
+[mosh/interactive_shell ] trial  3 measure  29/30: 50.21 ms
+[mosh/interactive_shell ] trial  3 measure  30/30: 50.24 ms
+[mosh/interactive_shell ] trial  4/5 session_setup=897.9 ms
+[mosh/interactive_shell ] trial  4 measure   1/30: 105.91 ms
+[mosh/interactive_shell ] trial  4 measure   2/30: 128.58 ms
+[mosh/interactive_shell ] trial  4 measure   3/30: 106.15 ms
+[mosh/interactive_shell ] trial  4 measure   4/30: 127.18 ms
+[mosh/interactive_shell ] trial  4 measure   5/30: 106.23 ms
+[mosh/interactive_shell ] trial  4 measure   6/30: 127.71 ms
+[mosh/interactive_shell ] trial  4 measure   7/30: 107.10 ms
+[mosh/interactive_shell ] trial  4 measure   8/30: 105.16 ms
+[mosh/interactive_shell ] trial  4 measure   9/30: 124.09 ms
+[mosh/interactive_shell ] trial  4 measure  10/30: 105.50 ms
+[mosh/interactive_shell ] trial  4 measure  11/30: 127.15 ms
+[mosh/interactive_shell ] trial  4 measure  12/30: 105.18 ms
+[mosh/interactive_shell ] trial  4 measure  13/30: 128.18 ms
+[mosh/interactive_shell ] trial  4 measure  14/30: 106.45 ms
+[mosh/interactive_shell ] trial  4 measure  15/30: 123.94 ms
+[mosh/interactive_shell ] trial  4 measure  16/30: 105.97 ms
+[mosh/interactive_shell ] trial  4 measure  17/30: 126.12 ms
+[mosh/interactive_shell ] trial  4 measure  18/30: 108.48 ms
+[mosh/interactive_shell ] trial  4 measure  19/30: 125.15 ms
+[mosh/interactive_shell ] trial  4 measure  20/30: 106.98 ms
+[mosh/interactive_shell ] trial  4 measure  21/30: 124.86 ms
+[mosh/interactive_shell ] trial  4 measure  22/30: 105.21 ms
+[mosh/interactive_shell ] trial  4 measure  23/30: 126.20 ms
+[mosh/interactive_shell ] trial  4 measure  24/30: 108.21 ms
+[mosh/interactive_shell ] trial  4 measure  25/30: 50.27 ms
+[mosh/interactive_shell ] trial  4 measure  26/30: 50.22 ms
+[mosh/interactive_shell ] trial  4 measure  27/30: 50.34 ms
+[mosh/interactive_shell ] trial  4 measure  28/30: 50.42 ms
+[mosh/interactive_shell ] trial  4 measure  29/30: 50.23 ms
+[mosh/interactive_shell ] trial  4 measure  30/30: 50.31 ms
+[mosh/interactive_shell ] trial  5/5 session_setup=903.9 ms
+[mosh/interactive_shell ] trial  5 measure   1/30: 105.62 ms
+[mosh/interactive_shell ] trial  5 measure   2/30: 126.72 ms
+[mosh/interactive_shell ] trial  5 measure   3/30: 106.40 ms
+[mosh/interactive_shell ] trial  5 measure   4/30: 124.81 ms
+[mosh/interactive_shell ] trial  5 measure   5/30: 107.80 ms
+[mosh/interactive_shell ] trial  5 measure   6/30: 124.07 ms
+[mosh/interactive_shell ] trial  5 measure   7/30: 108.38 ms
+[mosh/interactive_shell ] trial  5 measure   8/30: 105.69 ms
+[mosh/interactive_shell ] trial  5 measure   9/30: 128.96 ms
+[mosh/interactive_shell ] trial  5 measure  10/30: 105.51 ms
+[mosh/interactive_shell ] trial  5 measure  11/30: 107.24 ms
+[mosh/interactive_shell ] trial  5 measure  12/30: 123.51 ms
+[mosh/interactive_shell ] trial  5 measure  13/30: 105.39 ms
+[mosh/interactive_shell ] trial  5 measure  14/30: 127.17 ms
+[mosh/interactive_shell ] trial  5 measure  15/30: 104.97 ms
+[mosh/interactive_shell ] trial  5 measure  16/30: 126.91 ms
+[mosh/interactive_shell ] trial  5 measure  17/30: 106.73 ms
+[mosh/interactive_shell ] trial  5 measure  18/30: 105.68 ms
+[mosh/interactive_shell ] trial  5 measure  19/30: 125.65 ms
+[mosh/interactive_shell ] trial  5 measure  20/30: 106.28 ms
+[mosh/interactive_shell ] trial  5 measure  21/30: 124.89 ms
+[mosh/interactive_shell ] trial  5 measure  22/30: 106.02 ms
+[mosh/interactive_shell ] trial  5 measure  23/30: 126.36 ms
+[mosh/interactive_shell ] trial  5 measure  24/30: 105.55 ms
+[mosh/interactive_shell ] trial  5 measure  25/30: 50.23 ms
+[mosh/interactive_shell ] trial  5 measure  26/30: 50.15 ms
+[mosh/interactive_shell ] trial  5 measure  27/30: 50.18 ms
+[mosh/interactive_shell ] trial  5 measure  28/30: 50.44 ms
+[mosh/interactive_shell ] trial  5 measure  29/30: 50.22 ms
+[mosh/interactive_shell ] trial  5 measure  30/30: 50.21 ms
+[mosh/vim               ] trial  1/5 session_setup=992.7 ms
+[mosh/vim               ] trial  1 measure   1/30: 105.78 ms
+[mosh/vim               ] trial  1 measure   2/30: 105.07 ms
+[mosh/vim               ] trial  1 measure   3/30: 106.17 ms
+[mosh/vim               ] trial  1 measure   4/30: 106.33 ms
+[mosh/vim               ] trial  1 measure   5/30: 104.04 ms
+[mosh/vim               ] trial  1 measure   6/30: 104.89 ms
+[mosh/vim               ] trial  1 measure   7/30: 104.59 ms
+[mosh/vim               ] trial  1 measure   8/30: 105.80 ms
+[mosh/vim               ] trial  1 measure   9/30: 106.21 ms
+[mosh/vim               ] trial  1 measure  10/30: 105.20 ms
+[mosh/vim               ] trial  1 measure  11/30: 104.78 ms
+[mosh/vim               ] trial  1 measure  12/30: 104.97 ms
+[mosh/vim               ] trial  1 measure  13/30: 105.34 ms
+[mosh/vim               ] trial  1 measure  14/30: 105.52 ms
+[mosh/vim               ] trial  1 measure  15/30: 106.18 ms
+[mosh/vim               ] trial  1 measure  16/30: 105.18 ms
+[mosh/vim               ] trial  1 measure  17/30: 105.68 ms
+[mosh/vim               ] trial  1 measure  18/30: 105.81 ms
+[mosh/vim               ] trial  1 measure  19/30: 106.16 ms
+[mosh/vim               ] trial  1 measure  20/30: 105.29 ms
+[mosh/vim               ] trial  1 measure  21/30: 106.04 ms
+[mosh/vim               ] trial  1 measure  22/30: 103.92 ms
+[mosh/vim               ] trial  1 measure  23/30: 104.34 ms
+[mosh/vim               ] trial  1 measure  24/30: 105.47 ms
+[mosh/vim               ] trial  1 measure  25/30: 105.62 ms
+[mosh/vim               ] trial  1 measure  26/30: 105.59 ms
+[mosh/vim               ] trial  1 measure  27/30: 106.07 ms
+[mosh/vim               ] trial  1 measure  28/30: 105.08 ms
+[mosh/vim               ] trial  1 measure  29/30: 105.71 ms
+[mosh/vim               ] trial  1 measure  30/30: 105.33 ms
+[mosh/vim               ] trial  2/5 session_setup=973.8 ms
+[mosh/vim               ] trial  2 measure   1/30: 105.70 ms
+[mosh/vim               ] trial  2 measure   2/30: 105.55 ms
+[mosh/vim               ] trial  2 measure   3/30: 104.93 ms
+[mosh/vim               ] trial  2 measure   4/30: 105.07 ms
+[mosh/vim               ] trial  2 measure   5/30: 105.74 ms
+[mosh/vim               ] trial  2 measure   6/30: 105.08 ms
+[mosh/vim               ] trial  2 measure   7/30: 105.02 ms
+[mosh/vim               ] trial  2 measure   8/30: 104.84 ms
+[mosh/vim               ] trial  2 measure   9/30: 106.15 ms
+[mosh/vim               ] trial  2 measure  10/30: 105.72 ms
+[mosh/vim               ] trial  2 measure  11/30: 104.18 ms
+[mosh/vim               ] trial  2 measure  12/30: 104.90 ms
+[mosh/vim               ] trial  2 measure  13/30: 105.29 ms
+[mosh/vim               ] trial  2 measure  14/30: 105.89 ms
+[mosh/vim               ] trial  2 measure  15/30: 105.25 ms
+[mosh/vim               ] trial  2 measure  16/30: 105.32 ms
+[mosh/vim               ] trial  2 measure  17/30: 105.09 ms
+[mosh/vim               ] trial  2 measure  18/30: 105.15 ms
+[mosh/vim               ] trial  2 measure  19/30: 105.77 ms
+[mosh/vim               ] trial  2 measure  20/30: 107.26 ms
+[mosh/vim               ] trial  2 measure  21/30: 105.33 ms
+[mosh/vim               ] trial  2 measure  22/30: 105.44 ms
+[mosh/vim               ] trial  2 measure  23/30: 106.57 ms
+[mosh/vim               ] trial  2 measure  24/30: 105.22 ms
+[mosh/vim               ] trial  2 measure  25/30: 104.73 ms
+[mosh/vim               ] trial  2 measure  26/30: 105.97 ms
+[mosh/vim               ] trial  2 measure  27/30: 105.15 ms
+[mosh/vim               ] trial  2 measure  28/30: 105.00 ms
+[mosh/vim               ] trial  2 measure  29/30: 105.24 ms
+[mosh/vim               ] trial  2 measure  30/30: 105.77 ms
+[mosh/vim               ] trial  3/5 session_setup=975.1 ms
+[mosh/vim               ] trial  3 measure   1/30: 105.23 ms
+[mosh/vim               ] trial  3 measure   2/30: 105.32 ms
+[mosh/vim               ] trial  3 measure   3/30: 104.89 ms
+[mosh/vim               ] trial  3 measure   4/30: 104.79 ms
+[mosh/vim               ] trial  3 measure   5/30: 105.80 ms
+[mosh/vim               ] trial  3 measure   6/30: 107.12 ms
+[mosh/vim               ] trial  3 measure   7/30: 106.79 ms
+[mosh/vim               ] trial  3 measure   8/30: 106.20 ms
+[mosh/vim               ] trial  3 measure   9/30: 105.65 ms
+[mosh/vim               ] trial  3 measure  10/30: 106.46 ms
+[mosh/vim               ] trial  3 measure  11/30: 105.86 ms
+[mosh/vim               ] trial  3 measure  12/30: 104.87 ms
+[mosh/vim               ] trial  3 measure  13/30: 105.36 ms
+[mosh/vim               ] trial  3 measure  14/30: 106.29 ms
+[mosh/vim               ] trial  3 measure  15/30: 106.03 ms
+[mosh/vim               ] trial  3 measure  16/30: 105.68 ms
+[mosh/vim               ] trial  3 measure  17/30: 104.74 ms
+[mosh/vim               ] trial  3 measure  18/30: 106.00 ms
+[mosh/vim               ] trial  3 measure  19/30: 105.62 ms
+[mosh/vim               ] trial  3 measure  20/30: 104.40 ms
+[mosh/vim               ] trial  3 measure  21/30: 104.27 ms
+[mosh/vim               ] trial  3 measure  22/30: 105.30 ms
+[mosh/vim               ] trial  3 measure  23/30: 104.21 ms
+[mosh/vim               ] trial  3 measure  24/30: 105.42 ms
+[mosh/vim               ] trial  3 measure  25/30: 104.57 ms
+[mosh/vim               ] trial  3 measure  26/30: 105.43 ms
+[mosh/vim               ] trial  3 measure  27/30: 105.22 ms
+[mosh/vim               ] trial  3 measure  28/30: 105.31 ms
+[mosh/vim               ] trial  3 measure  29/30: 105.32 ms
+[mosh/vim               ] trial  3 measure  30/30: 104.80 ms
+[mosh/vim               ] trial  4/5 session_setup=963.2 ms
+[mosh/vim               ] trial  4 measure   1/30: 105.92 ms
+[mosh/vim               ] trial  4 measure   2/30: 106.96 ms
+[mosh/vim               ] trial  4 measure   3/30: 105.52 ms
+[mosh/vim               ] trial  4 measure   4/30: 106.14 ms
+[mosh/vim               ] trial  4 measure   5/30: 105.96 ms
+[mosh/vim               ] trial  4 measure   6/30: 105.69 ms
+[mosh/vim               ] trial  4 measure   7/30: 105.58 ms
+[mosh/vim               ] trial  4 measure   8/30: 104.73 ms
+[mosh/vim               ] trial  4 measure   9/30: 105.05 ms
+[mosh/vim               ] trial  4 measure  10/30: 105.54 ms
+[mosh/vim               ] trial  4 measure  11/30: 104.81 ms
+[mosh/vim               ] trial  4 measure  12/30: 106.26 ms
+[mosh/vim               ] trial  4 measure  13/30: 105.88 ms
+[mosh/vim               ] trial  4 measure  14/30: 104.67 ms
+[mosh/vim               ] trial  4 measure  15/30: 104.56 ms
+[mosh/vim               ] trial  4 measure  16/30: 105.96 ms
+[mosh/vim               ] trial  4 measure  17/30: 106.39 ms
+[mosh/vim               ] trial  4 measure  18/30: 105.65 ms
+[mosh/vim               ] trial  4 measure  19/30: 105.07 ms
+[mosh/vim               ] trial  4 measure  20/30: 104.87 ms
+[mosh/vim               ] trial  4 measure  21/30: 106.65 ms
+[mosh/vim               ] trial  4 measure  22/30: 104.44 ms
+[mosh/vim               ] trial  4 measure  23/30: 105.96 ms
+[mosh/vim               ] trial  4 measure  24/30: 105.16 ms
+[mosh/vim               ] trial  4 measure  25/30: 105.40 ms
+[mosh/vim               ] trial  4 measure  26/30: 104.60 ms
+[mosh/vim               ] trial  4 measure  27/30: 105.67 ms
+[mosh/vim               ] trial  4 measure  28/30: 105.87 ms
+[mosh/vim               ] trial  4 measure  29/30: 104.82 ms
+[mosh/vim               ] trial  4 measure  30/30: 105.85 ms
+[mosh/vim               ] trial  5/5 session_setup=1050.4 ms
+[mosh/vim               ] trial  5 measure   1/30: 105.42 ms
+[mosh/vim               ] trial  5 measure   2/30: 104.25 ms
+[mosh/vim               ] trial  5 measure   3/30: 104.34 ms
+[mosh/vim               ] trial  5 measure   4/30: 105.03 ms
+[mosh/vim               ] trial  5 measure   5/30: 105.83 ms
+[mosh/vim               ] trial  5 measure   6/30: 103.81 ms
+[mosh/vim               ] trial  5 measure   7/30: 105.38 ms
+[mosh/vim               ] trial  5 measure   8/30: 105.66 ms
+[mosh/vim               ] trial  5 measure   9/30: 105.43 ms
+[mosh/vim               ] trial  5 measure  10/30: 105.46 ms
+[mosh/vim               ] trial  5 measure  11/30: 104.10 ms
+[mosh/vim               ] trial  5 measure  12/30: 105.09 ms
+[mosh/vim               ] trial  5 measure  13/30: 104.68 ms
+[mosh/vim               ] trial  5 measure  14/30: 105.34 ms
+[mosh/vim               ] trial  5 measure  15/30: 107.64 ms
+[mosh/vim               ] trial  5 measure  16/30: 106.06 ms
+[mosh/vim               ] trial  5 measure  17/30: 104.99 ms
+[mosh/vim               ] trial  5 measure  18/30: 104.73 ms
+[mosh/vim               ] trial  5 measure  19/30: 104.76 ms
+[mosh/vim               ] trial  5 measure  20/30: 106.00 ms
+[mosh/vim               ] trial  5 measure  21/30: 106.10 ms
+[mosh/vim               ] trial  5 measure  22/30: 106.18 ms
+[mosh/vim               ] trial  5 measure  23/30: 105.23 ms
+[mosh/vim               ] trial  5 measure  24/30: 106.67 ms
+[mosh/vim               ] trial  5 measure  25/30: 104.55 ms
+[mosh/vim               ] trial  5 measure  26/30: 105.52 ms
+[mosh/vim               ] trial  5 measure  27/30: 106.70 ms
+[mosh/vim               ] trial  5 measure  28/30: 106.31 ms
+[mosh/vim               ] trial  5 measure  29/30: 104.02 ms
+[mosh/vim               ] trial  5 measure  30/30: 105.58 ms
+[mosh/nano              ] trial  1/5 session_setup=1004.4 ms
+[mosh/nano              ] trial  1 measure   1/30: 105.59 ms
+[mosh/nano              ] trial  1 measure   2/30: 120.95 ms
+[mosh/nano              ] trial  1 measure   3/30: 107.63 ms
+[mosh/nano              ] trial  1 measure   4/30: 120.56 ms
+[mosh/nano              ] trial  1 measure   5/30: 105.39 ms
+[mosh/nano              ] trial  1 measure   6/30: 107.17 ms
+[mosh/nano              ] trial  1 measure   7/30: 121.74 ms
+[mosh/nano              ] trial  1 measure   8/30: 108.45 ms
+[mosh/nano              ] trial  1 measure   9/30: 104.13 ms
+[mosh/nano              ] trial  1 measure  10/30: 120.20 ms
+[mosh/nano              ] trial  1 measure  11/30: 110.51 ms
+[mosh/nano              ] trial  1 measure  12/30: 121.89 ms
+[mosh/nano              ] trial  1 measure  13/30: 108.10 ms
+[mosh/nano              ] trial  1 measure  14/30: 121.52 ms
+[mosh/nano              ] trial  1 measure  15/30: 108.70 ms
+[mosh/nano              ] trial  1 measure  16/30: 121.87 ms
+[mosh/nano              ] trial  1 measure  17/30: 106.88 ms
+[mosh/nano              ] trial  1 measure  18/30: 121.42 ms
+[mosh/nano              ] trial  1 measure  19/30: 104.15 ms
+[mosh/nano              ] trial  1 measure  20/30: 105.95 ms
+[mosh/nano              ] trial  1 measure  21/30: 122.38 ms
+[mosh/nano              ] trial  1 measure  22/30: 106.14 ms
+[mosh/nano              ] trial  1 measure  23/30: 121.70 ms
+[mosh/nano              ] trial  1 measure  24/30: 105.24 ms
+[mosh/nano              ] trial  1 measure  25/30: 122.15 ms
+[mosh/nano              ] trial  1 measure  26/30: 108.68 ms
+[mosh/nano              ] trial  1 measure  27/30: 122.38 ms
+[mosh/nano              ] trial  1 measure  28/30: 109.07 ms
+[mosh/nano              ] trial  1 measure  29/30: 124.18 ms
+[mosh/nano              ] trial  1 measure  30/30: 104.72 ms
+[mosh/nano              ] trial  2/5 session_setup=913.7 ms
+[mosh/nano              ] trial  2 measure   1/30: 120.22 ms
+[mosh/nano              ] trial  2 measure   2/30: 107.13 ms
+[mosh/nano              ] trial  2 measure   3/30: 104.59 ms
+[mosh/nano              ] trial  2 measure   4/30: 121.08 ms
+[mosh/nano              ] trial  2 measure   5/30: 109.06 ms
+[mosh/nano              ] trial  2 measure   6/30: 121.87 ms
+[mosh/nano              ] trial  2 measure   7/30: 107.79 ms
+[mosh/nano              ] trial  2 measure   8/30: 121.51 ms
+[mosh/nano              ] trial  2 measure   9/30: 108.49 ms
+[mosh/nano              ] trial  2 measure  10/30: 122.04 ms
+[mosh/nano              ] trial  2 measure  11/30: 108.47 ms
+[mosh/nano              ] trial  2 measure  12/30: 117.79 ms
+[mosh/nano              ] trial  2 measure  13/30: 108.24 ms
+[mosh/nano              ] trial  2 measure  14/30: 122.54 ms
+[mosh/nano              ] trial  2 measure  15/30: 109.94 ms
+[mosh/nano              ] trial  2 measure  16/30: 123.29 ms
+[mosh/nano              ] trial  2 measure  17/30: 107.26 ms
+[mosh/nano              ] trial  2 measure  18/30: 105.44 ms
+[mosh/nano              ] trial  2 measure  19/30: 121.51 ms
+[mosh/nano              ] trial  2 measure  20/30: 106.58 ms
+[mosh/nano              ] trial  2 measure  21/30: 108.16 ms
+[mosh/nano              ] trial  2 measure  22/30: 121.54 ms
+[mosh/nano              ] trial  2 measure  23/30: 106.73 ms
+[mosh/nano              ] trial  2 measure  24/30: 103.01 ms
+[mosh/nano              ] trial  2 measure  25/30: 105.37 ms
+[mosh/nano              ] trial  2 measure  26/30: 123.41 ms
+[mosh/nano              ] trial  2 measure  27/30: 104.92 ms
+[mosh/nano              ] trial  2 measure  28/30: 121.77 ms
+[mosh/nano              ] trial  2 measure  29/30: 104.25 ms
+[mosh/nano              ] trial  2 measure  30/30: 105.68 ms
+[mosh/nano              ] trial  3/5 session_setup=990.0 ms
+[mosh/nano              ] trial  3 measure   1/30: 106.96 ms
+[mosh/nano              ] trial  3 measure   2/30: 122.93 ms
+[mosh/nano              ] trial  3 measure   3/30: 109.23 ms
+[mosh/nano              ] trial  3 measure   4/30: 122.47 ms
+[mosh/nano              ] trial  3 measure   5/30: 107.63 ms
+[mosh/nano              ] trial  3 measure   6/30: 102.79 ms
+[mosh/nano              ] trial  3 measure   7/30: 104.84 ms
+[mosh/nano              ] trial  3 measure   8/30: 120.72 ms
+[mosh/nano              ] trial  3 measure   9/30: 109.02 ms
+[mosh/nano              ] trial  3 measure  10/30: 122.39 ms
+[mosh/nano              ] trial  3 measure  11/30: 104.24 ms
+[mosh/nano              ] trial  3 measure  12/30: 123.97 ms
+[mosh/nano              ] trial  3 measure  13/30: 105.64 ms
+[mosh/nano              ] trial  3 measure  14/30: 122.46 ms
+[mosh/nano              ] trial  3 measure  15/30: 108.61 ms
+[mosh/nano              ] trial  3 measure  16/30: 122.33 ms
+[mosh/nano              ] trial  3 measure  17/30: 105.75 ms
+[mosh/nano              ] trial  3 measure  18/30: 104.37 ms
+[mosh/nano              ] trial  3 measure  19/30: 121.74 ms
+[mosh/nano              ] trial  3 measure  20/30: 105.51 ms
+[mosh/nano              ] trial  3 measure  21/30: 105.57 ms
+[mosh/nano              ] trial  3 measure  22/30: 121.69 ms
+[mosh/nano              ] trial  3 measure  23/30: 106.69 ms
+[mosh/nano              ] trial  3 measure  24/30: 121.46 ms
+[mosh/nano              ] trial  3 measure  25/30: 105.80 ms
+[mosh/nano              ] trial  3 measure  26/30: 104.93 ms
+[mosh/nano              ] trial  3 measure  27/30: 106.07 ms
+[mosh/nano              ] trial  3 measure  28/30: 122.74 ms
+[mosh/nano              ] trial  3 measure  29/30: 110.09 ms
+[mosh/nano              ] trial  3 measure  30/30: 107.04 ms
+[mosh/nano              ] trial  4/5 session_setup=907.0 ms
+[mosh/nano              ] trial  4 measure   1/30: 105.00 ms
+[mosh/nano              ] trial  4 measure   2/30: 105.22 ms
+[mosh/nano              ] trial  4 measure   3/30: 122.21 ms
+[mosh/nano              ] trial  4 measure   4/30: 107.78 ms
+[mosh/nano              ] trial  4 measure   5/30: 106.85 ms
+[mosh/nano              ] trial  4 measure   6/30: 122.34 ms
+[mosh/nano              ] trial  4 measure   7/30: 104.57 ms
+[mosh/nano              ] trial  4 measure   8/30: 105.75 ms
+[mosh/nano              ] trial  4 measure   9/30: 121.71 ms
+[mosh/nano              ] trial  4 measure  10/30: 107.91 ms
+[mosh/nano              ] trial  4 measure  11/30: 121.92 ms
+[mosh/nano              ] trial  4 measure  12/30: 105.91 ms
+[mosh/nano              ] trial  4 measure  13/30: 104.60 ms
+[mosh/nano              ] trial  4 measure  14/30: 104.53 ms
+[mosh/nano              ] trial  4 measure  15/30: 122.71 ms
+[mosh/nano              ] trial  4 measure  16/30: 105.76 ms
+[mosh/nano              ] trial  4 measure  17/30: 104.61 ms
+[mosh/nano              ] trial  4 measure  18/30: 121.43 ms
+[mosh/nano              ] trial  4 measure  19/30: 108.02 ms
+[mosh/nano              ] trial  4 measure  20/30: 121.55 ms
+[mosh/nano              ] trial  4 measure  21/30: 108.89 ms
+[mosh/nano              ] trial  4 measure  22/30: 105.23 ms
+[mosh/nano              ] trial  4 measure  23/30: 121.12 ms
+[mosh/nano              ] trial  4 measure  24/30: 108.16 ms
+[mosh/nano              ] trial  4 measure  25/30: 121.38 ms
+[mosh/nano              ] trial  4 measure  26/30: 105.87 ms
+[mosh/nano              ] trial  4 measure  27/30: 121.53 ms
+[mosh/nano              ] trial  4 measure  28/30: 104.71 ms
+[mosh/nano              ] trial  4 measure  29/30: 104.65 ms
+[mosh/nano              ] trial  4 measure  30/30: 103.01 ms
+[mosh/nano              ] trial  5/5 session_setup=974.3 ms
+[mosh/nano              ] trial  5 measure   1/30: 105.98 ms
+[mosh/nano              ] trial  5 measure   2/30: 120.74 ms
+[mosh/nano              ] trial  5 measure   3/30: 108.24 ms
+[mosh/nano              ] trial  5 measure   4/30: 122.99 ms
+[mosh/nano              ] trial  5 measure   5/30: 105.27 ms
+[mosh/nano              ] trial  5 measure   6/30: 105.76 ms
+[mosh/nano              ] trial  5 measure   7/30: 121.46 ms
+[mosh/nano              ] trial  5 measure   8/30: 105.41 ms
+[mosh/nano              ] trial  5 measure   9/30: 120.99 ms
+[mosh/nano              ] trial  5 measure  10/30: 105.07 ms
+[mosh/nano              ] trial  5 measure  11/30: 105.92 ms
+[mosh/nano              ] trial  5 measure  12/30: 121.72 ms
+[mosh/nano              ] trial  5 measure  13/30: 106.60 ms
+[mosh/nano              ] trial  5 measure  14/30: 120.81 ms
+[mosh/nano              ] trial  5 measure  15/30: 108.02 ms
+[mosh/nano              ] trial  5 measure  16/30: 105.44 ms
+[mosh/nano              ] trial  5 measure  17/30: 123.45 ms
+[mosh/nano              ] trial  5 measure  18/30: 109.58 ms
+[mosh/nano              ] trial  5 measure  19/30: 123.91 ms
+[mosh/nano              ] trial  5 measure  20/30: 105.92 ms
+[mosh/nano              ] trial  5 measure  21/30: 106.60 ms
+[mosh/nano              ] trial  5 measure  22/30: 121.68 ms
+[mosh/nano              ] trial  5 measure  23/30: 107.08 ms
+[mosh/nano              ] trial  5 measure  24/30: 120.05 ms
+[mosh/nano              ] trial  5 measure  25/30: 108.14 ms
+[mosh/nano              ] trial  5 measure  26/30: 121.86 ms
+[mosh/nano              ] trial  5 measure  27/30: 108.22 ms
+[mosh/nano              ] trial  5 measure  28/30: 121.28 ms
+[mosh/nano              ] trial  5 measure  29/30: 108.67 ms
+[mosh/nano              ] trial  5 measure  30/30: 121.43 ms
+
+==================================================================================================================================================
+Protocol | Workload           |    N | Fail | Success% |      Min |     Mean |   Median |      Std |      P95 |      P99 |      Max |   CI95+/-
+--------------------------------------------------------------------------------------------------------------------------------------------------
+ssh      | interactive_shell  |  150 |    0 |    100.0 |    95.42 |   104.09 |   102.93 |     6.04 |   115.46 |   118.90 |   123.04 |      0.97
+ssh      | vim                |  150 |    0 |    100.0 |    95.48 |   108.31 |   109.38 |     5.83 |   116.23 |   118.61 |   119.42 |      0.93
+ssh      | nano               |  150 |    0 |    100.0 |    98.79 |   109.65 |   110.46 |     4.27 |   115.43 |   117.79 |   119.54 |      0.68
+ssh3     | interactive_shell  |  150 |    0 |    100.0 |    95.57 |    97.41 |    97.06 |     1.24 |    99.77 |   100.70 |   103.99 |      0.20
+ssh3     | vim                |  150 |    0 |    100.0 |    94.70 |    97.27 |    96.82 |     3.04 |    99.67 |   100.53 |   131.56 |      0.49
+ssh3     | nano               |  150 |    0 |    100.0 |    95.39 |    97.63 |    97.36 |     1.58 |   100.32 |   103.18 |   107.95 |      0.25
+mosh     | interactive_shell  |  150 |    0 |    100.0 |    50.15 |   102.05 |   106.26 |    27.46 |   127.49 |   128.58 |   128.96 |      4.39
+mosh     | vim                |  150 |    0 |    100.0 |   103.81 |   105.43 |   105.41 |     0.70 |   106.61 |   107.19 |   107.64 |      0.11
+mosh     | nano               |  150 |    0 |    100.0 |   102.79 |   112.52 |   108.35 |     7.65 |   122.84 |   123.94 |   124.18 |      1.22
+==================================================================================================================================================
+
+------------------------------------------------------------------------------------------------
+SESSION SETUP LATENCY (ms)  [spawn -> first shell prompt, PS1 export excluded]
+Protocol | Workload           |   N |      Min |     Mean |   Median |      Std |      Max
+------------------------------------------------------------------------------------------------
+ssh      | interactive_shell  |   5 |   716.96 |   854.80 |   740.96 |   272.69 |  1342.24
+ssh      | vim                |   5 |   727.48 |   733.06 |   731.84 |     5.83 |   739.63
+ssh      | nano               |   5 |   728.25 |   746.82 |   752.41 |    11.47 |   756.99
+ssh3     | interactive_shell  |   5 |   205.54 |   211.48 |   207.70 |     8.32 |   225.90
+ssh3     | vim                |   5 |   212.97 |   224.64 |   217.90 |    15.47 |   250.84
+ssh3     | nano               |   5 |   203.65 |   225.22 |   224.02 |    14.44 |   241.46
+mosh     | interactive_shell  |   5 |   885.94 |   926.34 |   903.86 |    43.28 |   985.79
+mosh     | vim                |   5 |   963.23 |   991.03 |   975.07 |    34.81 |  1050.37
+mosh     | nano               |   5 |   907.01 |   957.89 |   974.32 |    44.74 |  1004.40
+------------------------------------------------------------------------------------------------
+Saved line log CSV    : w3_results/13/20260513_233420/w3_line_log.csv
+Saved session setup   : w3_results/13/20260513_233420/w3_session_setup.csv
+Saved trend chart: w3_results/13/20260513_233420/w3_interactive_shell_trend_mean.png
+Saved trend chart: w3_results/13/20260513_233420/w3_interactive_shell_trend_p95.png
+Saved trend chart: w3_results/13/20260513_233420/w3_nano_trend_mean.png
+Saved trend chart: w3_results/13/20260513_233420/w3_nano_trend_p95.png
+Saved trend chart: w3_results/13/20260513_233420/w3_vim_trend_mean.png
+Saved trend chart: w3_results/13/20260513_233420/w3_vim_trend_p95.png

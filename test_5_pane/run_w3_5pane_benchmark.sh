@@ -8,16 +8,16 @@ SOURCE_IP="100.70.166.91"
 IDENTITY_FILE="$HOME/.ssh/id_ed25519"
 
 PROTOCOLS="ssh ssh3 mosh"                         # ssh | ssh3 | mosh
-WORKLOADS="interactive_shell vim nano"       # interactive_shell | vim | nano
+WORKLOADS=" interactive_shell vim nano"       # interactive_shell | vim | nano
 
-ITERATIONS=50
+ITERATIONS=30
 WARMUP_ROUNDS=10
-TRIALS=10
+TRIALS=5  
 TIMEOUT=20
 SEED=42
 
 OUTPUT_DIR="w3_5pane_results"
-LOG_PEXPECT=true
+LOG_PEXPECT=false
 
 PROMPT="__W3_PROMPT__# "
 
@@ -80,4 +80,9 @@ echo "Lệnh thực thi:"
 printf '  %s \\\n' "${CMD[@]}"
 echo ""
 
-exec "${CMD[@]}"
+"${CMD[@]}"
+
+python plot_trend.py \
+  --output-dir "$OUTPUT_DIR" \
+  --prefix "w3_5pane" \
+  --group-fields protocol workload

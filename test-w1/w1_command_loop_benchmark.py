@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 from __future__ import annotations
 
 import argparse
@@ -11,7 +11,7 @@ import shlex
 import statistics
 import sys
 import time
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -52,6 +52,7 @@ class SampleRecord:
     command_id: int
     command: str
     latency_ms: float
+    warmup: bool = False
 
 
 @dataclass
@@ -64,6 +65,7 @@ class FailureRecord:
     command: str
     error_type: str
     error_message: str
+    warmup: bool = False
 
 
 @dataclass
@@ -89,6 +91,12 @@ class W1Benchmark:
         self.args = args
         self.target = f"{args.user}@{args.host}"
         self.started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        self.scenario = (args.scenario or "").strip() or "unspecified"
+        self.warmup = max(0, int(args.warmup))
+        if self.warmup >= args.iterations:
+            raise ValueError(
+                f"--warmup ({self.warmup}) must be < --iterations ({args.iterations})"
+            )
         self.prompt_marker = args.prompt.rstrip()
         if not self.prompt_marker:
             raise ValueError("Prompt must contain at least one non-space character")
@@ -187,11 +195,6 @@ class W1Benchmark:
             timeout=self.args.timeout,
         )
 
-        if self.args.log_pexpect:
-            log_path = Path(self.args.output_dir) / f"pexpect_{protocol}.log"
-            log_path.parent.mkdir(parents=True, exist_ok=True)
-            child.logfile_read = open(log_path, "a", encoding="utf-8")
-
         start_ns = time.perf_counter_ns()
         child.expect(_INITIAL_PROMPT_RE, timeout=self.args.timeout)
         setup_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
@@ -240,6 +243,7 @@ class W1Benchmark:
         trial_id: int,
     ) -> None:
         for sample_id in range(1, self.args.iterations + 1):
+            is_warmup = sample_id <= self.warmup
             marker_tail = self._next_marker_tail()
             marker = f"__W1_DONE_{trial_id}_{sample_id}_{command_id}_{marker_tail}__"
             try:
@@ -249,13 +253,24 @@ class W1Benchmark:
                     marker,
                     marker_tail,
                 )
-                self.results[protocol][command].append(lat)
+                if not is_warmup:
+                    self.results[protocol][command].append(lat)
                 self.records.append(
-                    SampleRecord(protocol, workload, trial_id, sample_id, command_id, command, lat)
+                    SampleRecord(
+                        protocol,
+                        workload,
+                        trial_id,
+                        sample_id,
+                        command_id,
+                        command,
+                        lat,
+                        warmup=is_warmup,
+                    )
                 )
+                tag = "WARM" if is_warmup else "meas"
                 print(
                     f"[{protocol:>4}/{command:<18}] trial {trial_id:>2}/{self.args.trials}"
-                    f" measure {sample_id:>3}/{self.args.iterations}: {lat:.2f} ms",
+                    f" {tag} {sample_id:>3}/{self.args.iterations}: {lat:.2f} ms",
                     flush=True,
                 )
             except (pexpect.TIMEOUT, pexpect.EOF, ValueError) as exc:
@@ -269,11 +284,13 @@ class W1Benchmark:
                         command=command,
                         error_type=type(exc).__name__,
                         error_message=str(exc),
+                        warmup=is_warmup,
                     )
                 )
+                tag = "WARM-FAIL" if is_warmup else "FAIL"
                 print(
                     f"[{protocol:>4}/{command:<18}] trial {trial_id:>2}"
-                    f" measure {sample_id:>3}: FAIL ({type(exc).__name__}: {exc})",
+                    f" {tag} {sample_id:>3}: ({type(exc).__name__}: {exc})",
                     flush=True,
                 )
                 if self.args.reopen_on_failure:
@@ -344,7 +361,10 @@ class W1Benchmark:
         fail_n = sum(
             1
             for f in self.failures
-            if f.protocol == protocol and f.workload == workload and f.command == command
+            if f.protocol == protocol
+            and f.workload == workload
+            and f.command == command
+            and not f.warmup
         )
         n = len(data)
         total = n + fail_n
@@ -441,79 +461,102 @@ class W1Benchmark:
         outdir = Path(self.args.output_dir)
         outdir.mkdir(parents=True, exist_ok=True)
 
-        summary_json = outdir / "w1_summary.json"
-        raw_csv = outdir / "w1_raw_samples.csv"
-        failures_csv = outdir / "w1_failures.csv"
+        line_csv = outdir / "w1_line_log.csv"
         setup_csv = outdir / "w1_session_setup.csv"
+        meta_json = outdir / "w1_meta.json"
 
-        payload = {
-            "meta": {
-                "started_at_utc": self.started_at,
-                "target": self.target,
-                "client_source_ip": self.args.source_ip,
-                "protocols": self.args.protocols,
-                "workloads": self.args.workloads,
-                "commands": self.args.commands,
-                "trials": self.args.trials,
-                "iterations": self.args.iterations,
-                "timeout_sec": self.args.timeout,
-                "random_seed": self.args.seed,
-                "topology": {
-                    "client": "192.168.8.100",
-                    "server": self.args.host,
-                },
-                "metric_name": "command_completion_latency_ms",
-                "metric_note": (
-                    "For each command, latency = time from sendline(command) to "
-                    "unique completion marker visibility. Marker matching "
-                    "tolerates ANSI insertion and mosh partial redraw."
-                ),
-                "session_setup_note": (
-                    "setup_ms = time from pexpect.spawn() to first shell prompt ([#$>] regex). "
-                    "The 'export PS1' command is excluded from setup window."
-                ),
-            },
+        with line_csv.open("w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(
+                [
+                    "scenario",
+                    "protocol",
+                    "workload",
+                    "round_id",
+                    "sample_id",
+                    "command_id",
+                    "command",
+                    "latency_ms",
+                    "status",
+                    "warmup",
+                    "error_type",
+                    "error_message",
+                ]
+            )
+            for r in self.records:
+                writer.writerow(
+                    [
+                        self.scenario,
+                        r.protocol,
+                        r.workload,
+                        r.round_id,
+                        r.sample_id,
+                        r.command_id,
+                        r.command,
+                        f"{r.latency_ms:.6f}",
+                        "ok",
+                        "1" if r.warmup else "0",
+                        "",
+                        "",
+                    ]
+                )
+            for r in self.failures:
+                writer.writerow(
+                    [
+                        self.scenario,
+                        r.protocol,
+                        r.workload,
+                        r.round_id,
+                        r.sample_id,
+                        r.command_id,
+                        r.command,
+                        "",
+                        "fail",
+                        "1" if r.warmup else "0",
+                        r.error_type,
+                        r.error_message,
+                    ]
+                )
+
+        with setup_csv.open("w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(
+                ["scenario", "protocol", "command", "trial_id", "session_setup_ms"]
+            )
+            for p in self.args.protocols:
+                for c in self.args.commands:
+                    for trial_id, ms in enumerate(self.session_setups[p][c], start=1):
+                        writer.writerow(
+                            [self.scenario, p, c, trial_id, f"{ms:.6f}"]
+                        )
+
+        meta = {
+            "started_at_utc": self.started_at,
+            "scenario": self.scenario,
+            "target": self.target,
+            "client_source_ip": self.args.source_ip,
+            "protocols": self.args.protocols,
+            "workloads": self.args.workloads,
+            "commands": self.args.commands,
+            "trials": self.args.trials,
+            "iterations": self.args.iterations,
+            "warmup": self.warmup,
+            "timeout_sec": self.args.timeout,
+            "random_seed": self.args.seed,
+            "shuffle_pairs": bool(self.args.shuffle_pairs),
+            "reopen_on_failure": bool(self.args.reopen_on_failure),
+            "mosh_predict": self.args.mosh_predict,
             "summary": [asdict(row) for row in self.summaries()],
             "session_setup": {
                 p: {c: self._session_setup_stats(p, c) for c in self.args.commands}
                 for p in self.args.protocols
             },
         }
-        summary_json.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        meta_json.write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
-        with raw_csv.open("w", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
-            writer.writerow(["protocol", "workload", "round_id", "sample_id", "command_id", "command", "latency_ms"])
-            for r in self.records:
-                writer.writerow([r.protocol, r.workload, r.round_id, r.sample_id, r.command_id, r.command, f"{r.latency_ms:.6f}"])
-
-        with failures_csv.open("w", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
-            writer.writerow(["protocol", "workload", "round_id", "sample_id", "command_id", "command", "error_type", "error_message"])
-            for r in self.failures:
-                writer.writerow([
-                    r.protocol,
-                    r.workload,
-                    r.round_id,
-                    r.sample_id,
-                    r.command_id,
-                    r.command,
-                    r.error_type,
-                    r.error_message,
-                ])
-
-        with setup_csv.open("w", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
-            writer.writerow(["protocol", "command", "trial_id", "session_setup_ms"])
-            for p in self.args.protocols:
-                for c in self.args.commands:
-                    for trial_id, ms in enumerate(self.session_setups[p][c], start=1):
-                        writer.writerow([p, c, trial_id, f"{ms:.6f}"])
-
-        print(f"Saved summary JSON    : {summary_json}")
-        print(f"Saved raw samples CSV : {raw_csv}")
-        print(f"Saved failures CSV    : {failures_csv}")
+        print(f"Saved line log CSV    : {line_csv}")
         print(f"Saved session setup   : {setup_csv}")
+        print(f"Saved meta JSON       : {meta_json}")
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -527,6 +570,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--commands", nargs="+", default=DEFAULT_COMMANDS, help="Commands executed sequentially in each sample")
     p.add_argument("--trials", type=int, default=15, help="Independent sessions per protocol/workload pair")
     p.add_argument("--iterations", type=int, default=100, help="Recorded command-loop samples per trial")
+    p.add_argument("--warmup", type=int, default=0, help="First N samples per trial are measured but excluded from summary (flagged warmup=1 in CSV)")
+    p.add_argument("--scenario", default="", help="Free-form network scenario label (e.g. low/medium/high). Written to CSV/meta for later aggregation.")
     p.add_argument("--timeout", type=int, default=20, help="pexpect timeout in seconds")
     p.add_argument("--seed", type=int, default=42, help="Random seed")
     p.add_argument("--output-dir", default="w1_results", help="Directory for JSON/CSV outputs")
@@ -538,7 +583,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--mosh-predict", default="adaptive", choices=["adaptive", "always", "never"], help="Mosh prediction mode")
     p.add_argument("--shuffle-pairs", action="store_true", help="Shuffle protocol/workload execution order")
     p.add_argument("--reopen-on-failure", action="store_true", help="Reopen session after failure")
-    p.add_argument("--log-pexpect", action="store_true", help="Save raw pexpect terminal output per protocol")
+    p.add_argument("--log-pexpect", action="store_true", help="Deprecated compatibility flag (no-op): pexpect logs are disabled")
     return p
 
 

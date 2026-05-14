@@ -1,0 +1,326 @@
+{
+  "started_at_utc": "2026-05-12T19:11:40+00:00",
+  "scenario": "high",
+  "target": "pi@10.42.0.206",
+  "client_source_ip": "10.42.0.1",
+  "protocols": [
+    "ssh",
+    "ssh3",
+    "mosh"
+  ],
+  "workloads": [
+    "command_loop"
+  ],
+  "commands": [
+    "ls",
+    "df -h",
+    "ps aux",
+    "grep -n root /etc/passwd"
+  ],
+  "trials": 10,
+  "iterations": 50,
+  "warmup": 3,
+  "timeout_sec": 20,
+  "random_seed": 42,
+  "shuffle_pairs": true,
+  "reopen_on_failure": true,
+  "mosh_predict": "never",
+  "summary": [
+    {
+      "protocol": "ssh",
+      "workload": "command_loop",
+      "command": "ls",
+      "n": 470,
+      "failures": 0,
+      "success_rate_pct": 100.0,
+      "min_ms": 217.475633,
+      "mean_ms": 383.1565631893617,
+      "median_ms": 338.120976,
+      "stdev_ms": 131.44235526179813,
+      "p95_ms": 616.6244915,
+      "p99_ms": 807.8996317000001,
+      "max_ms": 1120.715814,
+      "ci95_half_width_ms": 11.883448129011192
+    },
+    {
+      "protocol": "ssh",
+      "workload": "command_loop",
+      "command": "df -h",
+      "n": 470,
+      "failures": 0,
+      "success_rate_pct": 100.0,
+      "min_ms": 224.689834,
+      "mean_ms": 398.67755354468085,
+      "median_ms": 352.16959199999997,
+      "stdev_ms": 140.14157975159878,
+      "p95_ms": 664.5469770499999,
+      "p99_ms": 880.5659442900001,
+      "max_ms": 1121.150469,
+      "ci95_half_width_ms": 12.669928124605237
+    },
+    {
+      "protocol": "ssh",
+      "workload": "command_loop",
+      "command": "ps aux",
+      "n": 470,
+      "failures": 0,
+      "success_rate_pct": 100.0,
+      "min_ms": 243.761337,
+      "mean_ms": 545.1518942404256,
+      "median_ms": 504.477029,
+      "stdev_ms": 224.25375441442688,
+      "p95_ms": 966.6363915999996,
+      "p99_ms": 1374.7492880700001,
+      "max_ms": 1633.320318,
+      "ci95_half_width_ms": 20.274346522565505
+    },
+    {
+      "protocol": "ssh",
+      "workload": "command_loop",
+      "command": "grep -n root /etc/passwd",
+      "n": 470,
+      "failures": 0,
+      "success_rate_pct": 100.0,
+      "min_ms": 224.324613,
+      "mean_ms": 395.4506945893617,
+      "median_ms": 351.20956950000004,
+      "stdev_ms": 134.9431657591214,
+      "p95_ms": 623.171887,
+      "p99_ms": 928.7781046800001,
+      "max_ms": 1072.015805,
+      "ci95_half_width_ms": 12.199949608854427
+    },
+    {
+      "protocol": "ssh3",
+      "workload": "command_loop",
+      "command": "ls",
+      "n": 470,
+      "failures": 0,
+      "success_rate_pct": 100.0,
+      "min_ms": 172.478428,
+      "mean_ms": 275.04001062765957,
+      "median_ms": 255.276296,
+      "stdev_ms": 75.10368784648246,
+      "p95_ms": 486.77843919999947,
+      "p99_ms": 570.3305162,
+      "max_ms": 671.223804,
+      "ci95_half_width_ms": 6.789978595891096
+    },
+    {
+      "protocol": "ssh3",
+      "workload": "command_loop",
+      "command": "df -h",
+      "n": 470,
+      "failures": 0,
+      "success_rate_pct": 100.0,
+      "min_ms": 182.231406,
+      "mean_ms": 271.24264161702126,
+      "median_ms": 254.313141,
+      "stdev_ms": 71.85266631627931,
+      "p95_ms": 459.5199262999994,
+      "p99_ms": 562.51454025,
+      "max_ms": 609.913618,
+      "ci95_half_width_ms": 6.4960600515716465
+    },
+    {
+      "protocol": "ssh3",
+      "workload": "command_loop",
+      "command": "ps aux",
+      "n": 470,
+      "failures": 0,
+      "success_rate_pct": 100.0,
+      "min_ms": 230.962704,
+      "mean_ms": 810.4045190404255,
+      "median_ms": 776.5434005,
+      "stdev_ms": 285.445816496277,
+      "p95_ms": 1327.7033643999994,
+      "p99_ms": 1641.14256425,
+      "max_ms": 1810.318559,
+      "ci95_half_width_ms": 25.806602044071983
+    },
+    {
+      "protocol": "ssh3",
+      "workload": "command_loop",
+      "command": "grep -n root /etc/passwd",
+      "n": 470,
+      "failures": 0,
+      "success_rate_pct": 100.0,
+      "min_ms": 183.66308,
+      "mean_ms": 269.9226687787234,
+      "median_ms": 252.6457555,
+      "stdev_ms": 64.34265293409658,
+      "p95_ms": 446.2654894499997,
+      "p99_ms": 530.33991134,
+      "max_ms": 618.576591,
+      "ci95_half_width_ms": 5.817094323229389
+    },
+    {
+      "protocol": "mosh",
+      "workload": "command_loop",
+      "command": "ls",
+      "n": 470,
+      "failures": 0,
+      "success_rate_pct": 100.0,
+      "min_ms": 202.607114,
+      "mean_ms": 288.88261267872343,
+      "median_ms": 267.78903349999996,
+      "stdev_ms": 92.82948058528748,
+      "p95_ms": 411.20536775,
+      "p99_ms": 735.18782893,
+      "max_ms": 763.133714,
+      "ci95_half_width_ms": 8.39253310077384
+    },
+    {
+      "protocol": "mosh",
+      "workload": "command_loop",
+      "command": "df -h",
+      "n": 470,
+      "failures": 0,
+      "success_rate_pct": 100.0,
+      "min_ms": 176.883813,
+      "mean_ms": 286.9492553765958,
+      "median_ms": 266.064197,
+      "stdev_ms": 95.62947664949799,
+      "p95_ms": 362.41964214999996,
+      "p99_ms": 749.25864562,
+      "max_ms": 830.079483,
+      "ci95_half_width_ms": 8.645675308429881
+    },
+    {
+      "protocol": "mosh",
+      "workload": "command_loop",
+      "command": "ps aux",
+      "n": 470,
+      "failures": 0,
+      "success_rate_pct": 100.0,
+      "min_ms": 187.11808,
+      "mean_ms": 286.00302948085107,
+      "median_ms": 270.069786,
+      "stdev_ms": 88.5388973222793,
+      "p95_ms": 391.0468586499998,
+      "p99_ms": 764.55615215,
+      "max_ms": 856.160166,
+      "ci95_half_width_ms": 8.004629798618238
+    },
+    {
+      "protocol": "mosh",
+      "workload": "command_loop",
+      "command": "grep -n root /etc/passwd",
+      "n": 347,
+      "failures": 3,
+      "success_rate_pct": 99.14285714285714,
+      "min_ms": 202.057614,
+      "mean_ms": 286.5903012680115,
+      "median_ms": 270.143989,
+      "stdev_ms": 93.20131989414861,
+      "p95_ms": 384.70601949999985,
+      "p99_ms": 796.5262879400001,
+      "max_ms": 850.604482,
+      "ci95_half_width_ms": 9.806485640305667
+    }
+  ],
+  "session_setup": {
+    "ssh": {
+      "ls": {
+        "n": 10,
+        "mean": 2823.7436342,
+        "median": 2675.9015195,
+        "stdev": 519.2171112532401,
+        "min": 2437.054364,
+        "max": 4224.523642
+      },
+      "df -h": {
+        "n": 10,
+        "mean": 2715.9001252,
+        "median": 2551.4923635,
+        "stdev": 357.58622848355014,
+        "min": 2468.037086,
+        "max": 3511.641046
+      },
+      "ps aux": {
+        "n": 10,
+        "mean": 3075.7441644,
+        "median": 2712.5854765,
+        "stdev": 784.0814574908622,
+        "min": 2410.655551,
+        "max": 4540.965386
+      },
+      "grep -n root /etc/passwd": {
+        "n": 10,
+        "mean": 3471.2064852,
+        "median": 3412.7894525,
+        "stdev": 850.5374070601366,
+        "min": 2535.465039,
+        "max": 5094.04245
+      }
+    },
+    "ssh3": {
+      "ls": {
+        "n": 10,
+        "mean": 700.3817302,
+        "median": 678.8106515,
+        "stdev": 60.70023359660384,
+        "min": 648.194206,
+        "max": 820.377009
+      },
+      "df -h": {
+        "n": 10,
+        "mean": 793.808996,
+        "median": 725.900509,
+        "stdev": 173.54145707376574,
+        "min": 649.962638,
+        "max": 1146.99091
+      },
+      "ps aux": {
+        "n": 10,
+        "mean": 906.5647868,
+        "median": 696.8965089999999,
+        "stdev": 411.64075516608966,
+        "min": 642.450875,
+        "max": 1806.060423
+      },
+      "grep -n root /etc/passwd": {
+        "n": 10,
+        "mean": 867.897101,
+        "median": 725.679022,
+        "stdev": 258.921050086799,
+        "min": 652.038806,
+        "max": 1367.377549
+      }
+    },
+    "mosh": {
+      "ls": {
+        "n": 10,
+        "mean": 3457.67574,
+        "median": 3161.653409,
+        "stdev": 1036.7005993258585,
+        "min": 2802.600837,
+        "max": 6347.522983
+      },
+      "df -h": {
+        "n": 10,
+        "mean": 3140.5399623000003,
+        "median": 3034.5712045,
+        "stdev": 353.747858546731,
+        "min": 2800.152535,
+        "max": 3867.895855
+      },
+      "ps aux": {
+        "n": 10,
+        "mean": 3368.6243714,
+        "median": 3217.8087084999997,
+        "stdev": 583.1144573656596,
+        "min": 2701.834947,
+        "max": 4554.779212
+      },
+      "grep -n root /etc/passwd": {
+        "n": 10,
+        "mean": 3393.5847943,
+        "median": 3344.546406,
+        "stdev": 373.1022736570657,
+        "min": 3000.987914,
+        "max": 4189.774153
+      }
+    }
+  }
+}

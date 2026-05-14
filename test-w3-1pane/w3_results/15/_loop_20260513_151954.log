@@ -1,0 +1,141 @@
+[2026-05-13 15:19:54] === W3 loop ===
+[2026-05-13 15:19:54] scenario=15  runs=30  gap=30 min
+[2026-05-13 15:19:54] loop log: w3_results/15/_loop_20260513_151954.log
+[2026-05-13 15:19:54] results : w3_results/15/<YYYYmmdd_HHMMSS>/
+
+[2026-05-13 15:19:54] ---------- run 1/30 | tag=20260513_151954 ----------
+[2026-05-13 15:26:41] run 1/30 OK (rc=0)
+[2026-05-13 15:26:41] gap before run 2 — sleeping 1800s (until 2026-05-13 15:56:41)
+[2026-05-13 15:27:41]   ...waited 1 min, 1740s remaining
+[2026-05-13 15:28:41]   ...waited 2 min, 1680s remaining
+[2026-05-13 15:29:41]   ...waited 3 min, 1620s remaining
+[2026-05-13 15:30:41]   ...waited 4 min, 1560s remaining
+[2026-05-13 15:31:41]   ...waited 5 min, 1500s remaining
+[2026-05-13 15:32:41]   ...waited 6 min, 1440s remaining
+[2026-05-13 15:33:41]   ...waited 7 min, 1380s remaining
+[2026-05-13 15:34:41]   ...waited 8 min, 1320s remaining
+[2026-05-13 15:41:52]   ...waited 9 min, 1260s remaining
+[2026-05-13 15:55:34]   ...waited 10 min, 1200s remaining
+[2026-05-13 15:56:34]   ...waited 11 min, 1140s remaining
+[2026-05-13 15:57:34]   ...waited 12 min, 1080s remaining
+[2026-05-13 15:58:34]   ...waited 13 min, 1020s remaining
+[2026-05-13 15:59:35]   ...waited 14 min, 960s remaining
+[2026-05-13 16:00:35]   ...waited 15 min, 900s remaining
+[2026-05-13 16:01:35]   ...waited 16 min, 840s remaining
+[2026-05-13 16:02:35]   ...waited 17 min, 780s remaining
+[2026-05-13 16:03:35]   ...waited 18 min, 720s remaining
+[2026-05-13 16:04:35]   ...waited 19 min, 660s remaining
+[2026-05-13 16:05:35]   ...waited 20 min, 600s remaining
+[2026-05-13 16:06:35]   ...waited 21 min, 540s remaining
+[2026-05-13 16:07:37]   ...waited 22 min, 480s remaining
+[2026-05-13 16:08:37]   ...waited 23 min, 420s remaining
+[2026-05-13 16:09:37]   ...waited 24 min, 360s remaining
+[2026-05-13 16:10:37]   ...waited 25 min, 300s remaining
+[2026-05-13 16:11:37]   ...waited 26 min, 240s remaining
+[2026-05-13 16:12:37]   ...waited 27 min, 180s remaining
+[2026-05-13 16:13:37]   ...waited 28 min, 120s remaining
+[2026-05-13 16:14:37]   ...waited 29 min, 60s remaining
+
+[2026-05-13 16:15:37] ---------- run 2/30 | tag=20260513_161537 ----------
+[2026-05-13 16:22:08] run 2/30 OK (rc=0)
+[2026-05-13 16:22:08] gap before run 3 — sleeping 1800s (until 2026-05-13 16:52:08)
+[2026-05-13 16:23:08]   ...waited 1 min, 1740s remaining
+[2026-05-13 16:24:08]   ...waited 2 min, 1680s remaining
+[2026-05-13 16:25:08]   ...waited 3 min, 1620s remaining
+[2026-05-13 16:26:08]   ...waited 4 min, 1560s remaining
+[2026-05-13 16:27:08]   ...waited 5 min, 1500s remaining
+[2026-05-13 16:28:08]   ...waited 6 min, 1440s remaining
+[2026-05-13 16:29:08]   ...waited 7 min, 1380s remaining
+[2026-05-13 16:30:08]   ...waited 8 min, 1320s remaining
+[2026-05-13 16:31:08]   ...waited 9 min, 1260s remaining
+[2026-05-13 16:32:08]   ...waited 10 min, 1200s remaining
+[2026-05-13 16:33:08]   ...waited 11 min, 1140s remaining
+[2026-05-13 16:34:08]   ...waited 12 min, 1080s remaining
+[2026-05-13 16:35:08]   ...waited 13 min, 1020s remaining
+[2026-05-13 16:36:08]   ...waited 14 min, 960s remaining
+[2026-05-13 16:37:08]   ...waited 15 min, 900s remaining
+[2026-05-13 16:38:08]   ...waited 16 min, 840s remaining
+[2026-05-13 16:39:08]   ...waited 17 min, 780s remaining
+[2026-05-13 16:40:08]   ...waited 18 min, 720s remaining
+[2026-05-13 16:41:08]   ...waited 19 min, 660s remaining
+[2026-05-13 16:42:08]   ...waited 20 min, 600s remaining
+[2026-05-13 16:43:08]   ...waited 21 min, 540s remaining
+[2026-05-13 16:44:08]   ...waited 22 min, 480s remaining
+[2026-05-13 16:45:08]   ...waited 23 min, 420s remaining
+[2026-05-13 16:46:08]   ...waited 24 min, 360s remaining
+[2026-05-13 16:47:08]   ...waited 25 min, 300s remaining
+[2026-05-13 16:48:08]   ...waited 26 min, 240s remaining
+[2026-05-13 16:49:08]   ...waited 27 min, 180s remaining
+[2026-05-13 16:50:08]   ...waited 28 min, 120s remaining
+[2026-05-13 16:51:08]   ...waited 29 min, 60s remaining
+
+[2026-05-13 16:52:08] ---------- run 3/30 | tag=20260513_165208 ----------
+[2026-05-13 16:59:01] run 3/30 OK (rc=0)
+[2026-05-13 16:59:01] gap before run 4 — sleeping 1800s (until 2026-05-13 17:29:01)
+[2026-05-13 17:00:01]   ...waited 1 min, 1740s remaining
+[2026-05-13 17:01:01]   ...waited 2 min, 1680s remaining
+[2026-05-13 17:02:01]   ...waited 3 min, 1620s remaining
+[2026-05-13 17:03:01]   ...waited 4 min, 1560s remaining
+[2026-05-13 17:04:01]   ...waited 5 min, 1500s remaining
+[2026-05-13 17:05:01]   ...waited 6 min, 1440s remaining
+[2026-05-13 17:06:01]   ...waited 7 min, 1380s remaining
+[2026-05-13 17:07:01]   ...waited 8 min, 1320s remaining
+[2026-05-13 17:08:01]   ...waited 9 min, 1260s remaining
+[2026-05-13 17:09:01]   ...waited 10 min, 1200s remaining
+[2026-05-13 17:10:01]   ...waited 11 min, 1140s remaining
+[2026-05-13 17:11:01]   ...waited 12 min, 1080s remaining
+[2026-05-13 17:12:01]   ...waited 13 min, 1020s remaining
+[2026-05-13 17:13:01]   ...waited 14 min, 960s remaining
+[2026-05-13 17:14:01]   ...waited 15 min, 900s remaining
+[2026-05-13 17:15:01]   ...waited 16 min, 840s remaining
+[2026-05-13 17:16:01]   ...waited 17 min, 780s remaining
+[2026-05-13 17:17:01]   ...waited 18 min, 720s remaining
+[2026-05-13 17:18:01]   ...waited 19 min, 660s remaining
+[2026-05-13 17:19:01]   ...waited 20 min, 600s remaining
+[2026-05-13 17:20:01]   ...waited 21 min, 540s remaining
+[2026-05-13 17:21:01]   ...waited 22 min, 480s remaining
+[2026-05-13 17:22:01]   ...waited 23 min, 420s remaining
+[2026-05-13 17:23:01]   ...waited 24 min, 360s remaining
+[2026-05-13 17:24:01]   ...waited 25 min, 300s remaining
+[2026-05-13 17:25:01]   ...waited 26 min, 240s remaining
+[2026-05-13 17:26:01]   ...waited 27 min, 180s remaining
+[2026-05-13 17:27:01]   ...waited 28 min, 120s remaining
+[2026-05-13 17:28:01]   ...waited 29 min, 60s remaining
+
+[2026-05-13 17:29:01] ---------- run 4/30 | tag=20260513_172901 ----------
+[2026-05-13 17:35:08] run 4/30 OK (rc=0)
+[2026-05-13 17:35:08] gap before run 5 — sleeping 1800s (until 2026-05-13 18:05:08)
+[2026-05-13 17:36:08]   ...waited 1 min, 1740s remaining
+[2026-05-13 17:37:08]   ...waited 2 min, 1680s remaining
+[2026-05-13 17:38:08]   ...waited 3 min, 1620s remaining
+[2026-05-13 17:39:08]   ...waited 4 min, 1560s remaining
+[2026-05-13 17:40:08]   ...waited 5 min, 1500s remaining
+[2026-05-13 17:41:08]   ...waited 6 min, 1440s remaining
+[2026-05-13 17:42:08]   ...waited 7 min, 1380s remaining
+[2026-05-13 17:43:08]   ...waited 8 min, 1320s remaining
+[2026-05-13 17:44:08]   ...waited 9 min, 1260s remaining
+[2026-05-13 17:45:08]   ...waited 10 min, 1200s remaining
+[2026-05-13 17:46:08]   ...waited 11 min, 1140s remaining
+[2026-05-13 17:47:08]   ...waited 12 min, 1080s remaining
+[2026-05-13 17:48:08]   ...waited 13 min, 1020s remaining
+[2026-05-13 17:49:08]   ...waited 14 min, 960s remaining
+[2026-05-13 17:50:08]   ...waited 15 min, 900s remaining
+[2026-05-13 17:51:08]   ...waited 16 min, 840s remaining
+[2026-05-13 17:52:08]   ...waited 17 min, 780s remaining
+[2026-05-13 17:53:08]   ...waited 18 min, 720s remaining
+[2026-05-13 17:54:08]   ...waited 19 min, 660s remaining
+[2026-05-13 17:55:08]   ...waited 20 min, 600s remaining
+[2026-05-13 17:56:08]   ...waited 21 min, 540s remaining
+[2026-05-13 17:57:09]   ...waited 22 min, 480s remaining
+[2026-05-13 17:58:09]   ...waited 23 min, 420s remaining
+[2026-05-13 17:59:09]   ...waited 24 min, 360s remaining
+[2026-05-13 18:00:09]   ...waited 25 min, 300s remaining
+[2026-05-13 18:01:09]   ...waited 26 min, 240s remaining
+[2026-05-13 18:02:09]   ...waited 27 min, 180s remaining
+[2026-05-13 18:03:09]   ...waited 28 min, 120s remaining
+[2026-05-13 18:04:09]   ...waited 29 min, 60s remaining
+
+[2026-05-13 18:05:09] ---------- run 5/30 | tag=20260513_180509 ----------
+[2026-05-13 18:11:37] run 5/30 OK (rc=0)
+[2026-05-13 18:11:37] gap before run 6 — sleeping 1800s (until 2026-05-13 18:41:37)
+[2026-05-13 18:11:48] === loop ended (exit=1) ===

@@ -1,0 +1,26 @@
+# Baseline snapshot | scenario=20 | run_tag=20260513_202132
+# Captured at: 2026-05-13T13:21:32Z
+# Client -> pi@100.66.79.93 (source 100.70.166.91)
+
+## uname -a (client)
+Linux cachyos-x8664 6.19.11-1-cachyos #1 SMP PREEMPT_DYNAMIC Wed, 08 Apr 2026 11:27:19 +0000 x86_64 GNU/Linux
+
+## ssh / ssh3 / mosh versions
+OpenSSH_10.3p1, OpenSSL 3.6.2 7 Apr 2026
+{"level":"info","time":"2026-05-13T20:21:32+07:00","message":"plugin privkey_auth successfully registered"}
+{"level":"info","time":"2026-05-13T20:21:32+07:00","message":"plugin pubkey_auth successfully registered"}
+{"level":"debug","time":"2026-05-13T20:21:32+07:00","message":"Adding plugin-provided CLI arg: \"pubkey-for-agent\""}
+{"level":"debug","time":"2026-05-13T20:21:32+07:00","message":"Adding plugin-provided CLI arg: \"privkey\""}
+ssh3 version francoismichel/ssh3 0.1.7
+mosh 1.4.0 [build mosh-1.4.0-dirty]
+Copyright 2012 Keith Winstein <mosh-devel@mit.edu>
+License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>.
+
+## ping RTT (20 x 200ms)
+
+--- 100.66.79.93 ping statistics ---
+20 packets transmitted, 20 received, 0% packet loss, time 3811ms
+rtt min/avg/max/mdev = 43.512/49.240/94.904/10.666 ms
+
+## uptime (client)
+ 20:21:36 up  1:14,  1 user,  load average: 0,84, 1,12, 1,13

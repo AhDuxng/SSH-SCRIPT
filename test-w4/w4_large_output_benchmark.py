@@ -30,10 +30,19 @@ DEFAULT_PROMPT = "W4PROMPT#"
 DEFAULT_SSH3_PATH = "/ssh3-term"
 MARKER_TAIL_LEN = 12
 _TAIL_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+
+# Deterministic, fixed-size, low-CPU large outputs. Each command prints a
+# base64-encoded stream of zero bytes at a predictable size so that:
+#   - wall time is dominated by network delivery, not server I/O
+#   - output_bytes is identical between runs (enables fair throughput stats)
+#   - no external state required on the server (no git repo / docker container)
+# base64 expands 3 bytes -> 4 chars and adds a newline every 76 chars, so the
+# emitted size is ~1.353x the source size; we pick round source sizes and
+# document the expected emitted size in the command label comment in the wrapper.
 DEFAULT_COMMANDS = [
-    "find /",
-    "git status",
-    "docker logs $(docker ps -q | head -n 1)",
+    "head -c 524288 /dev/zero | base64",    # src 512 KiB   -> ~692 KiB on stdout
+    "head -c 2097152 /dev/zero | base64",   # src   2 MiB   -> ~2.77 MiB
+    "head -c 8388608 /dev/zero | base64",   # src   8 MiB   -> ~11.1 MiB
 ]
 
 _ANSI_SEQ = r"(?:\x1b\[\??[0-9;]*[a-zA-Z])"
@@ -55,8 +64,10 @@ class SampleRecord:
     command_id: int
     command: str
     latency_ms: float
+    ttfb_ms: Optional[float]
     output_bytes: int
     throughput_kib_s: Optional[float]
+    warmup: bool = False
 
 
 @dataclass
@@ -69,6 +80,7 @@ class FailureRecord:
     command: str
     error_type: str
     error_message: str
+    warmup: bool = False
 
 
 @dataclass
@@ -87,6 +99,8 @@ class SummaryRow:
     p99_ms: Optional[float]
     max_ms: Optional[float]
     ci95_half_width_ms: Optional[float]
+    mean_ttfb_ms: Optional[float]
+    median_ttfb_ms: Optional[float]
     mean_output_kib: Optional[float]
     mean_throughput_kib_s: Optional[float]
 
@@ -96,6 +110,12 @@ class W4Benchmark:
         self.args = args
         self.target = f"{args.user}@{args.host}"
         self.started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        self.scenario = (args.scenario or "").strip() or "unspecified"
+        self.warmup = max(0, int(args.warmup))
+        if self.warmup >= args.iterations:
+            raise ValueError(
+                f"--warmup ({self.warmup}) must be < --iterations ({args.iterations})"
+            )
         self.prompt_marker = args.prompt.rstrip()
         if not self.prompt_marker:
             raise ValueError("Prompt must contain at least one non-space character")
@@ -105,6 +125,9 @@ class W4Benchmark:
         self.records: List[SampleRecord] = []
         self.failures: List[FailureRecord] = []
         self.results: Dict[str, Dict[str, List[float]]] = {
+            p: {c: [] for c in args.commands} for p in args.protocols
+        }
+        self.ttfb: Dict[str, Dict[str, List[float]]] = {
             p: {c: [] for c in args.commands} for p in args.protocols
         }
         self.output_sizes: Dict[str, Dict[str, List[int]]] = {
@@ -141,41 +164,22 @@ class W4Benchmark:
                 break
             except OSError as exc:
                 if exc.errno == errno.ENOSPC:
-                    try:
-                        if getattr(child, "logfile_read", None) is not None:
-                            child.logfile_read.close()
-                            child.logfile_read = None
-                    except Exception:
-                        pass
                     continue
                 raise
-
-    @staticmethod
-    def _handle_enospc_logging(child: pexpect.spawn, exc: OSError) -> bool:
-        if exc.errno != errno.ENOSPC:
-            return False
-        try:
-            if getattr(child, "logfile_read", None) is not None:
-                child.logfile_read.close()
-                child.logfile_read = None
-        except Exception:
-            pass
-        print(
-            "[warn] pexpect log disabled: no space left on device",
-            flush=True,
-        )
-        return True
 
     def _expect_prompt(self, child: pexpect.spawn) -> None:
         child.expect(self.prompt_re, timeout=self.args.timeout)
 
-    def _wait_for_marker_line(self, child: pexpect.spawn, marker: str, marker_tail: str) -> int:
+    def _wait_for_marker_line(
+        self, child: pexpect.spawn, marker: str, marker_tail: str
+    ) -> tuple[int, Optional[float]]:
         deadline = time.monotonic() + float(self.args.timeout)
         idle_timeout = float(self.args.command_idle_timeout)
         last_data_at = time.monotonic()
         clean_buffer = ""
         max_buffer_chars = 262_144
         output_bytes = 0
+        ttfb_perf_ns: Optional[int] = None
         saw_activity = False
         marker_norm = self._normalize_marker_scan(marker)
         marker_tail_norm = self._normalize_marker_scan(marker_tail)
@@ -189,6 +193,13 @@ class W4Benchmark:
                 )
             raise pexpect.TIMEOUT(
                 f"{reason} while waiting for marker {marker!r}. clean_tail={tail!r}"
+            )
+
+        def truncate_at(pos: int, window_bytes: int) -> int:
+            # `pos` is the marker offset inside clean_buffer; add bytes of the
+            # preceding text plus whatever we already accumulated from flushed lines.
+            return window_bytes + len(
+                clean_buffer[:pos].encode("utf-8", errors="ignore")
             )
 
         while True:
@@ -214,12 +225,15 @@ class W4Benchmark:
                     f"buffer_tail={clean_buffer[-500:]!r}"
                 ) from exc
             except OSError as exc:
-                if self._handle_enospc_logging(child, exc):
+                if exc.errno == errno.ENOSPC:
                     continue
                 raise
 
             if not chunk:
                 continue
+
+            if ttfb_perf_ns is None:
+                ttfb_perf_ns = time.perf_counter_ns()
 
             last_data_at = time.monotonic()
             clean_chunk = self._strip_ansi_keep_newlines(chunk)
@@ -229,41 +243,41 @@ class W4Benchmark:
             saw_activity = True
             clean_buffer += clean_chunk
             if len(clean_buffer) > max_buffer_chars:
-                clean_buffer = clean_buffer[-max_buffer_chars:]
-
-            # Mosh can fragment marker bytes with control traffic; match full marker
-            # on a normalized sliding window with tail fallback.
-            normalized_window = self._normalize_marker_scan(clean_buffer[-8192:])
-            if marker_norm in normalized_window:
-                return output_bytes
-            if marker_tail_norm and marker_tail_norm in normalized_window:
-                return output_bytes
-
-            lines = clean_buffer.split("\n")
-            clean_buffer = lines.pop() if lines else ""
-            for line in lines:
-                stripped = line.strip()
-                if stripped == marker:
-                    return output_bytes
-                if self.prompt_marker and self.prompt_marker in line:
-                    prompt_pos = line.find(self.prompt_marker)
-                    output_bytes += len(line[:prompt_pos].encode("utf-8", errors="ignore"))
-                    return output_bytes
-                marker_pos = line.find(marker)
-                if marker_pos >= 0:
-                    output_bytes += len(line[:marker_pos].encode("utf-8", errors="ignore"))
-                    return output_bytes
-                output_bytes += len((line + "\n").encode("utf-8", errors="ignore"))
+                dropped = len(clean_buffer) - max_buffer_chars
+                # dropped bytes are part of the delivered output; keep them in the counter
+                output_bytes += len(
+                    clean_buffer[:dropped].encode("utf-8", errors="ignore")
+                )
+                clean_buffer = clean_buffer[dropped:]
 
             marker_pos = clean_buffer.find(marker)
             if marker_pos >= 0:
-                output_bytes += len(clean_buffer[:marker_pos].encode("utf-8", errors="ignore"))
-                return output_bytes
+                total_bytes = truncate_at(marker_pos, output_bytes)
+                return total_bytes, _ns_to_ms(ttfb_perf_ns)
             if self.prompt_marker:
                 prompt_pos = clean_buffer.find(self.prompt_marker)
                 if prompt_pos >= 0:
-                    output_bytes += len(clean_buffer[:prompt_pos].encode("utf-8", errors="ignore"))
-                    return output_bytes
+                    total_bytes = truncate_at(prompt_pos, output_bytes)
+                    return total_bytes, _ns_to_ms(ttfb_perf_ns)
+
+            normalized_window = self._normalize_marker_scan(clean_buffer[-8192:])
+            if marker_norm in normalized_window or (
+                marker_tail_norm and marker_tail_norm in normalized_window
+            ):
+                # Marker fragmented by mosh redraw / ANSI insertion. Best-effort
+                # byte count: charge everything outside the 8K fuzzy window to
+                # output, and ignore the window itself (may contain marker text).
+                window_start = max(0, len(clean_buffer) - 8192)
+                total_bytes = output_bytes + len(
+                    clean_buffer[:window_start].encode("utf-8", errors="ignore")
+                )
+                return total_bytes, _ns_to_ms(ttfb_perf_ns)
+
+            # Periodic flush: count completed lines so the buffer doesn't grow unbounded.
+            lines = clean_buffer.split("\n")
+            clean_buffer = lines.pop() if lines else ""
+            for line in lines:
+                output_bytes += len((line + "\n").encode("utf-8", errors="ignore"))
 
     def _next_marker_tail(self) -> str:
         if self.prev_marker_tail is None:
@@ -330,11 +344,6 @@ class W4Benchmark:
             echo=False,
         )
 
-        if self.args.log_pexpect:
-            log_path = Path(self.args.output_dir) / f"pexpect_{protocol}.log"
-            log_path.parent.mkdir(parents=True, exist_ok=True)
-            child.logfile_read = open(log_path, "a", encoding="utf-8")
-
         start_ns = time.perf_counter_ns()
         child.expect(_INITIAL_PROMPT_RE, timeout=self.args.timeout)
         setup_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
@@ -350,31 +359,35 @@ class W4Benchmark:
             child.expect(pexpect.EOF)
         except Exception:
             child.close(force=True)
-        finally:
-            try:
-                if getattr(child, "logfile_read", None) is not None:
-                    child.logfile_read.close()
-            except Exception:
-                pass
 
     def _measure_output_delivery(
         self,
         child: pexpect.spawn,
-        protocol: str,
         command: str,
         marker: str,
         marker_tail: str,
-    ) -> tuple[float, int]:
+    ) -> tuple[float, Optional[float], int]:
         self._drain_pending_output(child)
 
         wrapped = f"{{ {command}; }} 2>&1; printf '%s\\n' {shlex.quote(marker)}"
         start_ns = time.perf_counter_ns()
         child.sendline(wrapped)
-        output_bytes = self._wait_for_marker_line(child, marker, marker_tail)
+        output_bytes, ttfb_ms_relative = self._wait_for_marker_line(
+            child, marker, marker_tail
+        )
         end_ns = time.perf_counter_ns()
 
         latency_ms = (end_ns - start_ns) / 1_000_000.0
-        return latency_ms, output_bytes
+        ttfb_ms: Optional[float]
+        if ttfb_ms_relative is None:
+            ttfb_ms = None
+        else:
+            # _wait_for_marker_line returned perf_counter_ns of first byte
+            # (as ms). Convert to delta from start.
+            ttfb_ms = ttfb_ms_relative - (start_ns / 1_000_000.0)
+            if ttfb_ms < 0:
+                ttfb_ms = 0.0
+        return latency_ms, ttfb_ms, output_bytes
 
     def _recover_after_timeout(self, child: pexpect.spawn) -> bool:
         try:
@@ -395,23 +408,23 @@ class W4Benchmark:
         trial_id: int,
     ) -> None:
         for sample_id in range(1, self.args.iterations + 1):
+            is_warmup = sample_id <= self.warmup
             marker_tail = self._next_marker_tail()
             marker = f"__W4_DONE_{trial_id}_{sample_id}_{command_id}_{marker_tail}__"
             try:
-                lat, output_bytes = self._measure_output_delivery(
-                    child,
-                    protocol,
-                    command,
-                    marker,
-                    marker_tail,
+                lat, ttfb_ms, output_bytes = self._measure_output_delivery(
+                    child, command, marker, marker_tail,
                 )
                 throughput_kib_s: Optional[float]
                 if lat > 0:
                     throughput_kib_s = (output_bytes / 1024.0) / (lat / 1000.0)
                 else:
                     throughput_kib_s = None
-                self.results[protocol][command].append(lat)
-                self.output_sizes[protocol][command].append(output_bytes)
+                if not is_warmup:
+                    self.results[protocol][command].append(lat)
+                    if ttfb_ms is not None:
+                        self.ttfb[protocol][command].append(ttfb_ms)
+                    self.output_sizes[protocol][command].append(output_bytes)
                 self.records.append(
                     SampleRecord(
                         protocol=protocol,
@@ -421,14 +434,19 @@ class W4Benchmark:
                         command_id=command_id,
                         command=command,
                         latency_ms=lat,
+                        ttfb_ms=ttfb_ms,
                         output_bytes=output_bytes,
                         throughput_kib_s=throughput_kib_s,
+                        warmup=is_warmup,
                     )
                 )
+                tag = "WARM" if is_warmup else "meas"
+                ttfb_str = f"{ttfb_ms:.2f}" if ttfb_ms is not None else "N/A"
                 print(
                     f"[{protocol:>4}/{command:<36}] trial {trial_id:>2}/{self.args.trials}"
-                    f" sample {sample_id:>3}/{self.args.iterations}: {lat:.2f} ms,"
-                    f" {output_bytes / 1024.0:.1f} KiB",
+                    f" {tag} {sample_id:>3}/{self.args.iterations}:"
+                    f" total={lat:.2f} ms ttfb={ttfb_str} ms"
+                    f" bytes={output_bytes / 1024.0:.1f} KiB",
                     flush=True,
                 )
             except (pexpect.TIMEOUT, pexpect.EOF, ValueError) as exc:
@@ -445,11 +463,13 @@ class W4Benchmark:
                         command=command,
                         error_type=type(exc).__name__,
                         error_message=str(exc),
+                        warmup=is_warmup,
                     )
                 )
+                tag = "WARM-FAIL" if is_warmup else "FAIL"
                 print(
                     f"[{protocol:>4}/{command:<36}] trial {trial_id:>2}"
-                    f" sample {sample_id:>3}: FAIL ({type(exc).__name__}: {exc})"
+                    f" {tag} {sample_id:>3}: ({type(exc).__name__}: {exc})"
                     f"{'' if recovered else ' [session not recovered]'}",
                     flush=True,
                 )
@@ -475,12 +495,7 @@ class W4Benchmark:
                 )
                 try:
                     self._run_trial(
-                        child,
-                        protocol,
-                        workload,
-                        command,
-                        command_id,
-                        trial_id,
+                        child, protocol, workload, command, command_id, trial_id,
                     )
                 except (pexpect.TIMEOUT, pexpect.EOF):
                     if self.args.reopen_on_failure:
@@ -518,11 +533,15 @@ class W4Benchmark:
 
     def _summary_row(self, protocol: str, workload: str, command: str) -> SummaryRow:
         data = self.results[protocol][command]
+        ttfb_data = self.ttfb[protocol][command]
         sizes = self.output_sizes[protocol][command]
         fail_n = sum(
             1
             for f in self.failures
-            if f.protocol == protocol and f.workload == workload and f.command == command
+            if f.protocol == protocol
+            and f.workload == workload
+            and f.command == command
+            and not f.warmup
         )
         n = len(data)
         total = n + fail_n
@@ -531,13 +550,16 @@ class W4Benchmark:
         if n == 0:
             return SummaryRow(
                 protocol, workload, command, 0, fail_n, success_rate,
-                None, None, None, None, None, None, None, None, None, None,
+                None, None, None, None, None, None, None, None,
+                None, None, None, None,
             )
 
         mean_ms = statistics.mean(data)
         median_ms = statistics.median(data)
         stdev_ms = statistics.stdev(data) if n > 1 else 0.0
         ci95 = (1.96 * stdev_ms / math.sqrt(n)) if n > 1 else 0.0
+        mean_ttfb = statistics.mean(ttfb_data) if ttfb_data else None
+        median_ttfb = statistics.median(ttfb_data) if ttfb_data else None
         mean_output_kib = statistics.mean(sizes) / 1024.0 if sizes else None
         mean_throughput_kib_s = (
             (mean_output_kib / (mean_ms / 1000.0))
@@ -559,6 +581,8 @@ class W4Benchmark:
             p99_ms=self._percentile(data, 99),
             max_ms=max(data),
             ci95_half_width_ms=ci95,
+            mean_ttfb_ms=mean_ttfb,
+            median_ttfb_ms=median_ttfb,
             mean_output_kib=mean_output_kib,
             mean_throughput_kib_s=mean_throughput_kib_s,
         )
@@ -601,101 +625,97 @@ class W4Benchmark:
         def fmt(v: Optional[float]) -> str:
             return f"{v:.2f}" if v is not None else "N/A"
 
-        proto_w = 8
-        workload_w = 11
-        command_w = 24
+        command_w = 28
         command_labels = {
             c: self._display_command(c, command_w) for c in self.args.commands
         }
 
-        summary_header = (
-            f"{'Protocol':<{proto_w}} | {'Workload':<{workload_w}} | {'Command':<{command_w}} | "
-            f"{'N':>4} | {'Fail':>4} | {'Succ%':>6} | {'Min':>7} | {'Mean':>7} | {'Med':>7} | "
-            f"{'Std':>7} | {'P95':>7} | {'P99':>7} | {'Max':>7} | {'CI95':>7} | {'OutKB':>7} | {'KB/s':>7}"
+        print("\n" + "=" * 170)
+        print(
+            f"{'Proto':<6} | {'Workload':<11} | {'Command':<{command_w}} | {'N':>4} | {'Fail':>4} | "
+            f"{'Succ%':>6} | {'Mean':>8} | {'Med':>8} | {'P95':>8} | {'P99':>8} | "
+            f"{'TTFBmean':>9} | {'OutKB':>8} | {'KB/s':>8}"
         )
-        width = len(summary_header)
-        print("\n" + "=" * width)
-        print(summary_header)
-        print("-" * width)
+        print("-" * 170)
         for row in self.summaries():
             print(
-                f"{row.protocol:<{proto_w}} | {row.workload:<{workload_w}} | {command_labels[row.command]:<{command_w}} | "
-                f"{row.n:>4} | {row.failures:>4} | {row.success_rate_pct:>6.1f} | {fmt(row.min_ms):>7} | {fmt(row.mean_ms):>7} | "
-                f"{fmt(row.median_ms):>7} | {fmt(row.stdev_ms):>7} | {fmt(row.p95_ms):>7} | {fmt(row.p99_ms):>7} | "
-                f"{fmt(row.max_ms):>7} | {fmt(row.ci95_half_width_ms):>7} | {fmt(row.mean_output_kib):>7} | "
-                f"{fmt(row.mean_throughput_kib_s):>7}"
+                f"{row.protocol:<6} | {row.workload:<11} | {command_labels[row.command]:<{command_w}} | "
+                f"{row.n:>4} | {row.failures:>4} | {row.success_rate_pct:>6.1f} | "
+                f"{fmt(row.mean_ms):>8} | {fmt(row.median_ms):>8} | {fmt(row.p95_ms):>8} | "
+                f"{fmt(row.p99_ms):>8} | {fmt(row.mean_ttfb_ms):>9} | "
+                f"{fmt(row.mean_output_kib):>8} | {fmt(row.mean_throughput_kib_s):>8}"
             )
-        print("=" * width)
-
-        setup_header = (
-            f"{'Protocol':<{proto_w}} | {'Command':<{command_w}} | {'N':>3} |"
-            f" {'Min':>7} | {'Mean':>7} | {'Median':>7} | {'Std':>7} | {'Max':>7}"
-        )
-        ss_width = len(setup_header)
-        print("\n" + "-" * ss_width)
-        print(
-            "SESSION SETUP LATENCY (ms)  "
-            "[spawn -> first shell prompt, PS1 export excluded]"
-        )
-        print(setup_header)
-        print("-" * ss_width)
-        for protocol in self.args.protocols:
-            for command in self.args.commands:
-                s = self._session_setup_stats(protocol, command)
-                print(
-                    f"{protocol:<{proto_w}} | {command_labels[command]:<{command_w}} | {s['n']:>3} |"
-                    f" {fmt(s['min']):>7} | {fmt(s['mean']):>7} |"
-                    f" {fmt(s['median']):>7} | {fmt(s['stdev']):>7} |"
-                    f" {fmt(s['max']):>7}"
-                )
-        print("-" * ss_width)
+        print("=" * 170)
+        print("NOTE: For mosh, output_bytes is BYTES RENDERED TO SCREEN (SSP state sync),")
+        print("      which is NOT the same as bytes the command printed on the server.")
+        print("      Compare throughput only between ssh and ssh3; use TTFB/latency for mosh.")
         print("Command map:")
         for command in self.args.commands:
-            label = command_labels[command]
-            print(f"  {label:<{command_w}} -> {command}")
+            print(f"  {command_labels[command]:<{command_w}} -> {command}")
 
     def export(self) -> None:
         outdir = Path(self.args.output_dir)
         outdir.mkdir(parents=True, exist_ok=True)
 
-        summary_json = outdir / "w4_summary.json"
-        raw_csv = outdir / "w4_raw_samples.csv"
-        failures_csv = outdir / "w4_failures.csv"
+        line_csv = outdir / "w4_line_log.csv"
         setup_csv = outdir / "w4_session_setup.csv"
+        meta_json = outdir / "w4_meta.json"
 
-        payload = {
-            "meta": {
-                "started_at_utc": self.started_at,
-                "target": self.target,
-                "client_source_ip": self.args.source_ip,
-                "protocols": self.args.protocols,
-                "workloads": self.args.workloads,
-                "commands": self.args.commands,
-                "trials": self.args.trials,
-                "iterations": self.args.iterations,
-                "timeout_sec": self.args.timeout,
-                "command_idle_timeout_sec": self.args.command_idle_timeout,
-                "maxread_bytes": self.args.maxread,
-                "search_window_size": self.args.search_window_size,
-                "random_seed": self.args.seed,
-                "topology": {
-                    "client": "192.168.8.100",
-                    "server": self.args.host,
-                },
-                "metric_name": "output_delivery_latency_ms",
-                "metric_note": (
-                    "Latency = time from sendline(command) to command completion visibility. "
-                    "For SSH/SSH3/MOSH, stop condition is unique completion marker from "
-                    "'{ command; } 2>&1; printf %s\\n <marker>'. For MOSH, prompt "
-                    "re-appearance is a fallback if marker delivery is skipped."
-                ),
-                "additional_fields": {
-                    "output_bytes": "Byte length observed before completion condition",
-                    "throughput_kib_s": "output_bytes / latency window",
-                },
-                "session_setup_note": (
-                    "setup_ms = time from pexpect.spawn() to first shell prompt ([#$>] regex). "
-                    "The 'export PS1' command is excluded from setup window."
+        with line_csv.open("w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                "scenario", "protocol", "workload",
+                "round_id", "sample_id", "command_id", "command",
+                "latency_ms", "ttfb_ms", "output_bytes", "throughput_kib_s",
+                "status", "warmup", "error_type", "error_message",
+            ])
+            for r in self.records:
+                ttfb = f"{r.ttfb_ms:.6f}" if r.ttfb_ms is not None else ""
+                thr = f"{r.throughput_kib_s:.6f}" if r.throughput_kib_s is not None else ""
+                writer.writerow([
+                    self.scenario, r.protocol, r.workload,
+                    r.round_id, r.sample_id, r.command_id, r.command,
+                    f"{r.latency_ms:.6f}", ttfb, r.output_bytes, thr,
+                    "ok", "1" if r.warmup else "0", "", "",
+                ])
+            for r in self.failures:
+                writer.writerow([
+                    self.scenario, r.protocol, r.workload,
+                    r.round_id, r.sample_id, r.command_id, r.command,
+                    "", "", "", "",
+                    "fail", "1" if r.warmup else "0", r.error_type, r.error_message,
+                ])
+
+        with setup_csv.open("w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(["scenario", "protocol", "command", "trial_id", "session_setup_ms"])
+            for p in self.args.protocols:
+                for c in self.args.commands:
+                    for trial_id, ms in enumerate(self.session_setups[p][c], start=1):
+                        writer.writerow([self.scenario, p, c, trial_id, f"{ms:.6f}"])
+
+        meta = {
+            "started_at_utc": self.started_at,
+            "scenario": self.scenario,
+            "target": self.target,
+            "client_source_ip": self.args.source_ip,
+            "protocols": self.args.protocols,
+            "workloads": self.args.workloads,
+            "commands": self.args.commands,
+            "trials": self.args.trials,
+            "iterations": self.args.iterations,
+            "warmup": self.warmup,
+            "timeout_sec": self.args.timeout,
+            "random_seed": self.args.seed,
+            "shuffle_pairs": bool(self.args.shuffle_pairs),
+            "reopen_on_failure": bool(self.args.reopen_on_failure),
+            "mosh_predict": self.args.mosh_predict,
+            "metric_notes": {
+                "latency_ms": "sendline -> marker visible; includes server exec + delivery",
+                "ttfb_ms": "sendline -> first byte of output visible at client",
+                "output_bytes": (
+                    "bytes seen on client-side PTY. For mosh this is screen-sync bytes, "
+                    "not the number of bytes the command printed on the server."
                 ),
             },
             "summary": [asdict(row) for row in self.summaries()],
@@ -704,107 +724,47 @@ class W4Benchmark:
                 for p in self.args.protocols
             },
         }
-        summary_json.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        meta_json.write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
-        with raw_csv.open("w", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
-            writer.writerow(
-                [
-                    "protocol",
-                    "workload",
-                    "round_id",
-                    "sample_id",
-                    "command_id",
-                    "command",
-                    "latency_ms",
-                    "output_bytes",
-                    "throughput_kib_s",
-                ]
-            )
-            for r in self.records:
-                throughput = f"{r.throughput_kib_s:.6f}" if r.throughput_kib_s is not None else ""
-                writer.writerow(
-                    [
-                        r.protocol,
-                        r.workload,
-                        r.round_id,
-                        r.sample_id,
-                        r.command_id,
-                        r.command,
-                        f"{r.latency_ms:.6f}",
-                        r.output_bytes,
-                        throughput,
-                    ]
-                )
-
-        with failures_csv.open("w", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
-            writer.writerow(
-                [
-                    "protocol",
-                    "workload",
-                    "round_id",
-                    "sample_id",
-                    "command_id",
-                    "command",
-                    "error_type",
-                    "error_message",
-                ]
-            )
-            for r in self.failures:
-                writer.writerow(
-                    [
-                        r.protocol,
-                        r.workload,
-                        r.round_id,
-                        r.sample_id,
-                        r.command_id,
-                        r.command,
-                        r.error_type,
-                        r.error_message,
-                    ]
-                )
-
-        with setup_csv.open("w", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
-            writer.writerow(["protocol", "command", "trial_id", "session_setup_ms"])
-            for p in self.args.protocols:
-                for c in self.args.commands:
-                    for trial_id, ms in enumerate(self.session_setups[p][c], start=1):
-                        writer.writerow([p, c, trial_id, f"{ms:.6f}"])
-
-        print(f"Saved summary JSON    : {summary_json}")
-        print(f"Saved raw samples CSV : {raw_csv}")
-        print(f"Saved failures CSV    : {failures_csv}")
+        print(f"Saved line log CSV    : {line_csv}")
         print(f"Saved session setup   : {setup_csv}")
+        print(f"Saved meta JSON       : {meta_json}")
+
+
+def _ns_to_ms(ns: Optional[int]) -> Optional[float]:
+    if ns is None:
+        return None
+    return ns / 1_000_000.0
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="W4 Large Output Commands benchmark")
     p.add_argument("--host", default="192.168.8.102", help="Target host IP or hostname")
     p.add_argument("--user", default="trungnt", help="Remote username")
-    p.add_argument("--source-ip", default="192.168.8.100", help="Client source IP for SSH / Mosh where supported")
-    p.add_argument("--identity-file", default=str(Path.home() / ".ssh" / "id_rsa"), help="SSH private key path")
+    p.add_argument("--source-ip", default="192.168.8.100")
+    p.add_argument("--identity-file", default=str(Path.home() / ".ssh" / "id_rsa"))
     p.add_argument("--protocols", nargs="+", default=DEFAULT_PROTOCOLS, choices=DEFAULT_PROTOCOLS)
     p.add_argument("--workloads", nargs="+", default=DEFAULT_WORKLOADS, choices=DEFAULT_WORKLOADS)
-    p.add_argument("--commands", nargs="+", default=DEFAULT_COMMANDS, help="Large-output commands executed in each sample")
-    p.add_argument("--trials", type=int, default=10, help="Independent sessions per protocol/workload pair")
-    p.add_argument("--iterations", type=int, default=20, help="Recorded command samples per trial")
-    p.add_argument("--timeout", type=int, default=300, help="pexpect timeout in seconds")
-    p.add_argument("--command-idle-timeout", type=float, default=30.0, help="Fail command only if no output is observed for this many seconds (0 = disable idle timeout)")
-    p.add_argument("--maxread", type=int, default=65535, help="pexpect maxread bytes")
-    p.add_argument("--search-window-size", type=int, default=8192, help="pexpect search window size (0 = unlimited)")
-    p.add_argument("--seed", type=int, default=42, help="Random seed")
-    p.add_argument("--output-dir", default="w4_results", help="Directory for JSON/CSV outputs")
-    p.add_argument("--prompt", default=DEFAULT_PROMPT, help="Unique shell prompt marker used after session is ready")
-    p.add_argument("--ssh3-path", default=DEFAULT_SSH3_PATH, help="SSH3 terminal path suffix")
-    p.add_argument("--ssh3-insecure", action="store_true", help="Pass -insecure to ssh3")
-    p.add_argument("--batch-mode", action="store_true", help="Enable BatchMode for SSHv2 / Mosh bootstrap SSH")
-    p.add_argument("--strict-host-key-checking", action="store_true", help="Keep strict host key checking enabled")
-    p.add_argument("--mosh-predict", default="adaptive", choices=["adaptive", "always", "never"], help="Mosh prediction mode")
-    p.add_argument("--shuffle-pairs", action="store_true", help="Shuffle protocol/workload execution order")
-    p.add_argument("--reopen-on-failure", action="store_true", help="Reopen session after failure")
-    p.add_argument("--log-pexpect", action="store_true", help="Save raw pexpect terminal output per protocol")
+    p.add_argument("--commands", nargs="+", default=DEFAULT_COMMANDS)
+    p.add_argument("--trials", type=int, default=10)
+    p.add_argument("--iterations", type=int, default=20)
+    p.add_argument("--warmup", type=int, default=0, help="First N samples per trial excluded from summary")
+    p.add_argument("--scenario", default="", help="Network scenario label (low/medium/high)")
+    p.add_argument("--timeout", type=int, default=300)
+    p.add_argument("--command-idle-timeout", type=float, default=30.0)
+    p.add_argument("--maxread", type=int, default=65535)
+    p.add_argument("--search-window-size", type=int, default=8192)
+    p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--output-dir", default="w4_results")
+    p.add_argument("--prompt", default=DEFAULT_PROMPT)
+    p.add_argument("--ssh3-path", default=DEFAULT_SSH3_PATH)
+    p.add_argument("--ssh3-insecure", action="store_true")
+    p.add_argument("--batch-mode", action="store_true")
+    p.add_argument("--strict-host-key-checking", action="store_true")
+    p.add_argument("--mosh-predict", default="adaptive", choices=["adaptive", "always", "never"])
+    p.add_argument("--shuffle-pairs", action="store_true")
+    p.add_argument("--reopen-on-failure", action="store_true")
+    p.add_argument("--log-pexpect", action="store_true", help="Deprecated no-op (kept for compat)")
     return p
 
 
