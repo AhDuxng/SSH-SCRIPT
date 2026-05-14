@@ -44,7 +44,7 @@ TERM_ROWS=45
 TERM_COLS=160
 
 CMD=(
-    python3 w3_benchmark_5pane.py
+    python3 w3_5pane_benchmark.py
     --host              "$HOST"
     --user              "$USER_NAME"
     --source-ip         "$SOURCE_IP"
