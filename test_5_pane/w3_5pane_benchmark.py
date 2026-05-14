@@ -484,20 +484,27 @@ class W3Benchmark:
             timeout=self.args.app_start_timeout,
         )
 
+        if self.args.nano_settle_seconds > 0:
+            time.sleep(self.args.nano_settle_seconds)
+
+        def probe_nano_with_recovery() -> float:
+            last_exc: Optional[Exception] = None
+            for _ in range(self.args.nano_probe_retries):
+                try:
+                    return self._probe_once(child, erase_after_echo=True)
+                except pexpect.TIMEOUT as exc:
+                    last_exc = exc
+                    self._recover_nano_state(child)
+            if last_exc:
+                raise last_exc
+            raise pexpect.TIMEOUT("nano probe failed without exception detail")
+
         for _ in range(warmup):
-            try:
-                self._probe_once(child, erase_after_echo=True)
-            except pexpect.TIMEOUT:
-                self._recover_nano_state(child)
-                self._probe_once(child, erase_after_echo=True)
+            probe_nano_with_recovery()
 
         latencies: List[float] = []
         for i in range(iterations):
-            try:
-                lat = self._probe_once(child, erase_after_echo=True)
-            except pexpect.TIMEOUT:
-                self._recover_nano_state(child)
-                lat = self._probe_once(child, erase_after_echo=True)
+            lat = probe_nano_with_recovery()
             latencies.append(lat)
             if report_cb:
                 report_cb(i + 1, lat)
@@ -882,6 +889,18 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="timeout waiting startup markers for vim/nano (seconds)",
     )
     p.add_argument(
+        "--nano-settle-seconds",
+        type=float,
+        default=0.2,
+        help="small settle delay after nano startup before probing",
+    )
+    p.add_argument(
+        "--nano-probe-retries",
+        type=int,
+        default=3,
+        help="retries per nano probe sample before declaring timeout",
+    )
+    p.add_argument(
         "--attach-timeout",
         type=float,
         default=30.0,
@@ -1002,6 +1021,10 @@ def main() -> int:
         parser.error("--probe-tail-len must be > 0")
     if args.app_start_timeout <= 0:
         parser.error("--app-start-timeout must be > 0")
+    if args.nano_settle_seconds < 0:
+        parser.error("--nano-settle-seconds must be >= 0")
+    if args.nano_probe_retries <= 0:
+        parser.error("--nano-probe-retries must be > 0")
     if args.attach_timeout <= 0:
         parser.error("--attach-timeout must be > 0")
 

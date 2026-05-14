@@ -15,12 +15,14 @@ WORKLOADS="interactive_shell vim nano" # interactive_shell | vim | nano
 
 ITERATIONS=100
 WARMUP_ROUNDS=10
-TRIALS=3
+TRIALS=1
 TIMEOUT=30
-ATTACH_TIMEOUT=45
-APP_START_TIMEOUT=45
+ATTACH_TIMEOUT=18
+APP_START_TIMEOUT=18
 PROBE_POLL_TIMEOUT=0.2
 PROBE_TAIL_LEN=12
+NANO_SETTLE_SECONDS=0.2
+NANO_PROBE_RETRIES=3
 SEED=42
 
 OUTPUT_DIR="w3_5pane_results"
@@ -62,6 +64,8 @@ CMD=(
     --app-start-timeout "$APP_START_TIMEOUT"
     --probe-poll-timeout "$PROBE_POLL_TIMEOUT"
     --probe-tail-len    "$PROBE_TAIL_LEN"
+    --nano-settle-seconds "$NANO_SETTLE_SECONDS"
+    --nano-probe-retries "$NANO_PROBE_RETRIES"
     --seed              "$SEED"
     --output-dir        "$OUTPUT_DIR"
     --prompt            "$PROMPT"
