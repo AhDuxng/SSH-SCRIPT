@@ -9,8 +9,8 @@ USER_NAME="pi"
 SOURCE_IP="100.70.166.91"
 IDENTITY_FILE="$HOME/.ssh/id_ed25519"
 
-PROTOCOLS="ssh ssh3 mosh"              # ssh | ssh3 | mosh
-WORKLOADS="interactive_shell vim nano" # interactive_shell | vim | nano
+PROTOCOLS="ssh ssh3 mosh"
+WORKLOADS="interactive_shell vim nano"
 
 ITERATIONS=100
 WARMUP_ROUNDS=10
@@ -35,14 +35,15 @@ REMOTE_NANO_FILE="/tmp/w3_nano_bench.txt"
 
 SHUFFLE_PAIRS=false
 REOPEN_ON_FAILURE=true
-TMUX_SESSION="w3bench5"
-TMUX_SETUP_SCRIPT="w3_tmux_setup.sh"  # local file in this directory
-REMOTE_TMUX_SETUP="/tmp/w3_tmux_setup.sh"
-TMUX_KEEP_SESSION=true
-TMUX_LOAD=true
+
+TMUX_PANES=5
+TMUX_SESSION_PREFIX="w3bench5"
+TERM_NAME="xterm-256color"
+TERM_ROWS=45
+TERM_COLS=160
 
 CMD=(
-    python w3_5pane_benchmark.py
+    python3 w3_5pane_benchmark.py
     --host              "$HOST"
     --user              "$USER_NAME"
     --source-ip         "$SOURCE_IP"
@@ -60,9 +61,11 @@ CMD=(
     --mosh-predict      "$MOSH_PREDICT"
     --remote-vim-file   "$REMOTE_VIM_FILE"
     --remote-nano-file  "$REMOTE_NANO_FILE"
-    --tmux-session      "$TMUX_SESSION"
-    --tmux-setup-script "$TMUX_SETUP_SCRIPT"
-    --remote-tmux-setup "$REMOTE_TMUX_SETUP"
+    --tmux-panes        "$TMUX_PANES"
+    --tmux-session-prefix "$TMUX_SESSION_PREFIX"
+    --term              "$TERM_NAME"
+    --term-rows         "$TERM_ROWS"
+    --term-cols         "$TERM_COLS"
 )
 
 $SSH3_INSECURE      && CMD+=(--ssh3-insecure)
@@ -71,17 +74,15 @@ $STRICT_HOST_KEY    && CMD+=(--strict-host-key-checking)
 $SHUFFLE_PAIRS      && CMD+=(--shuffle-pairs)
 $REOPEN_ON_FAILURE  && CMD+=(--reopen-on-failure)
 $LOG_PEXPECT        && CMD+=(--log-pexpect)
-$TMUX_KEEP_SESSION  && CMD+=(--tmux-keep-session)
-$TMUX_LOAD          && CMD+=(--tmux-load)
 
-echo "=== W3 Interactive Benchmark (5-pane tmux load variant) ==="
+echo "=== W3 Interactive Benchmark: 5-pane tmux load variant ==="
 echo ""
-echo "Background load profile:"
-echo "  Pane 0 -> measurement target (interactive shell)"
-echo "  Pane 1 -> heartbeat       ~5 lines/s"
-echo "  Pane 2 -> burst stdout    ~750 lines/s"
-echo "  Pane 3 -> ls /etc loop    every 0.4 s"
-echo "  Pane 4 -> log-writer      ~20 events/s + tail -f"
+echo "Pane layout:"
+echo "  Pane 0 -> measurement target"
+echo "  Pane 1 -> visible clock/heartbeat load"
+echo "  Pane 2 -> visible stdout burst load"
+echo "  Pane 3 -> visible ps/top-like CPU load"
+echo "  Pane 4 -> visible ping/update load"
 echo ""
 echo "Command:"
 printf '  %q \\\n' "${CMD[@]}"
@@ -89,7 +90,11 @@ echo ""
 
 "${CMD[@]}"
 
-python plot_trend.py \
-  --output-dir "$OUTPUT_DIR" \
-  --prefix "w3_5pane" \
-  --group-fields protocol workload
+if [[ -f plot_trend.py ]]; then
+    python3 plot_trend.py \
+      --output-dir "$OUTPUT_DIR" \
+      --prefix "w3_5pane" \
+      --group-fields protocol workload
+else
+    echo "plot_trend.py not found, skip plotting."
+fi
