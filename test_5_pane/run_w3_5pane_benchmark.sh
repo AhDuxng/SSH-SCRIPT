@@ -16,7 +16,7 @@ WORKLOADS="interactive_shell vim nano" # interactive_shell | vim | nano
 ITERATIONS=100
 WARMUP_ROUNDS=10
 TRIALS=3
-TIMEOUT=20
+TIMEOUT=30
 SEED=42
 
 OUTPUT_DIR="w3_5pane_results"
