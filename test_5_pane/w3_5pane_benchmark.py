@@ -28,6 +28,8 @@ DEFAULT_PROMPT    = "__W3_PROMPT__#"
 DEFAULT_SSH3_PATH = "/ssh3-term"
 DEFAULT_TMUX_SESSION = "w3bench5"
 DEFAULT_TMUX_LOGFILE = "/tmp/w3_pane4_5pane.log"
+DEFAULT_TMUX_SETUP_SCRIPT = str(Path(__file__).with_name("w3_tmux_setup.sh"))
+DEFAULT_REMOTE_TMUX_SETUP = "/tmp/w3_tmux_setup.sh"
 TMUX_READY_TOKEN = "__W3_5PANE_PANE0_READY__"
 
 PROBE_TOKEN = "W3_PROBE_FIXED_Q9J5V2K7M4T8X1"
@@ -158,58 +160,36 @@ class W3Benchmark:
         child.sendcontrol("l")
         child.send("i")
 
-    def _tmux_pane_command(self, script: str) -> str:
-        return shlex.quote(f"bash -lc {shlex.quote(script)}")
+    def _upload_tmux_setup_script(self, child: pexpect.spawn) -> None:
+        local_path = Path(self.args.tmux_setup_script)
+        if not local_path.exists():
+            raise ValueError(f"tmux setup script not found: {local_path}")
+
+        script_content = local_path.read_text(encoding="utf-8")
+        token_base = "__W3_TMUX_SETUP_EOF__"
+        token = token_base
+        counter = 1
+        while token in script_content:
+            token = f"{token_base}_{counter}"
+            counter += 1
+
+        remote_path = self.args.remote_tmux_setup
+        child.sendline(f"cat > {shlex.quote(remote_path)} <<'{token}'")
+        if not script_content.endswith("\n"):
+            script_content += "\n"
+        child.send(script_content)
+        child.sendline(token)
+        self._expect_prompt(child)
+        child.sendline(f"chmod +x {shlex.quote(remote_path)}")
+        self._expect_prompt(child)
 
     def _setup_tmux_5pane(self, child: pexpect.spawn) -> None:
         session = self.args.tmux_session
-        logfile = self.args.tmux_logfile
-        pane1_script = (
-            "while true; do "
-            "printf \"[pane1|heartbeat] %(%Y-%m-%dT%H:%M:%S)T ts=%(%s)T\\n\" -1 -1; "
-            "sleep 0.2; "
-            "done"
+        self._upload_tmux_setup_script(child)
+        remote_path = self.args.remote_tmux_setup
+        child.sendline(
+            f"NO_ATTACH=1 {shlex.quote(remote_path)} {shlex.quote(session)}"
         )
-        pane2_script = (
-            "while true; do "
-            "for i in $(seq 1 150); do "
-            "echo \"[pane2|burst] line=$i ts=$(date +%s%N)\"; "
-            "done; "
-            "sleep 0.15; "
-            "done"
-        )
-        pane3_script = (
-            "while true; do "
-            "echo \"[pane3|cmd] $(date +%T) listing /etc...\"; "
-            "ls /etc | head -n 20; "
-            "sleep 0.4; "
-            "clear; "
-            "done"
-        )
-        pane4_script = (
-            f"(while true; do "
-            f"printf \\\"[pane4|writer] %s background-event\\\\n\\\" \"$(date +%s%N)\" >> {logfile}; "
-            f"sleep 0.05; "
-            f"done) & "
-            f"echo \\\"[pane4] Writer PID=$! started, tailing: {logfile}\\\"; "
-            f"tail -f {logfile}"
-        )
-
-        cmds = [
-            f"tmux has-session -t {shlex.quote(session)} 2>/dev/null && tmux kill-session -t {shlex.quote(session)}",
-            f"rm -f {logfile}",
-            f"touch {logfile}",
-            f"tmux new-session -d -s {shlex.quote(session)} -n w3 \"bash -l\"",
-            f"tmux split-window -h -t {shlex.quote(session + ':0')} {self._tmux_pane_command(pane1_script)}",
-            f"tmux split-window -v -t {shlex.quote(session + ':0.0')} {self._tmux_pane_command(pane2_script)}",
-            f"tmux split-window -v -t {shlex.quote(session + ':0.1')} {self._tmux_pane_command(pane3_script)}",
-            f"tmux split-window -v -t {shlex.quote(session + ':0.2')} {self._tmux_pane_command(pane4_script)}",
-            f"tmux select-layout -t {shlex.quote(session + ':0')} tiled",
-            f"tmux set-option -t {shlex.quote(session)} status off",
-            f"tmux select-pane -t {shlex.quote(session + ':0.0')}",
-            f"tmux send-keys -t {shlex.quote(session + ':0.0')} \"printf '{TMUX_READY_TOKEN}\\n'\" Enter",
-        ]
-        child.sendline(" ; ".join(cmds))
         self._expect_prompt(child)
 
     def _attach_tmux_5pane(self, child: pexpect.spawn) -> None:
@@ -805,6 +785,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--tmux-logfile", default=DEFAULT_TMUX_LOGFILE,
         help="tmux pane 4 logfile used for tmux_5pane workload",
+    )
+    p.add_argument(
+        "--tmux-setup-script", default=DEFAULT_TMUX_SETUP_SCRIPT,
+        help="Local tmux setup script for tmux_5pane workload",
+    )
+    p.add_argument(
+        "--remote-tmux-setup", default=DEFAULT_REMOTE_TMUX_SETUP,
+        help="Remote path for the tmux setup script",
     )
     p.add_argument(
         "--shuffle-pairs", action="store_true",
