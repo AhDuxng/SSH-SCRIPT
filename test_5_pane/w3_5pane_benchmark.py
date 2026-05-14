@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import json
 import math
 import random
 import re
@@ -11,97 +10,85 @@ import shlex
 import statistics
 import sys
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 try:
     import pexpect
 except ImportError as exc:
     raise SystemExit(
-        "Missing dependency: pexpect. Install with: pip install pexpect"
+        "Missing dependency: pexpect.  Install with:  pip install pexpect"
     ) from exc
 
 DEFAULT_PROTOCOLS = ["ssh", "ssh3", "mosh"]
-DEFAULT_WORKLOADS = ["interactive_shell", "vim", "nano"]
-DEFAULT_PROMPT = "__W3_PROMPT__#"
+DEFAULT_WORKLOADS = ["interactive_shell", "vim", "nano", "tmux_5pane"]
+DEFAULT_PROMPT    = "__W3_PROMPT__#"
 DEFAULT_SSH3_PATH = "/ssh3-term"
-REMOTE_PROMPT = "__W3_REMOTE_PROMPT__#"
-
-TMUX_SESSION = "w3bench5"
-TMUX_SETUP_SCRIPT = "w3_tmux_setup.sh"
-REMOTE_TMUX_SETUP = "/tmp/w3_tmux_setup.sh"
-PANE_READY_MARKER = "__W3_5PANE_PANE0_READY__"
-PANE_POLL_INTERVAL_SEC = 0.05
+DEFAULT_TMUX_SESSION = "w3bench5"
+DEFAULT_TMUX_LOGFILE = "/tmp/w3_pane4_5pane.log"
+TMUX_READY_TOKEN = "__W3_5PANE_PANE0_READY__"
 
 PROBE_TOKEN = "W3_PROBE_FIXED_Q9J5V2K7M4T8X1"
 PROBE_TAIL_LEN = 10
 
-_ANSI_SEQ = r"(?:\x1b\[\??[0-9;]*[a-zA-Z])"
-_ECHO_GAP = rf"(?:{_ANSI_SEQ}|[\r\n\b])*"
+_ANSI_SEQ   = r"(?:\x1b\[\??[0-9;]*[a-zA-Z])"
+_ECHO_GAP   = rf"(?:{_ANSI_SEQ}|[\r\n\b])*"
 _INITIAL_PROMPT_RE = re.compile(
     r"[#$>](?:" + _ANSI_SEQ + r"|\s)*\s*$",
     re.MULTILINE,
 )
-_PANE_PROMPT_RE = re.compile(r"[^\r\n]*[#$>%]\s*$")
-_PANE_CMD_MARKER = "__W3_PANE_CMD__"
-
 
 @dataclass
 class SampleRecord:
-    protocol: str
-    workload: str
-    round_id: int
-    sample_id: int
+    protocol:   str
+    workload:   str
+    round_id:   int
+    sample_id:  int
     latency_ms: float
 
 
 @dataclass
 class FailureRecord:
-    protocol: str
-    workload: str
-    round_id: int
-    sample_id: int
-    error_type: str
+    protocol:      str
+    workload:      str
+    round_id:      int
+    sample_id:     int
+    error_type:    str
     error_message: str
 
 
 @dataclass
 class SummaryRow:
-    protocol: str
-    workload: str
-    n: int
-    failures: int
-    success_rate_pct: float
-    min_ms: Optional[float]
-    mean_ms: Optional[float]
-    median_ms: Optional[float]
-    stdev_ms: Optional[float]
-    p95_ms: Optional[float]
-    p99_ms: Optional[float]
-    max_ms: Optional[float]
+    protocol:           str
+    workload:           str
+    n:                  int
+    failures:           int
+    success_rate_pct:   float
+    min_ms:             Optional[float]
+    mean_ms:            Optional[float]
+    median_ms:          Optional[float]
+    stdev_ms:           Optional[float]
+    p95_ms:             Optional[float]
+    p99_ms:             Optional[float]
+    max_ms:             Optional[float]
     ci95_half_width_ms: Optional[float]
 
-
-class W35PaneBenchmark:
+class W3Benchmark:
     def __init__(self, args: argparse.Namespace) -> None:
-        self.args = args
-        self.target = f"{args.user}@{args.host}"
+        self.args       = args
+        self.target     = f"{args.user}@{args.host}"
         self.started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
-
-        self.pane_prompt_marker = args.prompt.rstrip()
-        if not self.pane_prompt_marker:
+        self.prompt_marker = args.prompt.rstrip()
+        if not self.prompt_marker:
             raise ValueError("Prompt must contain at least one non-space character")
-
-        self.pane_prompt_re = self._build_prompt_re(self.pane_prompt_marker)
-        self.remote_prompt_marker = REMOTE_PROMPT
-        self.remote_prompt_re = self._build_prompt_re(self.remote_prompt_marker)
-
-        self.probe_counter = 0
-        self.tmux_pane_target: Optional[str] = None
-
-        self.records: List[SampleRecord] = []
+        self.prompt_re = self._build_prompt_re(self.prompt_marker)
+        self.probe_token = PROBE_TOKEN
+        self.probe_tail = self.probe_token[-PROBE_TAIL_LEN:]
+        self.probe_echo_re = self._build_probe_echo_re(self.probe_token)
+        self.probe_tail_echo_re = self._build_probe_echo_re(self.probe_tail)
+        self.records:  List[SampleRecord]  = []
         self.failures: List[FailureRecord] = []
         self.results: Dict[str, Dict[str, List[float]]] = {
             p: {w: [] for w in args.workloads} for p in args.protocols
@@ -120,38 +107,126 @@ class W35PaneBenchmark:
         parts = [re.escape(ch) + _ECHO_GAP for ch in prompt_marker]
         return re.compile("".join(parts) + rf"(?:{_ANSI_SEQ}|\s)*")
 
-    @staticmethod
-    def _strip_ansi(text: str) -> str:
-        return re.sub(_ANSI_SEQ, "", text)
+    def _expect_prompt(self, child: pexpect.spawn) -> None:
+        # TUI redraw (especially over mosh) may split prompt bytes with ANSI updates.
+        child.expect(self.prompt_re, timeout=self.args.timeout)
+
+    def _expect_probe_echo(
+        self,
+        child: pexpect.spawn,
+    ) -> None:
+        child.expect(
+            [self.probe_echo_re, self.probe_tail_echo_re],
+            timeout=self.args.timeout,
+        )
 
     @staticmethod
-    def _last_nonempty_line(text: str) -> str:
-        for line in reversed(text.splitlines()):
-            clean = line.strip()
-            if clean:
-                return clean
-        return ""
+    def _ensure_vim_insert_mode(child: pexpect.spawn) -> None:
+        child.send("\x1b")
+        child.send("i")
 
     @staticmethod
-    def _normalize_command_name(cmd: str) -> str:
-        name = cmd.strip()
-        if not name:
-            return ""
-        name = name.rsplit("/", 1)[-1]
-        return name.lstrip("-").lower()
+    def _erase_probe_token(child: pexpect.spawn, token: str) -> None:
+        if token:
+            child.send("\x7f" * len(token))
 
-    def _next_probe_token(self) -> str:
-        self.probe_counter += 1
-        return f"{PROBE_TOKEN}_{self.probe_counter:08d}"
+    @staticmethod
+    def _drain_pending_output(child: pexpect.spawn, max_reads: int = 8) -> None:
+        for _ in range(max_reads):
+            try:
+                child.read_nonblocking(size=4096, timeout=0)
+            except (pexpect.TIMEOUT, pexpect.EOF):
+                break
 
-    def _expect_remote_prompt(self, child: pexpect.spawn) -> None:
-        child.expect(self.remote_prompt_re, timeout=self.args.timeout)
+    def _probe_once(self, child: pexpect.spawn, erase_after_echo: bool = False) -> float:
+        self._drain_pending_output(child)
+        start_ns = time.perf_counter_ns()
+        child.send(self.probe_token)
+        self._expect_probe_echo(child)
+        end_ns = time.perf_counter_ns()
+        if erase_after_echo:
+            self._erase_probe_token(child, self.probe_token)
+        return (end_ns - start_ns) / 1_000_000.0
 
-    def _expect_pane_prompt(self, child: pexpect.spawn) -> None:
-        child.expect(self.pane_prompt_re, timeout=self.args.timeout)
+    @staticmethod
+    def _recover_nano_state(child: pexpect.spawn) -> None:
+        child.sendcontrol("l")
+
+    @staticmethod
+    def _recover_vim_state(child: pexpect.spawn) -> None:
+        child.send("\x1b")
+        child.sendcontrol("l")
+        child.send("i")
+
+    def _tmux_pane_command(self, script: str) -> str:
+        return shlex.quote(f"bash -lc {shlex.quote(script)}")
+
+    def _setup_tmux_5pane(self, child: pexpect.spawn) -> None:
+        session = self.args.tmux_session
+        logfile = self.args.tmux_logfile
+        pane1_script = (
+            "while true; do "
+            "printf \"[pane1|heartbeat] %(%Y-%m-%dT%H:%M:%S)T ts=%(%s)T\\n\" -1 -1; "
+            "sleep 0.2; "
+            "done"
+        )
+        pane2_script = (
+            "while true; do "
+            "for i in $(seq 1 150); do "
+            "echo \"[pane2|burst] line=$i ts=$(date +%s%N)\"; "
+            "done; "
+            "sleep 0.15; "
+            "done"
+        )
+        pane3_script = (
+            "while true; do "
+            "echo \"[pane3|cmd] $(date +%T) listing /etc...\"; "
+            "ls /etc | head -n 20; "
+            "sleep 0.4; "
+            "clear; "
+            "done"
+        )
+        pane4_script = (
+            f"(while true; do "
+            f"printf \\\"[pane4|writer] %s background-event\\\\n\\\" \"$(date +%s%N)\" >> {logfile}; "
+            f"sleep 0.05; "
+            f"done) & "
+            f"echo \\\"[pane4] Writer PID=$! started, tailing: {logfile}\\\"; "
+            f"tail -f {logfile}"
+        )
+
+        cmds = [
+            f"tmux has-session -t {shlex.quote(session)} 2>/dev/null && tmux kill-session -t {shlex.quote(session)}",
+            f"rm -f {logfile}",
+            f"touch {logfile}",
+            f"tmux new-session -d -s {shlex.quote(session)} -n w3 \"bash -l\"",
+            f"tmux split-window -h -t {shlex.quote(session + ':0')} {self._tmux_pane_command(pane1_script)}",
+            f"tmux split-window -v -t {shlex.quote(session + ':0.0')} {self._tmux_pane_command(pane2_script)}",
+            f"tmux split-window -v -t {shlex.quote(session + ':0.1')} {self._tmux_pane_command(pane3_script)}",
+            f"tmux split-window -v -t {shlex.quote(session + ':0.2')} {self._tmux_pane_command(pane4_script)}",
+            f"tmux select-layout -t {shlex.quote(session + ':0')} tiled",
+            f"tmux set-option -t {shlex.quote(session)} status off",
+            f"tmux select-pane -t {shlex.quote(session + ':0.0')}",
+            f"tmux send-keys -t {shlex.quote(session + ':0.0')} \"printf '{TMUX_READY_TOKEN}\\n'\" Enter",
+        ]
+        child.sendline(" ; ".join(cmds))
+        self._expect_prompt(child)
+
+    def _attach_tmux_5pane(self, child: pexpect.spawn) -> None:
+        child.sendline(f"tmux attach -t {shlex.quote(self.args.tmux_session)}")
+        child.expect_exact(TMUX_READY_TOKEN, timeout=self.args.timeout)
+
+    def _detach_tmux(self, child: pexpect.spawn) -> None:
+        child.send("\x02")
+        child.send("d")
+        self._expect_prompt(child)
+
+    def _probe_vim_once(self, child: pexpect.spawn) -> float:
+        self._ensure_vim_insert_mode(child)
+        return self._probe_once(child, erase_after_echo=True)
 
     def _session_command(self, protocol: str) -> str:
-        target = self.target
+        target     = self.target
         ssh_common = ["ssh", "-tt"]
         if self.args.source_ip:
             ssh_common += ["-b", self.args.source_ip]
@@ -159,10 +234,8 @@ class W35PaneBenchmark:
             ssh_common += ["-o", "StrictHostKeyChecking=yes"]
         else:
             ssh_common += [
-                "-o",
-                "StrictHostKeyChecking=no",
-                "-o",
-                "UserKnownHostsFile=/dev/null",
+                "-o", "StrictHostKeyChecking=no",
+                "-o", "UserKnownHostsFile=/dev/null",
             ]
         if self.args.identity_file:
             ssh_common += ["-i", self.args.identity_file]
@@ -174,7 +247,7 @@ class W35PaneBenchmark:
             return shlex.join(ssh_common)
 
         if protocol == "mosh":
-            ssh_cmd = shlex.join(ssh_common[:-1])
+            ssh_cmd    = shlex.join(ssh_common[:-1])
             mosh_parts = ["mosh", f"--ssh={ssh_cmd}"]
             if self.args.mosh_predict and self.args.mosh_predict != "adaptive":
                 mosh_parts += ["--predict", self.args.mosh_predict]
@@ -192,26 +265,20 @@ class W35PaneBenchmark:
 
         raise ValueError(f"Unsupported protocol: {protocol}")
 
-    def _open_session(self, protocol: str) -> tuple[pexpect.spawn, float]:
+    def _open_session(self, protocol: str) -> tuple:
         child = pexpect.spawn(
             self._session_command(protocol),
             encoding="utf-8",
             codec_errors="ignore",
             timeout=self.args.timeout,
         )
-        child.delaybeforesend = 0
-
-        if self.args.log_pexpect:
-            log_path = Path(self.args.output_dir) / f"pexpect_{protocol}.log"
-            log_path.parent.mkdir(parents=True, exist_ok=True)
-            child.logfile_read = open(log_path, "a", encoding="utf-8")
 
         start_ns = time.perf_counter_ns()
         child.expect(_INITIAL_PROMPT_RE, timeout=self.args.timeout)
         setup_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
 
-        child.sendline(f"export PS1={shlex.quote(self.remote_prompt_marker)}")
-        self._expect_remote_prompt(child)
+        child.sendline(f"export PS1={shlex.quote(self.args.prompt)}")
+        self._expect_prompt(child)
 
         return child, setup_ms
 
@@ -228,346 +295,190 @@ class W35PaneBenchmark:
             except Exception:
                 pass
 
-    def _run_remote(self, child: pexpect.spawn, command: str) -> str:
-        child.sendline(command)
-        self._expect_remote_prompt(child)
-        return child.before or ""
-
-    def _tmux_target(self) -> str:
-        return self.tmux_pane_target or f"{self.args.tmux_session}:0.0"
-
-    def _tmux_send_literal(self, child: pexpect.spawn, text: str) -> None:
-        self._run_remote(
-            child,
-            f"tmux send-keys -t {shlex.quote(self._tmux_target())} -l {shlex.quote(text)}",
-        )
-
-    def _tmux_send_keys(self, child: pexpect.spawn, *keys: str) -> None:
-        key_str = " ".join(keys)
-        self._run_remote(
-            child,
-            f"tmux send-keys -t {shlex.quote(self._tmux_target())} {key_str}",
-        )
-
-    def _tmux_send_line(self, child: pexpect.spawn, command: str) -> None:
-        target = shlex.quote(self._tmux_target())
-        self._run_remote(child, f"tmux send-keys -t {target} -l {shlex.quote(command)}")
-        self._run_remote(child, f"tmux send-keys -t {target} Enter")
-
-    def _tmux_send_backspace(self, child: pexpect.spawn, count: int) -> None:
-        if count <= 0:
-            return
-        self._run_remote(
-            child,
-            f"tmux send-keys -t {shlex.quote(self._tmux_target())} -N {int(count)} BSpace",
-        )
-
-    def _extract_capture_output(self, raw: str) -> str:
-        lines = raw.replace("\r", "").splitlines()
-        while lines and not lines[0].strip():
-            lines.pop(0)
-        if lines and ("tmux capture-pane" in lines[0] or "tmux capturep" in lines[0]):
-            lines.pop(0)
-        return "\n".join(lines).strip("\n")
-
-    def _pane_current_command(self, child: pexpect.spawn) -> str:
-        marker = _PANE_CMD_MARKER
-        fmt = f"{marker}#{{pane_current_command}}{marker}"
-        out = self._run_remote(
-            child,
-            f"tmux display-message -p -t {shlex.quote(self._tmux_target())} {shlex.quote(fmt)}",
-        )
-        m = re.search(re.escape(marker) + r"([^\r\n]*)" + re.escape(marker), out)
-        if m:
-            return m.group(1).strip()
-        return self._last_nonempty_line(out)
-
-    def _capture_pane_screen(self, child: pexpect.spawn, lines: int, alternate: bool) -> str:
-        flags = "-q -a " if alternate else ""
-        out = self._run_remote(
-            child,
-            (
-                f"tmux capture-pane -p -J {flags}"
-                f"-t {shlex.quote(self._tmux_target())} -S -{int(lines)}"
-            ),
-        )
-        return self._extract_capture_output(out)
-
-    def _capture_pane_text(self, child: pexpect.spawn, lines: int = 120) -> str:
-        alt = self._capture_pane_screen(child, lines=lines, alternate=True)
-        if self._strip_ansi(alt).strip():
-            return alt
-        return self._capture_pane_screen(child, lines=lines, alternate=False)
-
-    def _pane_has_prompt(self, snap: str) -> bool:
-        if self.pane_prompt_marker in snap:
-            return True
-        tail_lines = snap.splitlines()[-20:]
-        for line in tail_lines:
-            clean = self._strip_ansi(line).strip()
-            if _PANE_PROMPT_RE.search(clean):
-                return True
-        return False
-
-    def _wait_pane_contains(self, child: pexpect.spawn, text: str, timeout: int) -> None:
-        deadline = time.monotonic() + timeout
-        last_snap = ""
-        while time.monotonic() < deadline:
-            snap = self._capture_pane_text(child, lines=200)
-            last_snap = snap
-            if text in snap:
-                return
-            time.sleep(PANE_POLL_INTERVAL_SEC)
-        tail = "\n".join(last_snap.splitlines()[-8:]).strip()
-        raise pexpect.TIMEOUT(
-            f"Pane did not contain expected text: {text}; pane tail:\n{tail}"
-        )
-
-    def _wait_pane_prompt(self, child: pexpect.spawn, timeout: int) -> None:
-        deadline = time.monotonic() + timeout
-        last_snap = ""
-        while time.monotonic() < deadline:
-            snap = self._capture_pane_text(child, lines=400)
-            last_snap = snap
-            if self._pane_has_prompt(snap):
-                return
-            time.sleep(PANE_POLL_INTERVAL_SEC)
-        tail = "\n".join(last_snap.splitlines()[-8:]).strip()
-        raise pexpect.TIMEOUT(
-            "Pane did not contain expected prompt; pane tail:\n" + tail
-        )
-
-    def _wait_pane_app_started(
+    def _measure_interactive_shell(
         self,
         child: pexpect.spawn,
-        expected_commands: set[str],
-        app_name: str,
-        timeout: int,
-    ) -> None:
-        expected = {self._normalize_command_name(x) for x in expected_commands}
-        deadline = time.monotonic() + timeout
-        last_cmd = ""
-        last_snap = ""
-        while time.monotonic() < deadline:
-            cmd = self._normalize_command_name(self._pane_current_command(child))
-            if cmd:
-                last_cmd = cmd
-                if cmd in expected:
-                    return
+        warmup: int,
+        iterations: int,
+        report_cb: Optional[Callable[[int, float], None]] = None,
+    ) -> List[float]:
+        child.sendline("cat")
+        child.expect_exact("\n", timeout=self.args.timeout)
 
-            snap = self._capture_pane_text(child, lines=200)
-            last_snap = snap
-            if not self._pane_has_prompt(snap):
-                return
-            time.sleep(PANE_POLL_INTERVAL_SEC)
+        for _ in range(warmup):
+            child.send(self.probe_token)
+            self._expect_probe_echo(child)
 
-        tail = "\n".join(last_snap.splitlines()[-8:]).strip()
-        detail = f" last_cmd={last_cmd}" if last_cmd else ""
-        raise pexpect.TIMEOUT(
-            f"{app_name} did not appear to start.{detail} pane tail:\n{tail}"
-        )
+        latencies: List[float] = []
+        for i in range(iterations):
+            start_ns = time.perf_counter_ns()
+            child.send(self.probe_token)
+            self._expect_probe_echo(child)
+            end_ns = time.perf_counter_ns()
+            lat = (end_ns - start_ns) / 1_000_000.0
+            latencies.append(lat)
+            if report_cb:
+                report_cb(i + 1, lat)
 
-    @staticmethod
-    def _drain_pending_output(child: pexpect.spawn, max_reads: int = 8) -> None:
-        for _ in range(max_reads):
-            try:
-                child.read_nonblocking(size=4096, timeout=0)
-            except (pexpect.TIMEOUT, pexpect.EOF):
-                break
-
-    def _expect_probe_echo_stream(self, child: pexpect.spawn, token: str) -> None:
-        token_re = self._build_probe_echo_re(token)
-        tail_re = self._build_probe_echo_re(token[-PROBE_TAIL_LEN:])
-        child.expect([token_re, tail_re], timeout=self.args.timeout)
-
-    def _probe_once(self, child: pexpect.spawn, erase_after_echo: bool = False) -> float:
-        token = self._next_probe_token()
-        self._drain_pending_output(child)
-        start_ns = time.perf_counter_ns()
-        child.send(token)
-        self._expect_probe_echo_stream(child, token)
-        end_ns = time.perf_counter_ns()
-
-        if erase_after_echo:
-            child.send("\x7f" * len(token))
-
-        return (end_ns - start_ns) / 1_000_000.0
-
-    def _recover_vim_state(self, child: pexpect.spawn) -> None:
-        child.send("\x1b")
-        child.sendcontrol("l")
-        child.send("i")
-
-    def _recover_nano_state(self, child: pexpect.spawn) -> None:
-        child.sendcontrol("l")
-
-    def _probe_vim_once(self, child: pexpect.spawn) -> float:
-        child.send("\x1b")
-        child.send("i")
-        return self._probe_once(child, erase_after_echo=True)
-
-    def _copy_tmux_setup_to_remote(self, child: pexpect.spawn) -> None:
-        local_script = Path(self.args.tmux_setup_script)
-        if not local_script.exists():
-            raise FileNotFoundError(f"tmux setup script not found: {local_script}")
-
-        script_body = local_script.read_text(encoding="utf-8")
-        remote_path = self.args.remote_tmux_setup
-
-        self._run_remote(
-            child,
-            f"cat > {shlex.quote(remote_path)} << 'W3TMUXEOF'\n"
-            f"{script_body}\n"
-            "W3TMUXEOF",
-        )
-        self._run_remote(child, f"chmod +x {shlex.quote(remote_path)}")
-
-    def _start_tmux_session(self, child: pexpect.spawn) -> None:
-        session = self.args.tmux_session
-        self.tmux_pane_target = None
-
-        self._run_remote(
-            child,
-            f"tmux kill-session -t {shlex.quote(session)} 2>/dev/null || true",
-        )
-        self._run_remote(
-            child,
-            f"NO_ATTACH=1 bash {shlex.quote(self.args.remote_tmux_setup)}"
-            f" {shlex.quote(session)} >/tmp/w3_5pane_tmux.log 2>&1 &",
-        )
-
-        deadline = time.monotonic() + self.args.timeout
-        while time.monotonic() < deadline:
-            out = self._run_remote(
-                child,
-                f"tmux has-session -t {shlex.quote(session)} 2>/dev/null && echo __OK__ || echo __WAIT__",
-            )
-            if "__OK__" in out:
-                break
-            time.sleep(PANE_POLL_INTERVAL_SEC)
-        else:
-            raise RuntimeError(f"tmux session '{session}' did not start in time")
-
-        pane_ref = f"{self.args.tmux_session}:0.0"
-        pane_id_out = self._run_remote(
-            child,
-            f"tmux display-message -p -t {shlex.quote(pane_ref)} '#{{pane_id}}'",
-        )
-        pane_id_match = re.search(r"%\d+", pane_id_out)
-        if pane_id_match:
-            self.tmux_pane_target = pane_id_match.group(0)
-
-        self._wait_pane_contains(child, PANE_READY_MARKER, timeout=self.args.timeout)
-        self._tmux_send_line(child, f"export PS1={shlex.quote(self.args.prompt)}")
-        self._wait_pane_prompt(child, timeout=self.args.timeout)
-
-    def _stop_tmux_session(self, child: pexpect.spawn) -> None:
-        self._run_remote(
-            child,
-            f"tmux kill-session -t {shlex.quote(self.args.tmux_session)} 2>/dev/null || true",
-        )
-
-    def _attach_tmux_session(self, child: pexpect.spawn) -> None:
-        child.sendline(f"tmux attach-session -t {shlex.quote(self.args.tmux_session)}")
-        self._expect_pane_prompt(child)
-
-    def _detach_tmux_session(self, child: pexpect.spawn) -> None:
-        # Small delay helps tmux reliably parse prefix in automated input.
-        child.sendcontrol("b")
-        time.sleep(0.08)
-        child.send("d")
-        self._expect_remote_prompt(child)
-
-    def _setup_workload_pane(self, child: pexpect.spawn, workload: str) -> None:
         child.sendcontrol("c")
         child.sendcontrol("c")
-        self._expect_pane_prompt(child)
+        self._expect_prompt(child)
+        return latencies
 
-        if workload == "interactive_shell":
-            child.sendline("cat")
-            child.expect_exact("\n", timeout=self.args.timeout)
-            return
+    def _measure_vim(
+        self,
+        child: pexpect.spawn,
+        warmup: int,
+        iterations: int,
+        report_cb: Optional[Callable[[int, float], None]] = None,
+    ) -> List[float]:
+        remote_file = self.args.remote_vim_file
+        child.sendline(f"vim -Nu NONE -n {shlex.quote(remote_file)}")
+        child.send("i")
+        child.expect([r"-- INSERT --", r"INSERT"], timeout=self.args.timeout)
 
-        if workload == "vim":
-            child.sendline(f"vim -Nu NONE -n {shlex.quote(self.args.remote_vim_file)}")
-            child.send("i")
-            child.expect([r"-- INSERT --", r"INSERT"], timeout=self.args.timeout)
-            return
-
-        if workload == "nano":
-            child.sendline(f"nano --ignorercfiles {shlex.quote(self.args.remote_nano_file)}")
-            child.expect([r"GNU nano", r"\^G Help"], timeout=self.args.timeout)
-            return
-
-        raise ValueError(f"Unsupported workload: {workload}")
-
-    def _teardown_workload_pane(self, child: pexpect.spawn, workload: str) -> None:
-        if workload == "interactive_shell":
-            child.sendcontrol("c")
-            child.sendcontrol("c")
-            self._expect_pane_prompt(child)
-            return
-
-        if workload == "vim":
-            child.send("\x1b")
-            child.sendline(":q!")
-            self._expect_pane_prompt(child)
-            return
-
-        if workload == "nano":
-            child.sendcontrol("x")
-            child.send("n")
-            self._expect_pane_prompt(child)
-            return
-
-        raise ValueError(f"Unsupported workload: {workload}")
-
-    def _measure_sample(self, child: pexpect.spawn, workload: str) -> float:
-        if workload == "interactive_shell":
-            return self._probe_once(child, erase_after_echo=False)
-
-        if workload == "vim":
+        for _ in range(warmup):
             try:
-                return self._probe_vim_once(child)
+                self._probe_vim_once(child)
             except pexpect.TIMEOUT:
                 self._recover_vim_state(child)
-                return self._probe_vim_once(child)
+                self._probe_vim_once(child)
 
-        if workload == "nano":
+        latencies: List[float] = []
+        for i in range(iterations):
             try:
-                return self._probe_once(child, erase_after_echo=True)
+                lat = self._probe_vim_once(child)
+            except pexpect.TIMEOUT:
+                self._recover_vim_state(child)
+                lat = self._probe_vim_once(child)
+            latencies.append(lat)
+            if report_cb:
+                report_cb(i + 1, lat)
+
+        child.send("\x1b")
+        child.sendline(":q!")
+        self._expect_prompt(child)
+        return latencies
+
+    def _measure_nano(
+        self,
+        child: pexpect.spawn,
+        warmup: int,
+        iterations: int,
+        report_cb: Optional[Callable[[int, float], None]] = None,
+    ) -> List[float]:
+        remote_file = self.args.remote_nano_file
+        child.sendline(f"nano --ignorercfiles {shlex.quote(remote_file)}")
+        child.expect([r"GNU nano", r"\^G Help"], timeout=self.args.timeout)
+
+        for _ in range(warmup):
+            try:
+                self._probe_once(child, erase_after_echo=True)
             except pexpect.TIMEOUT:
                 self._recover_nano_state(child)
-                return self._probe_once(child, erase_after_echo=True)
+                self._probe_once(child, erase_after_echo=True)
 
-        raise ValueError(f"Unsupported workload: {workload}")
-
-    def _run_trial(self, child: pexpect.spawn, protocol: str, workload: str, trial_id: int) -> None:
-        attached = False
-        self._attach_tmux_session(child)
-        attached = True
-        try:
-            self._setup_workload_pane(child, workload)
+        latencies: List[float] = []
+        for i in range(iterations):
             try:
-                for _ in range(self.args.warmup_rounds):
-                    self._measure_sample(child, workload)
+                lat = self._probe_once(child, erase_after_echo=True)
+            except pexpect.TIMEOUT:
+                self._recover_nano_state(child)
+                lat = self._probe_once(child, erase_after_echo=True)
+            latencies.append(lat)
+            if report_cb:
+                report_cb(i + 1, lat)
 
-                for s_idx in range(1, self.args.iterations + 1):
-                    lat = self._measure_sample(child, workload)
-                    self.results[protocol][workload].append(lat)
-                    self.records.append(SampleRecord(protocol, workload, trial_id, s_idx, lat))
-                    print(
-                        f"[{protocol:>4}/{workload:<18}]"
-                        f" trial {trial_id:>2}"
-                        f" measure {s_idx:>3}/{self.args.iterations}:"
-                        f" {lat:.2f} ms",
-                        flush=True,
-                    )
-            finally:
-                self._teardown_workload_pane(child, workload)
-        finally:
-            if attached:
-                self._detach_tmux_session(child)
+        child.sendcontrol("x")
+        child.send("n")
+        self._expect_prompt(child)
+        return latencies
+
+    def _measure_tmux_5pane(
+        self,
+        child: pexpect.spawn,
+        warmup: int,
+        iterations: int,
+        report_cb: Optional[Callable[[int, float], None]] = None,
+    ) -> List[float]:
+        self._setup_tmux_5pane(child)
+        self._attach_tmux_5pane(child)
+
+        child.sendline("cat")
+        for _ in range(warmup):
+            child.send(self.probe_token)
+            self._expect_probe_echo(child)
+
+        latencies: List[float] = []
+        for i in range(iterations):
+            start_ns = time.perf_counter_ns()
+            child.send(self.probe_token)
+            self._expect_probe_echo(child)
+            end_ns = time.perf_counter_ns()
+            lat = (end_ns - start_ns) / 1_000_000.0
+            latencies.append(lat)
+            if report_cb:
+                report_cb(i + 1, lat)
+
+        child.sendcontrol("c")
+        child.sendcontrol("c")
+        self._detach_tmux(child)
+        child.sendline(f"tmux kill-session -t {shlex.quote(self.args.tmux_session)}")
+        self._expect_prompt(child)
+        return latencies
+
+    def _run_trial(
+        self,
+        child: pexpect.spawn,
+        protocol: str,
+        workload: str,
+        trial_id: int,
+    ) -> List[float]:
+        def report_cb(s_idx: int, lat: float) -> None:
+            self.results[protocol][workload].append(lat)
+            self.records.append(
+                SampleRecord(protocol, workload, trial_id, s_idx, lat)
+            )
+            print(
+                f"[{protocol:>4}/{workload:<18}]"
+                f" trial {trial_id:>2}"
+                f" measure {s_idx:>3}/{self.args.iterations}:"
+                f" {lat:.2f} ms",
+                flush=True
+            )
+
+        if workload == "interactive_shell":
+            latencies = self._measure_interactive_shell(
+                child,
+                warmup=self.args.warmup_rounds,
+                iterations=self.args.iterations,
+                report_cb=report_cb,
+            )
+        elif workload == "vim":
+            latencies = self._measure_vim(
+                child,
+                warmup=self.args.warmup_rounds,
+                iterations=self.args.iterations,
+                report_cb=report_cb,
+            )
+        elif workload == "nano":
+            latencies = self._measure_nano(
+                child,
+                warmup=self.args.warmup_rounds,
+                iterations=self.args.iterations,
+                report_cb=report_cb,
+            )
+        elif workload == "tmux_5pane":
+            latencies = self._measure_tmux_5pane(
+                child,
+                warmup=self.args.warmup_rounds,
+                iterations=self.args.iterations,
+                report_cb=report_cb,
+            )
+        else:
+            raise ValueError(f"Unsupported workload: {workload}")
+
+        return latencies
 
     def _run_session_group(self, protocol: str, workload: str) -> None:
         for trial_id in range(1, self.args.trials + 1):
@@ -581,38 +492,40 @@ class W35PaneBenchmark:
                     f" session_setup={setup_ms:.1f} ms"
                 )
 
-                self._copy_tmux_setup_to_remote(child)
-                self._start_tmux_session(child)
-                self._run_trial(child, protocol, workload, trial_id)
-
-            except (pexpect.TIMEOUT, pexpect.EOF, ValueError, RuntimeError, FileNotFoundError) as exc:
-                self.failures.append(
-                    FailureRecord(
-                        protocol=protocol,
-                        workload=workload,
-                        round_id=trial_id,
-                        sample_id=-1,
-                        error_type=type(exc).__name__,
-                        error_message=str(exc),
+                try:
+                    self._run_trial(child, protocol, workload, trial_id)
+                except (pexpect.TIMEOUT, pexpect.EOF, ValueError) as exc:
+                    self.failures.append(
+                        FailureRecord(
+                            protocol=protocol,
+                            workload=workload,
+                            round_id=trial_id,
+                            sample_id=-1,
+                            error_type=type(exc).__name__,
+                            error_message=str(exc),
+                        )
                     )
-                )
-                print(
-                    f"[{protocol:>4}/{workload:<18}]"
-                    f" trial {trial_id:>2}: FAIL"
-                    f" ({type(exc).__name__}: {exc})"
-                )
+                    print(
+                        f"[{protocol:>4}/{workload:<18}]"
+                        f" trial {trial_id:>2}: FAIL"
+                        f" ({type(exc).__name__}: {exc})"
+                    )
+                    if self.args.reopen_on_failure:
+                        if child is not None:
+                            self._close_session(child)
+                        child, setup_ms = self._open_session(protocol)
 
             finally:
                 if child is not None:
-                    try:
-                        self._stop_tmux_session(child)
-                    except Exception:
-                        pass
                     self._close_session(child)
 
     def run(self) -> None:
         random.seed(self.args.seed)
-        pairs = [(p, w) for p in self.args.protocols for w in self.args.workloads]
+        pairs = [
+            (p, w)
+            for p in self.args.protocols
+            for w in self.args.workloads
+        ]
         if self.args.shuffle_pairs:
             random.shuffle(pairs)
         for protocol, workload in pairs:
@@ -624,8 +537,8 @@ class W35PaneBenchmark:
             return None
         if len(values) == 1:
             return values[0]
-        s = sorted(values)
-        k = (len(s) - 1) * (p / 100.0)
+        s     = sorted(values)
+        k     = (len(s) - 1) * (p / 100.0)
         lower = math.floor(k)
         upper = math.ceil(k)
         if lower == upper:
@@ -633,35 +546,25 @@ class W35PaneBenchmark:
         return s[lower] + (s[upper] - s[lower]) * (k - lower)
 
     def _summary_row(self, protocol: str, workload: str) -> SummaryRow:
-        data = self.results[protocol][workload]
+        data   = self.results[protocol][workload]
         fail_n = sum(
-            1 for f in self.failures if f.protocol == protocol and f.workload == workload
+            1 for f in self.failures
+            if f.protocol == protocol and f.workload == workload
         )
-        n = len(data)
+        n     = len(data)
         total = n + fail_n
         success_rate = (100.0 * n / total) if total else 0.0
 
         if n == 0:
             return SummaryRow(
-                protocol,
-                workload,
-                0,
-                fail_n,
-                success_rate,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
+                protocol, workload, 0, fail_n, success_rate,
+                None, None, None, None, None, None, None, None,
             )
 
-        mean_ms = statistics.mean(data)
+        mean_ms   = statistics.mean(data)
         median_ms = statistics.median(data)
-        stdev_ms = statistics.stdev(data) if n > 1 else 0.0
-        ci95 = (1.96 * stdev_ms / math.sqrt(n)) if n > 1 else 0.0
+        stdev_ms  = statistics.stdev(data) if n > 1 else 0.0
+        ci95      = (1.96 * stdev_ms / math.sqrt(n)) if n > 1 else 0.0
         return SummaryRow(
             protocol=protocol,
             workload=workload,
@@ -688,7 +591,8 @@ class W35PaneBenchmark:
     def _session_setup_stats(self, protocol: str, workload: str) -> dict:
         data = self.session_setups[protocol][workload]
         if not data:
-            return dict(n=0, mean=None, median=None, stdev=None, min=None, max=None)
+            return dict(n=0, mean=None, median=None, stdev=None,
+                        min=None, max=None)
         n = len(data)
         return dict(
             n=n,
@@ -750,128 +654,175 @@ class W35PaneBenchmark:
         outdir = Path(self.args.output_dir)
         outdir.mkdir(parents=True, exist_ok=True)
 
-        summary_json = outdir / "w3_5pane_summary.json"
-        raw_csv = outdir / "w3_5pane_raw_samples.csv"
-        failures_csv = outdir / "w3_5pane_failures.csv"
-        setup_csv = outdir / "w3_5pane_session_setup.csv"
+        line_csv = outdir / "w3_line_log.csv"
+        setup_csv = outdir / "w3_session_setup.csv"
 
-        payload = {
-            "meta": {
-                "started_at_utc": self.started_at,
-                "target": self.target,
-                "client_source_ip": self.args.source_ip,
-                "protocols": self.args.protocols,
-                "workloads": self.args.workloads,
-                "trials": self.args.trials,
-                "iterations": self.args.iterations,
-                "warmup_rounds": self.args.warmup_rounds,
-                "timeout_sec": self.args.timeout,
-                "random_seed": self.args.seed,
-                "probe_token_mode": "incremental",
-                "probe_token_prefix": PROBE_TOKEN,
-                "topology": {
-                    "client": "192.168.8.100",
-                    "server": self.args.host,
-                },
-                "load_environment": {
-                    "type": "tmux_5_pane",
-                    "tmux_session": self.args.tmux_session,
-                    "pane_0": "interactive measurement target",
-                    "pane_1": "heartbeat ~5 lines/s",
-                    "pane_2": "burst stdout ~750 lines/s",
-                    "pane_3": "ls-loop + clear",
-                    "pane_4": "background writer + tail -f",
-                },
-                "metric_name": "interactive_echo_latency_ms",
-                "metric_note": (
-                    "Unique probe token is sent to tmux pane 0 via tmux send-keys. "
-                    "Latency = time from send-keys(token) to token echo observation "
-                    "via tmux capture-pane polling."
-                ),
-                "session_setup_note": (
-                    "setup_ms = time from pexpect.spawn() to first shell prompt "
-                    "(regex [#$>]\\s*$). The tmux 5-pane bootstrapping is done "
-                    "after this timing window."
-                ),
-            },
-            "summary": [asdict(row) for row in self.summaries()],
-            "session_setup": {
-                p: {w: self._session_setup_stats(p, w) for w in self.args.workloads}
-                for p in self.args.protocols
-            },
-        }
-        summary_json.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-
-        with raw_csv.open("w", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
-            writer.writerow(["protocol", "workload", "round_id", "sample_id", "latency_ms"])
-            for r in self.records:
-                writer.writerow([r.protocol, r.workload, r.round_id, r.sample_id, f"{r.latency_ms:.6f}"])
-
-        with failures_csv.open("w", newline="", encoding="utf-8") as f:
+        with line_csv.open("w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
             writer.writerow(
-                ["protocol", "workload", "round_id", "sample_id", "error_type", "error_message"]
+                [
+                    "protocol",
+                    "workload",
+                    "round_id",
+                    "sample_id",
+                    "latency_ms",
+                    "status",
+                    "error_type",
+                    "error_message",
+                ]
             )
+            for r in self.records:
+                writer.writerow(
+                    [
+                        r.protocol,
+                        r.workload,
+                        r.round_id,
+                        r.sample_id,
+                        f"{r.latency_ms:.6f}",
+                        "ok",
+                        "",
+                        "",
+                    ]
+                )
             for r in self.failures:
-                writer.writerow([r.protocol, r.workload, r.round_id, r.sample_id, r.error_type, r.error_message])
+                writer.writerow(
+                    [
+                        r.protocol,
+                        r.workload,
+                        r.round_id,
+                        r.sample_id,
+                        "",
+                        "fail",
+                        r.error_type,
+                        r.error_message,
+                    ]
+                )
 
         with setup_csv.open("w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
-            writer.writerow(["protocol", "workload", "trial_id", "session_setup_ms"])
+            writer.writerow(
+                ["protocol", "workload", "trial_id", "session_setup_ms"]
+            )
             for p in self.args.protocols:
                 for w in self.args.workloads:
-                    for trial_id, ms in enumerate(self.session_setups[p][w], start=1):
+                    for trial_id, ms in enumerate(
+                        self.session_setups[p][w], start=1
+                    ):
                         writer.writerow([p, w, trial_id, f"{ms:.6f}"])
 
-        print(f"Saved summary JSON    : {summary_json}")
-        print(f"Saved raw samples CSV : {raw_csv}")
-        print(f"Saved failures CSV    : {failures_csv}")
+        print(f"Saved line log CSV    : {line_csv}")
         print(f"Saved session setup   : {setup_csv}")
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(
-        description="W3 Interactive benchmark (tmux 5-pane load, pane-0 measurement)"
-    )
-    p.add_argument("--host", default="192.168.8.102")
-    p.add_argument("--user", default="trungnt")
-    p.add_argument("--source-ip", default="192.168.8.100")
-    p.add_argument("--identity-file", default=str(Path.home() / ".ssh" / "id_rsa"))
-    p.add_argument("--protocols", nargs="+", default=DEFAULT_PROTOCOLS, choices=DEFAULT_PROTOCOLS)
-    p.add_argument("--workloads", nargs="+", default=DEFAULT_WORKLOADS, choices=DEFAULT_WORKLOADS)
-    p.add_argument("--trials", type=int, default=15)
-    p.add_argument("--iterations", type=int, default=100)
-    p.add_argument("--warmup-rounds", type=int, default=5)
-    p.add_argument("--timeout", type=int, default=20)
-    p.add_argument("--seed", type=int, default=42)
-    p.add_argument("--output-dir", default="w3_5pane_results")
-    p.add_argument("--prompt", default=DEFAULT_PROMPT)
-    p.add_argument("--ssh3-path", default=DEFAULT_SSH3_PATH)
-    p.add_argument("--ssh3-insecure", action="store_true")
-    p.add_argument("--batch-mode", action="store_true")
-    p.add_argument("--strict-host-key-checking", action="store_true")
-    p.add_argument("--mosh-predict", default="adaptive", choices=["adaptive", "always", "never"])
-    p.add_argument("--remote-vim-file", default="/tmp/w3_vim_bench.txt")
-    p.add_argument("--remote-nano-file", default="/tmp/w3_nano_bench.txt")
-    p.add_argument("--shuffle-pairs", action="store_true")
+    p = argparse.ArgumentParser(description="W3 Interactive Editing benchmark")
     p.add_argument(
-        "--reopen-on-failure",
-        action="store_true",
-        help="Compatibility flag for older runner scripts (currently no-op).",
+        "--host", default="192.168.8.102",
+        help="Target host IP or hostname",
     )
-    p.add_argument("--log-pexpect", action="store_true")
-
-    p.add_argument("--tmux-session", default=TMUX_SESSION)
-    p.add_argument("--tmux-setup-script", default=TMUX_SETUP_SCRIPT)
-    p.add_argument("--remote-tmux-setup", default=REMOTE_TMUX_SETUP)
-
+    p.add_argument(
+        "--user", default="trungnt",
+        help="Remote username",
+    )
+    p.add_argument(
+        "--source-ip", default="192.168.8.100",
+        help="Client source IP for SSH / Mosh where supported",
+    )
+    p.add_argument(
+        "--identity-file",
+        default=str(Path.home() / ".ssh" / "id_rsa"),
+        help="SSH private key path",
+    )
+    p.add_argument(
+        "--protocols", nargs="+",
+        default=DEFAULT_PROTOCOLS, choices=DEFAULT_PROTOCOLS,
+    )
+    p.add_argument(
+        "--workloads", nargs="+",
+        default=DEFAULT_WORKLOADS, choices=DEFAULT_WORKLOADS,
+    )
+    p.add_argument(
+        "--trials", type=int, default=15,
+        help="Independent sessions per protocol/workload pair",
+    )
+    p.add_argument(
+        "--iterations", type=int, default=100,
+        help="Recorded samples per trial",
+    )
+    p.add_argument(
+        "--warmup-rounds", type=int, default=5,
+        help="Warmup samples per trial (not recorded)",
+    )
+    p.add_argument(
+        "--timeout", type=int, default=20,
+        help="pexpect timeout in seconds",
+    )
+    p.add_argument(
+        "--seed", type=int, default=42,
+        help="Random seed",
+    )
+    p.add_argument(
+        "--output-dir", default="w3_results",
+        help="Directory for JSON/CSV outputs",
+    )
+    p.add_argument(
+        "--prompt", default=DEFAULT_PROMPT,
+        help="Unique shell prompt marker used after session is ready",
+    )
+    p.add_argument(
+        "--ssh3-path", default=DEFAULT_SSH3_PATH,
+        help="SSH3 terminal path suffix",
+    )
+    p.add_argument(
+        "--ssh3-insecure", action="store_true",
+        help="Pass -insecure to ssh3",
+    )
+    p.add_argument(
+        "--batch-mode", action="store_true",
+        help="Enable BatchMode for SSHv2 / Mosh bootstrap SSH",
+    )
+    p.add_argument(
+        "--strict-host-key-checking", action="store_true",
+        help="Keep strict host key checking enabled",
+    )
+    p.add_argument(
+        "--mosh-predict", default="adaptive",
+        choices=["adaptive", "always", "never"],
+        help="Mosh prediction mode",
+    )
+    p.add_argument(
+        "--remote-vim-file", default="/tmp/w3_vim_bench.txt",
+        help="Remote file path used for the vim workload",
+    )
+    p.add_argument(
+        "--remote-nano-file", default="/tmp/w3_nano_bench.txt",
+        help="Remote file path used for the nano workload",
+    )
+    p.add_argument(
+        "--tmux-session", default=DEFAULT_TMUX_SESSION,
+        help="tmux session name used for tmux_5pane workload",
+    )
+    p.add_argument(
+        "--tmux-logfile", default=DEFAULT_TMUX_LOGFILE,
+        help="tmux pane 4 logfile used for tmux_5pane workload",
+    )
+    p.add_argument(
+        "--shuffle-pairs", action="store_true",
+        help="Shuffle protocol/workload execution order",
+    )
+    p.add_argument(
+        "--reopen-on-failure", action="store_true",
+        help="Reopen session after each failed measured sample",
+    )
+    p.add_argument(
+        "--log-pexpect", action="store_true",
+        help="Deprecated compatibility flag (no-op): pexpect logs are disabled",
+    )
     return p
-
 
 def main() -> int:
     parser = build_arg_parser()
-    args = parser.parse_args()
+    args   = parser.parse_args()
 
     if args.trials <= 0:
         parser.error("--trials must be > 0")
@@ -880,7 +831,7 @@ def main() -> int:
     if args.warmup_rounds < 0:
         parser.error("--warmup-rounds must be >= 0")
 
-    bench = W35PaneBenchmark(args)
+    bench = W3Benchmark(args)
     bench.run()
     bench.print_report()
     bench.export()
