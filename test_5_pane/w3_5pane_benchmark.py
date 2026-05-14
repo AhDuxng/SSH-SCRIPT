@@ -99,6 +99,7 @@ class W35PaneBenchmark:
         self.remote_prompt_re = self._build_prompt_re(self.remote_prompt_marker)
 
         self.probe_counter = 0
+        self.remote_cmd_counter = 0
         self.tmux_pane_target: Optional[str] = None
 
         self.records: List[SampleRecord] = []
@@ -144,8 +145,15 @@ class W35PaneBenchmark:
         self.probe_counter += 1
         return f"{PROBE_TOKEN}_{self.probe_counter:08d}"
 
+    def _next_remote_marker(self) -> str:
+        self.remote_cmd_counter += 1
+        return f"__W3_REMOTE_DONE_{self.remote_cmd_counter:08d}__"
+
     def _expect_remote_prompt(self, child: pexpect.spawn) -> None:
         child.expect(self.remote_prompt_re, timeout=self.args.timeout)
+
+    def _expect_pane_prompt(self, child: pexpect.spawn) -> None:
+        child.expect(self.pane_prompt_re, timeout=self.args.timeout)
 
     def _session_command(self, protocol: str) -> str:
         target = self.target
@@ -207,8 +215,7 @@ class W35PaneBenchmark:
         child.expect(_INITIAL_PROMPT_RE, timeout=self.args.timeout)
         setup_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
 
-        child.sendline(f"export PS1={shlex.quote(self.remote_prompt_marker)}")
-        self._expect_remote_prompt(child)
+        self._run_remote(child, f"export PS1={shlex.quote(self.remote_prompt_marker)}")
 
         return child, setup_ms
 
@@ -226,8 +233,11 @@ class W35PaneBenchmark:
                 pass
 
     def _run_remote(self, child: pexpect.spawn, command: str) -> str:
+        marker = self._next_remote_marker()
+        marker_re = self._build_probe_echo_re(marker)
         child.sendline(command)
-        self._expect_remote_prompt(child)
+        child.sendline(f"printf '%s\\n' {shlex.quote(marker)}")
+        child.expect(marker_re, timeout=self.args.timeout)
         return child.before or ""
 
     def _tmux_target(self) -> str:
@@ -364,40 +374,43 @@ class W35PaneBenchmark:
             f"{app_name} did not appear to start.{detail} pane tail:\n{tail}"
         )
 
-    def _wait_probe_echo(self, child: pexpect.spawn, token: str, prev_snap: str) -> None:
+    @staticmethod
+    def _drain_pending_output(child: pexpect.spawn, max_reads: int = 8) -> None:
+        for _ in range(max_reads):
+            try:
+                child.read_nonblocking(size=4096, timeout=0)
+            except (pexpect.TIMEOUT, pexpect.EOF):
+                break
+
+    def _expect_probe_echo_stream(self, child: pexpect.spawn, token: str) -> None:
         token_re = self._build_probe_echo_re(token)
         tail_re = self._build_probe_echo_re(token[-PROBE_TAIL_LEN:])
-        deadline = time.monotonic() + self.args.timeout
-
-        while time.monotonic() < deadline:
-            snap = self._capture_pane_text(child, lines=40)
-            if snap != prev_snap and (token_re.search(snap) or tail_re.search(snap)):
-                return
-            time.sleep(PANE_POLL_INTERVAL_SEC)
-
-        raise pexpect.TIMEOUT("Probe echo not observed in pane capture")
+        child.expect([token_re, tail_re], timeout=self.args.timeout)
 
     def _probe_once(self, child: pexpect.spawn, erase_after_echo: bool = False) -> float:
         token = self._next_probe_token()
-        prev_snap = self._capture_pane_text(child, lines=40)
+        self._drain_pending_output(child)
         start_ns = time.perf_counter_ns()
-        self._tmux_send_literal(child, token)
-        self._wait_probe_echo(child, token, prev_snap)
+        child.send(token)
+        self._expect_probe_echo_stream(child, token)
         end_ns = time.perf_counter_ns()
 
         if erase_after_echo:
-            self._tmux_send_backspace(child, len(token))
+            child.send("\x7f" * len(token))
 
         return (end_ns - start_ns) / 1_000_000.0
 
     def _recover_vim_state(self, child: pexpect.spawn) -> None:
-        self._tmux_send_keys(child, "Escape", "C-l", "i")
+        child.send("\x1b")
+        child.sendcontrol("l")
+        child.send("i")
 
     def _recover_nano_state(self, child: pexpect.spawn) -> None:
-        self._tmux_send_keys(child, "C-l")
+        child.sendcontrol("l")
 
     def _probe_vim_once(self, child: pexpect.spawn) -> float:
-        self._tmux_send_keys(child, "Escape", "i")
+        child.send("\x1b")
+        child.send("i")
         return self._probe_once(child, erase_after_echo=True)
 
     def _copy_tmux_setup_to_remote(self, child: pexpect.spawn) -> None:
@@ -461,59 +474,57 @@ class W35PaneBenchmark:
             f"tmux kill-session -t {shlex.quote(self.args.tmux_session)} 2>/dev/null || true",
         )
 
+    def _attach_tmux_session(self, child: pexpect.spawn) -> None:
+        child.sendline(f"tmux attach-session -t {shlex.quote(self.args.tmux_session)}")
+        self._expect_pane_prompt(child)
+
+    def _detach_tmux_session(self, child: pexpect.spawn) -> None:
+        # Small delay helps tmux reliably parse prefix in automated input.
+        child.sendcontrol("b")
+        time.sleep(0.08)
+        child.send("d")
+        self._expect_remote_prompt(child)
+
     def _setup_workload_pane(self, child: pexpect.spawn, workload: str) -> None:
-        self._tmux_send_keys(child, "C-c", "C-c")
-        self._wait_pane_prompt(child, timeout=self.args.timeout)
+        child.sendcontrol("c")
+        child.sendcontrol("c")
+        self._expect_pane_prompt(child)
 
         if workload == "interactive_shell":
-            self._tmux_send_line(child, "cat")
+            child.sendline("cat")
+            child.expect_exact("\n", timeout=self.args.timeout)
             return
 
         if workload == "vim":
-            self._tmux_send_line(
-                child,
-                f"vim -Nu NONE -n {shlex.quote(self.args.remote_vim_file)}",
-            )
-            self._wait_pane_app_started(
-                child,
-                expected_commands={"vim", "vi", "nvim"},
-                app_name="vim",
-                timeout=self.args.timeout,
-            )
-            self._tmux_send_literal(child, "i")
+            child.sendline(f"vim -Nu NONE -n {shlex.quote(self.args.remote_vim_file)}")
+            child.send("i")
+            child.expect([r"-- INSERT --", r"INSERT"], timeout=self.args.timeout)
             return
 
         if workload == "nano":
-            self._tmux_send_line(
-                child,
-                f"nano --ignorercfiles {shlex.quote(self.args.remote_nano_file)}",
-            )
-            self._wait_pane_app_started(
-                child,
-                expected_commands={"nano", "nano-tiny"},
-                app_name="nano",
-                timeout=self.args.timeout,
-            )
+            child.sendline(f"nano --ignorercfiles {shlex.quote(self.args.remote_nano_file)}")
+            child.expect([r"GNU nano", r"\^G Help"], timeout=self.args.timeout)
             return
 
         raise ValueError(f"Unsupported workload: {workload}")
 
     def _teardown_workload_pane(self, child: pexpect.spawn, workload: str) -> None:
         if workload == "interactive_shell":
-            self._tmux_send_keys(child, "C-c", "C-c")
-            self._wait_pane_prompt(child, timeout=self.args.timeout)
+            child.sendcontrol("c")
+            child.sendcontrol("c")
+            self._expect_pane_prompt(child)
             return
 
         if workload == "vim":
-            self._tmux_send_keys(child, "Escape")
-            self._tmux_send_line(child, ":q!")
-            self._wait_pane_prompt(child, timeout=self.args.timeout)
+            child.send("\x1b")
+            child.sendline(":q!")
+            self._expect_pane_prompt(child)
             return
 
         if workload == "nano":
-            self._tmux_send_keys(child, "C-x")
-            self._tmux_send_literal(child, "n")
-            self._wait_pane_prompt(child, timeout=self.args.timeout)
+            child.sendcontrol("x")
+            child.send("n")
+            self._expect_pane_prompt(child)
             return
 
         raise ValueError(f"Unsupported workload: {workload}")
@@ -539,24 +550,31 @@ class W35PaneBenchmark:
         raise ValueError(f"Unsupported workload: {workload}")
 
     def _run_trial(self, child: pexpect.spawn, protocol: str, workload: str, trial_id: int) -> None:
-        self._setup_workload_pane(child, workload)
+        attached = False
+        self._attach_tmux_session(child)
+        attached = True
         try:
-            for _ in range(self.args.warmup_rounds):
-                self._measure_sample(child, workload)
+            self._setup_workload_pane(child, workload)
+            try:
+                for _ in range(self.args.warmup_rounds):
+                    self._measure_sample(child, workload)
 
-            for s_idx in range(1, self.args.iterations + 1):
-                lat = self._measure_sample(child, workload)
-                self.results[protocol][workload].append(lat)
-                self.records.append(SampleRecord(protocol, workload, trial_id, s_idx, lat))
-                print(
-                    f"[{protocol:>4}/{workload:<18}]"
-                    f" trial {trial_id:>2}"
-                    f" measure {s_idx:>3}/{self.args.iterations}:"
-                    f" {lat:.2f} ms",
-                    flush=True,
-                )
+                for s_idx in range(1, self.args.iterations + 1):
+                    lat = self._measure_sample(child, workload)
+                    self.results[protocol][workload].append(lat)
+                    self.records.append(SampleRecord(protocol, workload, trial_id, s_idx, lat))
+                    print(
+                        f"[{protocol:>4}/{workload:<18}]"
+                        f" trial {trial_id:>2}"
+                        f" measure {s_idx:>3}/{self.args.iterations}:"
+                        f" {lat:.2f} ms",
+                        flush=True,
+                    )
+            finally:
+                self._teardown_workload_pane(child, workload)
         finally:
-            self._teardown_workload_pane(child, workload)
+            if attached:
+                self._detach_tmux_session(child)
 
     def _run_session_group(self, protocol: str, workload: str) -> None:
         for trial_id in range(1, self.args.trials + 1):
