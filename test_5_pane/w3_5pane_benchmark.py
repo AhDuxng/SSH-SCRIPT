@@ -29,9 +29,9 @@ DEFAULT_SSH3_PATH = "/ssh3-term"
 DEFAULT_TMUX_SESSION = "w3bench5"
 DEFAULT_TMUX_SETUP_SCRIPT = str(Path(__file__).with_name("w3_tmux_setup.sh"))
 DEFAULT_REMOTE_TMUX_SETUP = "/tmp/w3_tmux_setup.sh"
+TMUX_READY_TOKEN = "__W3_5PANE_PANE0_READY__"
 
 PROBE_TOKEN_PREFIX = "W3_PROBE_FIXED_Q9J5V2K7M4T8X1"
-DEFAULT_PROBE_TAIL_LEN = 10
 
 _ANSI_SEQ = r"(?:\x1b\[\??[0-9;]*[a-zA-Z])"
 _ECHO_GAP = rf"(?:{_ANSI_SEQ}|[\r\n\b])*"
@@ -99,11 +99,6 @@ class W3Benchmark:
         }
 
     @staticmethod
-    def _build_probe_echo_re(token: str) -> re.Pattern[str]:
-        parts = [re.escape(ch) + _ECHO_GAP for ch in token]
-        return re.compile("".join(parts))
-
-    @staticmethod
     def _build_prompt_re(prompt_marker: str) -> re.Pattern[str]:
         parts = [re.escape(ch) + _ECHO_GAP for ch in prompt_marker]
         return re.compile("".join(parts) + rf"(?:{_ANSI_SEQ}|\s)*")
@@ -112,41 +107,16 @@ class W3Benchmark:
         self.probe_seq += 1
         return f"{self.probe_prefix}_{self.probe_seq:08d}"
 
-    def _expect_prompt(
-        self,
-        child: pexpect.spawn,
-        timeout: Optional[float] = None,
-    ) -> None:
+    def _expect_prompt(self, child: pexpect.spawn) -> None:
         # TUI redraw (especially over mosh) may split prompt bytes with ANSI updates.
-        wait_timeout = float(self.args.timeout) if timeout is None else float(timeout)
-        deadline = time.monotonic() + wait_timeout
-        regex_timeout = min(wait_timeout, 2.0)
-        regex_exc: Optional[Exception] = None
-        try:
-            child.expect(self.prompt_re, timeout=regex_timeout)
-            return
-        except pexpect.TIMEOUT as exc:
-            regex_exc = exc
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            raise regex_exc if regex_exc is not None else pexpect.TIMEOUT(
-                "prompt_echo: timeout exhausted before fallback"
-            )
-        # In 5-pane tmux, non-ANSI text from other panes can interleave prompt bytes.
-        self._expect_subsequence_any(
-            child,
-            [self.prompt_marker],
-            phase="prompt_echo",
-            timeout=remaining,
-        )
+        child.expect(self.prompt_re, timeout=self.args.timeout)
 
     def _expect_prompt_resync(self, child: pexpect.spawn, phase: str) -> None:
         attempts = self.args.prompt_resync_attempts
-        per_attempt_timeout = min(3.0, float(self.args.timeout))
         last_error: Optional[Exception] = None
         for attempt in range(1, attempts + 1):
             try:
-                self._expect_prompt(child, timeout=per_attempt_timeout)
+                self._expect_prompt(child)
                 return
             except pexpect.TIMEOUT as exc:
                 last_error = exc
@@ -167,36 +137,11 @@ class W3Benchmark:
         return text
 
     def _expect_probe_echo(self, child: pexpect.spawn, token: str) -> None:
-        wait_timeout = float(self.args.timeout)
-        deadline = time.monotonic() + wait_timeout
-        targets = [token]
-        candidate_tails = [self.args.probe_tail_len, 10]
-        for tail_len_cfg in candidate_tails:
-            tail_len = min(len(token), tail_len_cfg)
-            if tail_len <= 0:
-                continue
-            tail = token[-tail_len:]
-            if tail and tail not in targets:
-                targets.append(tail)
-        # First try regex expect like baseline test workload (works well in non-tmux mode).
-        probe_res = [self._build_probe_echo_re(target) for target in targets]
-        regex_exc: Optional[Exception] = None
-        try:
-            child.expect(probe_res, timeout=min(wait_timeout, 2.0))
-            return
-        except pexpect.TIMEOUT as exc:
-            regex_exc = exc
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            raise regex_exc if regex_exc is not None else pexpect.TIMEOUT(
-                "probe_echo: timeout exhausted before fallback"
-            )
-        # Fallback to subsequence mode for heavily interleaved tmux redraw output.
         self._expect_subsequence_any(
             child,
-            targets,
+            [token],
             phase="probe_echo",
-            timeout=remaining,
+            timeout=float(self.args.timeout),
         )
 
     def _expect_subsequence_any(
@@ -218,18 +163,12 @@ class W3Benchmark:
             raise ValueError(f"{phase}: all targets are empty")
 
         progress = [0] * len(normalized_targets)
-        max_progress = [0] * len(normalized_targets)
 
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                progress_note = ", ".join(
-                    f"{t}:{m}/{len(t)}"
-                    for t, m in zip(normalized_targets, max_progress)
-                )
                 raise pexpect.TIMEOUT(
-                    f"{phase}: none of targets observed before timeout: "
-                    f"{normalized_targets!r}; progress={progress_note}"
+                    f"{phase}: none of targets observed before timeout: {normalized_targets!r}"
                 )
             try:
                 chunk = child.read_nonblocking(
@@ -245,19 +184,10 @@ class W3Benchmark:
 
             for ch in normalized:
                 for i, target in enumerate(normalized_targets):
-                    cur = progress[i]
-                    if ch == target[cur]:
-                        cur += 1
-                        progress[i] = cur
-                        if cur > max_progress[i]:
-                            max_progress[i] = cur
-                        if cur >= len(target):
+                    if ch == target[progress[i]]:
+                        progress[i] += 1
+                        if progress[i] >= len(target):
                             return target
-                    elif ch == target[0]:
-                        # Restart matching from this char for robustness.
-                        progress[i] = 1
-                        if max_progress[i] < 1:
-                            max_progress[i] = 1
 
     @staticmethod
     def _ensure_vim_insert_mode(child: pexpect.spawn) -> None:
@@ -270,46 +200,12 @@ class W3Benchmark:
             child.send("\x7f" * len(token))
 
     @staticmethod
-    def _drain_pending_output(
-        child: pexpect.spawn,
-        max_reads: int = 8,
-        read_size: int = 4096,
-        per_read_timeout: float = 0.0,
-    ) -> None:
-        """Remove pending redraw/output before starting a measured probe.
-
-        This is intentionally called before the timer starts.  In tmux/mosh
-        sessions, background panes may still be repainting; draining here avoids
-        accidentally matching an old token or prompt.
-        """
+    def _drain_pending_output(child: pexpect.spawn, max_reads: int = 8) -> None:
         for _ in range(max_reads):
             try:
-                child.read_nonblocking(size=read_size, timeout=per_read_timeout)
+                child.read_nonblocking(size=4096, timeout=0)
             except (pexpect.TIMEOUT, pexpect.EOF):
                 break
-
-    def _reset_shell_tty(
-        self,
-        child: pexpect.spawn,
-        phase: str,
-        *,
-        send_ctrl_c: bool = True,
-        drain: bool = True,
-    ) -> None:
-        """Return the active shell/pane to a sane, echoing terminal state."""
-        if send_ctrl_c:
-            child.sendcontrol("c")
-        child.sendline(
-            "stty sane echo 2>/dev/null; "
-            "export TERM=xterm-256color; "
-            f"export PS1={shlex.quote(self.args.prompt)}; "
-            "clear"
-        )
-        self._expect_prompt_resync(child, phase)
-        if drain:
-            if self.args.reset_settle_seconds > 0:
-                time.sleep(self.args.reset_settle_seconds)
-            self._drain_pending_output(child, max_reads=30, per_read_timeout=0.01)
 
     def _probe_once(self, child: pexpect.spawn, erase_after_echo: bool = False) -> float:
         probe_token = self._next_probe_token()
@@ -324,7 +220,6 @@ class W3Benchmark:
 
     @staticmethod
     def _recover_nano_state(child: pexpect.spawn) -> None:
-        child.send("\x1b")
         child.sendcontrol("l")
 
     @staticmethod
@@ -371,47 +266,15 @@ class W3Benchmark:
         self._expect_prompt(child)
 
     def _setup_tmux_5pane(self, child: pexpect.spawn) -> None:
-        session = self.args.tmux_session
-        session_q = shlex.quote(session)
-
-        # Remove a stale session from a previous failed trial unless the user
-        # explicitly asked to keep it for inspection.
-        if not self.args.tmux_keep_session:
-            child.sendline(f"tmux kill-session -t {session_q} 2>/dev/null || true")
-            self._expect_prompt(child)
-
         self._upload_tmux_setup_script(child)
+        session = shlex.quote(self.args.tmux_session)
         remote_path = shlex.quote(self.args.remote_tmux_setup)
-        child.sendline(f"NO_ATTACH=1 {remote_path} {session_q}")
-        self._expect_prompt(child)
-
-        # Keep benchmark input pinned to pane 0 and avoid accidental broadcast.
-        child.sendline(f"tmux select-pane -t {shlex.quote(f'{session}:0.0')}")
-        self._expect_prompt(child)
-        child.sendline(
-            "tmux set-window-option"
-            f" -t {shlex.quote(f'{session}:0')}"
-            " synchronize-panes off"
-        )
+        child.sendline(f"NO_ATTACH=1 {remote_path} {session}")
         self._expect_prompt(child)
 
     def _attach_tmux_5pane(self, child: pexpect.spawn) -> None:
-        child.sendline(f"tmux attach -d -t {shlex.quote(self.args.tmux_session)}")
-
-        # Verify that keystrokes are reaching the active benchmark pane, not only
-        # that tmux has painted something on screen.
-        ready_marker = f"__W3_ATTACH_READY__{time.time_ns()}__"
-        child.sendline(f"printf '{ready_marker}\\n'")
-        self._expect_subsequence_any(
-            child,
-            [ready_marker],
-            phase="tmux_attach_ready",
-            timeout=self.args.attach_timeout,
-        )
-
-        # The panes are new interactive shells; their PS1/stty state may differ
-        # from the outer SSH shell.  Reset pane 0 before starting a TUI workload.
-        self._reset_shell_tty(child, "tmux_attach_shell_reset", send_ctrl_c=True)
+        child.sendline(f"tmux attach -t {shlex.quote(self.args.tmux_session)}")
+        child.expect_exact(TMUX_READY_TOKEN, timeout=self.args.timeout)
 
     def _detach_tmux(self, child: pexpect.spawn) -> None:
         child.send("\x02")
@@ -431,38 +294,29 @@ class W3Benchmark:
 
     def _session_command(self, protocol: str) -> str:
         target = self.target
-
-        def build_ssh_parts(*, force_tty: bool, include_target: bool) -> List[str]:
-            parts = ["ssh"]
-            if force_tty:
-                parts.append("-tt")
-            if self.args.source_ip:
-                parts += ["-b", self.args.source_ip]
-            if self.args.strict_host_key_checking:
-                parts += ["-o", "StrictHostKeyChecking=yes"]
-            else:
-                parts += [
-                    "-o",
-                    "StrictHostKeyChecking=no",
-                    "-o",
-                    "UserKnownHostsFile=/dev/null",
-                ]
-            if self.args.identity_file:
-                parts += ["-i", self.args.identity_file]
-            if self.args.batch_mode:
-                parts += ["-o", "BatchMode=yes"]
-            if include_target:
-                parts.append(target)
-            return parts
+        ssh_common = ["ssh", "-tt"]
+        if self.args.source_ip:
+            ssh_common += ["-b", self.args.source_ip]
+        if self.args.strict_host_key_checking:
+            ssh_common += ["-o", "StrictHostKeyChecking=yes"]
+        else:
+            ssh_common += [
+                "-o",
+                "StrictHostKeyChecking=no",
+                "-o",
+                "UserKnownHostsFile=/dev/null",
+            ]
+        if self.args.identity_file:
+            ssh_common += ["-i", self.args.identity_file]
+        if self.args.batch_mode:
+            ssh_common += ["-o", "BatchMode=yes"]
+        ssh_common += [target]
 
         if protocol == "ssh":
-            return shlex.join(build_ssh_parts(force_tty=True, include_target=True))
+            return shlex.join(ssh_common)
 
         if protocol == "mosh":
-            # Do not force -tt in the SSH bootstrap command used by mosh.
-            # mosh starts its own pty after launching mosh-server; forcing a tty
-            # in the bootstrap path can make startup/readiness less predictable.
-            ssh_cmd = shlex.join(build_ssh_parts(force_tty=False, include_target=False))
+            ssh_cmd = shlex.join(ssh_common[:-1])
             mosh_parts = ["mosh", f"--ssh={ssh_cmd}"]
             if self.args.mosh_predict and self.args.mosh_predict != "adaptive":
                 mosh_parts += ["--predict", self.args.mosh_predict]
@@ -486,8 +340,6 @@ class W3Benchmark:
             encoding="utf-8",
             codec_errors="ignore",
             timeout=self.args.timeout,
-            dimensions=(self.args.term_rows, self.args.term_cols),
-            echo=False,
         )
 
         start_ns = time.perf_counter_ns()
@@ -496,21 +348,16 @@ class W3Benchmark:
 
         child.sendline(f"export PS1={shlex.quote(self.args.prompt)}")
         self._expect_prompt(child)
-        self._reset_shell_tty(child, "session_shell_reset", send_ctrl_c=False)
 
         return child, setup_ms
 
     def _close_session(self, child: pexpect.spawn) -> None:
         try:
             child.sendline("exit")
-            child.expect(pexpect.EOF, timeout=self.args.close_timeout)
+            child.expect(pexpect.EOF)
         except Exception:
-            pass
+            child.close(force=True)
         finally:
-            try:
-                child.close(force=True)
-            except Exception:
-                pass
             try:
                 if getattr(child, "logfile_read", None) is not None:
                     child.logfile_read.close()
@@ -524,25 +371,8 @@ class W3Benchmark:
         iterations: int,
         report_cb: Optional[Callable[[int, float], None]] = None,
     ) -> List[float]:
-        # Force a sane terminal before entering cat.  The old implementation only
-        # waited for a newline after sending `cat`, which could be the command echo
-        # itself and not proof that cat was ready.
-        self._reset_shell_tty(child, "interactive_shell_before_cat")
-
         child.sendline("cat")
-
-        # Confirm that the foreground program echoes through the terminal before
-        # starting latency probes.  This avoids the common mosh/tmux race where the
-        # benchmark sends a probe before the active pane is ready.
-        ready_marker = f"__W3_CAT_READY__{time.time_ns()}__"
-        child.sendline(ready_marker)
-        self._expect_subsequence_any(
-            child,
-            [ready_marker],
-            phase="cat_ready",
-            timeout=self.args.timeout,
-        )
-        self._drain_pending_output(child, max_reads=30, per_read_timeout=0.01)
+        child.expect_exact("\n", timeout=self.args.timeout)
 
         for _ in range(warmup):
             self._probe_once(child)
@@ -556,11 +386,7 @@ class W3Benchmark:
 
         child.sendcontrol("c")
         child.sendcontrol("c")
-        try:
-            self._expect_prompt_resync(child, "interactive_shell_exit")
-        except pexpect.TIMEOUT:
-            if self.args.check_interactive_shell_exit_prompt:
-                raise
+        self._expect_prompt_resync(child, "interactive_shell_exit")
         return latencies
 
     def _measure_vim(
@@ -570,10 +396,8 @@ class W3Benchmark:
         iterations: int,
         report_cb: Optional[Callable[[int, float], None]] = None,
     ) -> List[float]:
-        self._reset_shell_tty(child, "before_vim")
-
         remote_file = self.args.remote_vim_file
-        child.sendline(f"vim -Nu NONE -n -i NONE {shlex.quote(remote_file)}")
+        child.sendline(f"vim -Nu NONE -n {shlex.quote(remote_file)}")
         child.send("i")
         self._expect_subsequence_any(
             child,
@@ -581,7 +405,6 @@ class W3Benchmark:
             phase="vim_start",
             timeout=self.args.app_start_timeout,
         )
-        self._drain_pending_output(child, max_reads=20, per_read_timeout=0.01)
 
         for _ in range(warmup):
             try:
@@ -603,11 +426,7 @@ class W3Benchmark:
 
         child.send("\x1b")
         child.sendline(":q!")
-        try:
-            self._expect_prompt_resync(child, "vim_exit")
-        except pexpect.TIMEOUT:
-            if self.args.check_vim_exit_prompt:
-                raise
+        self._expect_prompt_resync(child, "vim_exit")
         return latencies
 
     def _measure_nano(
@@ -617,54 +436,36 @@ class W3Benchmark:
         iterations: int,
         report_cb: Optional[Callable[[int, float], None]] = None,
     ) -> List[float]:
-        self._reset_shell_tty(child, "before_nano")
-
         remote_file = self.args.remote_nano_file
         child.sendline(f"nano --ignorercfiles {shlex.quote(remote_file)}")
-
-        # In a 5-pane tmux screen, the nano header/footer can be split by ANSI
-        # redraws or by output from other panes.  Use subsequence matching instead
-        # of a strict contiguous regex only.
         self._expect_subsequence_any(
             child,
-            ["GNU nano", "Write Out", "Help", "Exit"],
+            ["GNU nano", "^G Help"],
             phase="nano_start",
             timeout=self.args.app_start_timeout,
         )
 
-        if self.args.nano_settle_seconds > 0:
-            time.sleep(self.args.nano_settle_seconds)
-        self._drain_pending_output(child, max_reads=20, per_read_timeout=0.01)
-
-        def probe_nano_with_recovery() -> float:
-            last_exc: Optional[Exception] = None
-            for _ in range(self.args.nano_probe_retries):
-                try:
-                    return self._probe_once(child, erase_after_echo=True)
-                except pexpect.TIMEOUT as exc:
-                    last_exc = exc
-                    self._recover_nano_state(child)
-            if last_exc:
-                raise last_exc
-            raise pexpect.TIMEOUT("nano probe failed without exception detail")
-
         for _ in range(warmup):
-            probe_nano_with_recovery()
+            try:
+                self._probe_once(child, erase_after_echo=True)
+            except pexpect.TIMEOUT:
+                self._recover_nano_state(child)
+                self._probe_once(child, erase_after_echo=True)
 
         latencies: List[float] = []
         for i in range(iterations):
-            lat = probe_nano_with_recovery()
+            try:
+                lat = self._probe_once(child, erase_after_echo=True)
+            except pexpect.TIMEOUT:
+                self._recover_nano_state(child)
+                lat = self._probe_once(child, erase_after_echo=True)
             latencies.append(lat)
             if report_cb:
                 report_cb(i + 1, lat)
 
         child.sendcontrol("x")
         child.send("n")
-        try:
-            self._expect_prompt_resync(child, "nano_exit")
-        except pexpect.TIMEOUT:
-            if self.args.check_nano_exit_prompt:
-                raise
+        self._expect_prompt_resync(child, "nano_exit")
         return latencies
 
     def _run_trial(
@@ -1012,24 +813,6 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="pexpect timeout in seconds",
     )
     p.add_argument(
-        "--term-rows",
-        type=int,
-        default=40,
-        help="Pseudo-terminal row count used by pexpect",
-    )
-    p.add_argument(
-        "--term-cols",
-        type=int,
-        default=120,
-        help="Pseudo-terminal column count used by pexpect",
-    )
-    p.add_argument(
-        "--reset-settle-seconds",
-        type=float,
-        default=0.15,
-        help="Small delay after terminal reset before draining output",
-    )
-    p.add_argument(
         "--prompt-resync-attempts",
         type=int,
         default=4,
@@ -1048,55 +831,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="per-read timeout while waiting probe token (seconds)",
     )
     p.add_argument(
-        "--probe-tail-len",
-        type=int,
-        default=DEFAULT_PROBE_TAIL_LEN,
-        help="allow matching only the trailing N chars of probe token",
-    )
-    p.add_argument(
         "--app-start-timeout",
         type=float,
         default=30.0,
         help="timeout waiting startup markers for vim/nano (seconds)",
-    )
-    p.add_argument(
-        "--nano-settle-seconds",
-        type=float,
-        default=0.2,
-        help="small settle delay after nano startup before probing",
-    )
-    p.add_argument(
-        "--nano-probe-retries",
-        type=int,
-        default=3,
-        help="retries per nano probe sample before declaring timeout",
-    )
-    p.add_argument(
-        "--attach-timeout",
-        type=float,
-        default=30.0,
-        help="timeout waiting tmux attach handshake marker (seconds)",
-    )
-    p.add_argument(
-        "--close-timeout",
-        type=float,
-        default=3.0,
-        help="max wait before forcing session close (seconds)",
-    )
-    p.add_argument(
-        "--check-vim-exit-prompt",
-        action="store_true",
-        help="strictly require shell prompt detection right after :q! in vim",
-    )
-    p.add_argument(
-        "--check-interactive-shell-exit-prompt",
-        action="store_true",
-        help="strictly require prompt detection after Ctrl-C exit from cat",
-    )
-    p.add_argument(
-        "--check-nano-exit-prompt",
-        action="store_true",
-        help="strictly require prompt detection right after exiting nano",
     )
     p.add_argument(
         "--seed",
@@ -1203,32 +941,14 @@ def main() -> int:
         parser.error("--iterations must be > 0")
     if args.warmup_rounds < 0:
         parser.error("--warmup-rounds must be >= 0")
-    if args.timeout <= 0:
-        parser.error("--timeout must be > 0")
-    if args.term_rows <= 0:
-        parser.error("--term-rows must be > 0")
-    if args.term_cols <= 0:
-        parser.error("--term-cols must be > 0")
-    if args.reset_settle_seconds < 0:
-        parser.error("--reset-settle-seconds must be >= 0")
     if args.prompt_resync_attempts <= 0:
         parser.error("--prompt-resync-attempts must be > 0")
     if args.probe_read_size <= 0:
         parser.error("--probe-read-size must be > 0")
     if args.probe_poll_timeout <= 0:
         parser.error("--probe-poll-timeout must be > 0")
-    if args.probe_tail_len <= 0:
-        parser.error("--probe-tail-len must be > 0")
     if args.app_start_timeout <= 0:
         parser.error("--app-start-timeout must be > 0")
-    if args.nano_settle_seconds < 0:
-        parser.error("--nano-settle-seconds must be >= 0")
-    if args.nano_probe_retries <= 0:
-        parser.error("--nano-probe-retries must be > 0")
-    if args.attach_timeout <= 0:
-        parser.error("--attach-timeout must be > 0")
-    if args.close_timeout <= 0:
-        parser.error("--close-timeout must be > 0")
 
     bench = W3Benchmark(args)
     bench.run()
