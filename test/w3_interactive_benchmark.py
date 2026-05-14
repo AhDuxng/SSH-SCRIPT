@@ -27,8 +27,8 @@ DEFAULT_WORKLOADS = ["interactive_shell", "vim", "nano"]
 DEFAULT_PROMPT    = "__W3_PROMPT__#"
 DEFAULT_SSH3_PATH = "/ssh3-term"
 
-PROBE_TOKEN = "W3_PROBE_FIXED_Q9J5V2K7M4T8X1"
-PROBE_TAIL_LEN = 10
+PROBE_TOKEN = "X"
+PROBE_TAIL_LEN = 1
 
 _ANSI_SEQ   = r"(?:\x1b\[\??[0-9;]*[a-zA-Z])"
 _ECHO_GAP   = rf"(?:{_ANSI_SEQ}|[\r\n\b])*"
