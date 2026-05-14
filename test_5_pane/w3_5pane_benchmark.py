@@ -469,7 +469,8 @@ class W3Benchmark:
 
         child.send("\x1b")
         child.sendline(":q!")
-        self._expect_prompt_resync(child, "vim_exit")
+        if self.args.check_vim_exit_prompt:
+            self._expect_prompt_resync(child, "vim_exit")
         return latencies
 
     def _measure_nano(
@@ -915,6 +916,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         type=float,
         default=3.0,
         help="max wait before forcing session close (seconds)",
+    )
+    p.add_argument(
+        "--check-vim-exit-prompt",
+        action="store_true",
+        help="strictly require shell prompt detection right after :q! in vim",
     )
     p.add_argument(
         "--seed",
