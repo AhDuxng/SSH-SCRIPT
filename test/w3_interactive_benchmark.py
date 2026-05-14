@@ -27,8 +27,11 @@ DEFAULT_WORKLOADS = ["interactive_shell", "vim", "nano"]
 DEFAULT_PROMPT    = "__W3_PROMPT__#"
 DEFAULT_SSH3_PATH = "/ssh3-term"
 
-PROBE_TOKEN = "Hello"
-PROBE_SUFFIX_MOD = 100
+PROBE_TAG = "KS"
+PROBE_COUNTER_WIDTH = 4
+PROBE_COUNTER_MAX = (10 ** PROBE_COUNTER_WIDTH) - 1
+PROBE_RANDOM_LEN = 8
+PROBE_RANDOM_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
 _ANSI_SEQ   = r"(?:\x1b\[\??[0-9;]*[a-zA-Z])"
 _ECHO_GAP   = rf"(?:{_ANSI_SEQ}|[\r\n\b])*"
@@ -81,9 +84,7 @@ class W3Benchmark:
         if not self.prompt_marker:
             raise ValueError("Prompt must contain at least one non-space character")
         self.prompt_re = self._build_prompt_re(self.prompt_marker)
-        self.probe_token = PROBE_TOKEN
         self.probe_counter = 0
-        self.probe_char_echo_res: Dict[str, re.Pattern[str]] = {}
         self.records:  List[SampleRecord]  = []
         self.failures: List[FailureRecord] = []
         self.results: Dict[str, Dict[str, List[float]]] = {
@@ -125,31 +126,29 @@ class W3Benchmark:
             except (pexpect.TIMEOUT, pexpect.EOF):
                 break
 
-    def _probe_char_echo_re(self, char: str) -> re.Pattern[str]:
-        echo_re = self.probe_char_echo_res.get(char)
-        if echo_re is None:
-            echo_re = self._build_probe_echo_re(char)
-            self.probe_char_echo_res[char] = echo_re
-        return echo_re
-
     def _next_probe_token(self) -> str:
-        self.probe_counter = (self.probe_counter + 1) % PROBE_SUFFIX_MOD
-        return f"{self.probe_token}{self.probe_counter:02d}"
+        self.probe_counter += 1
+        if self.probe_counter > PROBE_COUNTER_MAX:
+            self.probe_counter = 1
+        suffix = "".join(
+            random.choices(PROBE_RANDOM_ALPHABET, k=PROBE_RANDOM_LEN)
+        )
+        return (
+            f"__{PROBE_TAG}_{self.probe_counter:0{PROBE_COUNTER_WIDTH}d}"
+            f"_{suffix}__"
+        )
 
     def _probe_once(self, child: pexpect.spawn, erase_after_echo: bool = False) -> float:
         self._drain_pending_output(child)
         token = self._next_probe_token()
-        total_ms = 0.0
-        for ch in token:
-            echo_re = self._probe_char_echo_re(ch)
-            start_ns = time.perf_counter_ns()
-            child.send(ch)
-            child.expect(echo_re, timeout=self.args.timeout)
-            end_ns = time.perf_counter_ns()
-            total_ms += (end_ns - start_ns) / 1_000_000.0
+        echo_re = self._build_probe_echo_re(token)
+        child.send(token)
+        start_ns = time.perf_counter_ns()
+        child.expect(echo_re, timeout=self.args.timeout)
+        end_ns = time.perf_counter_ns()
         if erase_after_echo:
             self._erase_probe_token(child, token)
-        return total_ms
+        return (end_ns - start_ns) / 1_000_000.0
 
     @staticmethod
     def _recover_nano_state(child: pexpect.spawn) -> None:
