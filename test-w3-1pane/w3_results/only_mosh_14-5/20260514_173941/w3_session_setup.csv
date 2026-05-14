@@ -1,0 +1,10 @@
+protocol,workload,trial_id,session_setup_ms
+mosh,vim,1,1281.555734
+mosh,vim,2,927.006862
+mosh,vim,3,887.832796
+mosh,interactive_shell,1,890.034560
+mosh,interactive_shell,2,885.296814
+mosh,interactive_shell,3,894.973726
+mosh,nano,1,899.424684
+mosh,nano,2,880.725803
+mosh,nano,3,892.908078

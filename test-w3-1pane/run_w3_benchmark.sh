@@ -22,7 +22,7 @@ SOURCE_IP="100.70.166.91"
 IDENTITY_FILE="$HOME/.ssh/id_ed25519"
 
 PROTOCOLS="mosh"
-WORKLOADS="interactive_shell vim nano"
+WORKLOADS="nano interactive_shell vim"
 
 ITERATIONS=100
 WARMUP_ROUNDS=10
