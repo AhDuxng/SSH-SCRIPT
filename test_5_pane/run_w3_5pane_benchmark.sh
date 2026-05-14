@@ -23,6 +23,7 @@ PROBE_POLL_TIMEOUT=0.2
 PROBE_TAIL_LEN=12
 NANO_SETTLE_SECONDS=0.2
 NANO_PROBE_RETRIES=3
+CLOSE_TIMEOUT=2.0
 SEED=42
 
 OUTPUT_DIR="w3_5pane_results"
@@ -66,6 +67,7 @@ CMD=(
     --probe-tail-len    "$PROBE_TAIL_LEN"
     --nano-settle-seconds "$NANO_SETTLE_SECONDS"
     --nano-probe-retries "$NANO_PROBE_RETRIES"
+    --close-timeout     "$CLOSE_TIMEOUT"
     --seed              "$SEED"
     --output-dir        "$OUTPUT_DIR"
     --prompt            "$PROMPT"

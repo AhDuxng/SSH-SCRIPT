@@ -393,10 +393,14 @@ class W3Benchmark:
     def _close_session(self, child: pexpect.spawn) -> None:
         try:
             child.sendline("exit")
-            child.expect(pexpect.EOF)
+            child.expect(pexpect.EOF, timeout=self.args.close_timeout)
         except Exception:
-            child.close(force=True)
+            pass
         finally:
+            try:
+                child.close(force=True)
+            except Exception:
+                pass
             try:
                 if getattr(child, "logfile_read", None) is not None:
                     child.logfile_read.close()
@@ -907,6 +911,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="timeout waiting tmux attach handshake marker (seconds)",
     )
     p.add_argument(
+        "--close-timeout",
+        type=float,
+        default=3.0,
+        help="max wait before forcing session close (seconds)",
+    )
+    p.add_argument(
         "--seed",
         type=int,
         default=42,
@@ -1027,6 +1037,8 @@ def main() -> int:
         parser.error("--nano-probe-retries must be > 0")
     if args.attach_timeout <= 0:
         parser.error("--attach-timeout must be > 0")
+    if args.close_timeout <= 0:
+        parser.error("--close-timeout must be > 0")
 
     bench = W3Benchmark(args)
     bench.run()
