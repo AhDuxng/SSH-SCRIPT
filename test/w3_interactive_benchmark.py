@@ -85,6 +85,7 @@ class W3Benchmark:
         self.probe_tail = self.probe_token[-PROBE_TAIL_LEN:]
         self.probe_echo_re = self._build_probe_echo_re(self.probe_token)
         self.probe_tail_echo_re = self._build_probe_echo_re(self.probe_tail)
+        self.probe_counter = 0
         self.records:  List[SampleRecord]  = []
         self.failures: List[FailureRecord] = []
         self.results: Dict[str, Dict[str, List[float]]] = {
@@ -140,17 +141,22 @@ class W3Benchmark:
         for ch in token:
             child.send(ch)
 
+    def _next_probe_token(self) -> str:
+        self.probe_counter += 1
+        return f"{self.probe_token}{self.probe_counter}"
+
     def _probe_once(self, child: pexpect.spawn, erase_after_echo: bool = False) -> float:
         self._drain_pending_output(child)
+        token = self._next_probe_token()
         total_ms = 0.0
-        for ch in self.probe_token:
+        for ch in token:
             start_ns = time.perf_counter_ns()
             child.send(ch)
             child.expect(self._build_probe_echo_re(ch), timeout=self.args.timeout)
             end_ns = time.perf_counter_ns()
             total_ms += (end_ns - start_ns) / 1_000_000.0
         if erase_after_echo:
-            self._erase_probe_token(child, self.probe_token)
+            self._erase_probe_token(child, token)
         return total_ms
 
     @staticmethod
