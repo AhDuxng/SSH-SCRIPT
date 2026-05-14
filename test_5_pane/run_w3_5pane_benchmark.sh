@@ -39,6 +39,8 @@ REOPEN_ON_FAILURE=true
 TMUX_SESSION="w3bench5"
 TMUX_SETUP_SCRIPT="w3_tmux_setup.sh"  # local file in this directory
 REMOTE_TMUX_SETUP="/tmp/w3_tmux_setup.sh"
+TMUX_KEEP_SESSION=true
+TMUX_LOAD=true
 
 CMD=(
     python w3_5pane_benchmark.py
@@ -70,6 +72,8 @@ $STRICT_HOST_KEY    && CMD+=(--strict-host-key-checking)
 $SHUFFLE_PAIRS      && CMD+=(--shuffle-pairs)
 $REOPEN_ON_FAILURE  && CMD+=(--reopen-on-failure)
 $LOG_PEXPECT        && CMD+=(--log-pexpect)
+$TMUX_KEEP_SESSION  && CMD+=(--tmux-keep-session)
+$TMUX_LOAD          && CMD+=(--tmux-load)
 
 echo "=== W3 Interactive Benchmark (5-pane tmux load variant) ==="
 echo ""

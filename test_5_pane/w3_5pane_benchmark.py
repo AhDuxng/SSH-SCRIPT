@@ -23,7 +23,7 @@ except ImportError as exc:
     ) from exc
 
 DEFAULT_PROTOCOLS = ["ssh", "ssh3", "mosh"]
-DEFAULT_WORKLOADS = ["interactive_shell", "vim", "nano", "tmux_5pane"]
+DEFAULT_WORKLOADS = ["interactive_shell", "vim", "nano"]
 DEFAULT_PROMPT    = "__W3_PROMPT__#"
 DEFAULT_SSH3_PATH = "/ssh3-term"
 DEFAULT_TMUX_SESSION = "w3bench5"
@@ -374,42 +374,6 @@ class W3Benchmark:
         self._expect_prompt(child)
         return latencies
 
-    def _measure_tmux_5pane(
-        self,
-        child: pexpect.spawn,
-        warmup: int,
-        iterations: int,
-        report_cb: Optional[Callable[[int, float], None]] = None,
-    ) -> List[float]:
-        self._setup_tmux_5pane(child)
-        self._attach_tmux_5pane(child)
-
-        child.sendline("cat")
-        for _ in range(warmup):
-            child.send(self.probe_token)
-            self._expect_probe_echo(child)
-
-        latencies: List[float] = []
-        for i in range(iterations):
-            start_ns = time.perf_counter_ns()
-            child.send(self.probe_token)
-            self._expect_probe_echo(child)
-            end_ns = time.perf_counter_ns()
-            lat = (end_ns - start_ns) / 1_000_000.0
-            latencies.append(lat)
-            if report_cb:
-                report_cb(i + 1, lat)
-
-        child.sendcontrol("c")
-        child.sendcontrol("c")
-        self._detach_tmux(child)
-        if not self.args.tmux_keep_session:
-            child.sendline(
-                f"tmux kill-session -t {shlex.quote(self.args.tmux_session)}"
-            )
-            self._expect_prompt(child)
-        return latencies
-
     def _run_trial(
         self,
         child: pexpect.spawn,
@@ -430,36 +394,47 @@ class W3Benchmark:
                 flush=True
             )
 
-        if workload == "interactive_shell":
-            latencies = self._measure_interactive_shell(
-                child,
-                warmup=self.args.warmup_rounds,
-                iterations=self.args.iterations,
-                report_cb=report_cb,
-            )
-        elif workload == "vim":
-            latencies = self._measure_vim(
-                child,
-                warmup=self.args.warmup_rounds,
-                iterations=self.args.iterations,
-                report_cb=report_cb,
-            )
-        elif workload == "nano":
-            latencies = self._measure_nano(
-                child,
-                warmup=self.args.warmup_rounds,
-                iterations=self.args.iterations,
-                report_cb=report_cb,
-            )
-        elif workload == "tmux_5pane":
-            latencies = self._measure_tmux_5pane(
-                child,
-                warmup=self.args.warmup_rounds,
-                iterations=self.args.iterations,
-                report_cb=report_cb,
-            )
-        else:
+        def run_workload() -> List[float]:
+            if workload == "interactive_shell":
+                return self._measure_interactive_shell(
+                    child,
+                    warmup=self.args.warmup_rounds,
+                    iterations=self.args.iterations,
+                    report_cb=report_cb,
+                )
+            if workload == "vim":
+                return self._measure_vim(
+                    child,
+                    warmup=self.args.warmup_rounds,
+                    iterations=self.args.iterations,
+                    report_cb=report_cb,
+                )
+            if workload == "nano":
+                return self._measure_nano(
+                    child,
+                    warmup=self.args.warmup_rounds,
+                    iterations=self.args.iterations,
+                    report_cb=report_cb,
+                )
             raise ValueError(f"Unsupported workload: {workload}")
+
+        if not self.args.tmux_load:
+            return run_workload()
+
+        attached = False
+        self._setup_tmux_5pane(child)
+        self._attach_tmux_5pane(child)
+        attached = True
+        try:
+            return run_workload()
+        finally:
+            if attached:
+                self._detach_tmux(child)
+                if not self.args.tmux_keep_session:
+                    child.sendline(
+                        f"tmux kill-session -t {shlex.quote(self.args.tmux_session)}"
+                    )
+                    self._expect_prompt(child)
 
         return latencies
 
@@ -782,20 +757,24 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Remote file path used for the nano workload",
     )
     p.add_argument(
+        "--tmux-load", action="store_true",
+        help="Enable 5-pane tmux background load for all workloads",
+    )
+    p.add_argument(
         "--tmux-session", default=DEFAULT_TMUX_SESSION,
-        help="tmux session name used for tmux_5pane workload",
+        help="tmux session name used for background load",
     )
     p.add_argument(
         "--tmux-logfile", default=DEFAULT_TMUX_LOGFILE,
-        help="tmux pane 4 logfile used for tmux_5pane workload",
+        help="tmux pane 4 logfile used by the background load",
     )
     p.add_argument(
         "--tmux-keep-session", action="store_true",
-        help="Keep tmux session after tmux_5pane workload for inspection",
+        help="Keep tmux session after workload for inspection",
     )
     p.add_argument(
         "--tmux-setup-script", default=DEFAULT_TMUX_SETUP_SCRIPT,
-        help="Local tmux setup script for tmux_5pane workload",
+        help="Local tmux setup script for background load",
     )
     p.add_argument(
         "--remote-tmux-setup", default=DEFAULT_REMOTE_TMUX_SETUP,
