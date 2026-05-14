@@ -248,16 +248,11 @@ class W3Benchmark:
         child.expect_exact("\n", timeout=self.args.timeout)
 
         for _ in range(warmup):
-            child.send(self.probe_token)
-            self._expect_probe_echo(child)
+            self._probe_once(child)
 
         latencies: List[float] = []
         for i in range(iterations):
-            start_ns = time.perf_counter_ns()
-            child.send(self.probe_token)
-            self._expect_probe_echo(child)
-            end_ns = time.perf_counter_ns()
-            lat = (end_ns - start_ns) / 1_000_000.0
+            lat = self._probe_once(child)
             latencies.append(lat)
             if report_cb:
                 report_cb(i + 1, lat)
