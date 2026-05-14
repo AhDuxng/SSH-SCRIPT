@@ -32,10 +32,10 @@ DEFAULT_REMOTE_TMUX_SETUP = "/tmp/w3_tmux_setup.sh"
 TMUX_READY_TOKEN = "__W3_5PANE_PANE0_READY__"
 
 PROBE_TOKEN_PREFIX = "W3_PROBE_FIXED_Q9J5V2K7M4T8X1"
-PROBE_TAIL_LEN = 10
 
 _ANSI_SEQ = r"(?:\x1b\[\??[0-9;]*[a-zA-Z])"
 _ECHO_GAP = rf"(?:{_ANSI_SEQ}|[\r\n\b])*"
+_ANSI_RE = re.compile(_ANSI_SEQ)
 _INITIAL_PROMPT_RE = re.compile(
     r"[#$>](?:" + _ANSI_SEQ + r"|\s)*\s*$",
     re.MULTILINE,
@@ -99,11 +99,6 @@ class W3Benchmark:
         }
 
     @staticmethod
-    def _build_probe_echo_re(token: str) -> re.Pattern[str]:
-        parts = [re.escape(ch) + _ECHO_GAP for ch in token]
-        return re.compile("".join(parts))
-
-    @staticmethod
     def _build_prompt_re(prompt_marker: str) -> re.Pattern[str]:
         parts = [re.escape(ch) + _ECHO_GAP for ch in prompt_marker]
         return re.compile("".join(parts) + rf"(?:{_ANSI_SEQ}|\s)*")
@@ -135,10 +130,64 @@ class W3Benchmark:
         if last_error:
             raise last_error
 
+    @staticmethod
+    def _strip_ansi_and_ctrl(text: str) -> str:
+        text = _ANSI_RE.sub("", text)
+        text = text.replace("\r", "").replace("\n", "").replace("\b", "")
+        return text
+
     def _expect_probe_echo(self, child: pexpect.spawn, token: str) -> None:
-        full_re = self._build_probe_echo_re(token)
-        tail_re = self._build_probe_echo_re(token[-PROBE_TAIL_LEN:])
-        child.expect([full_re, tail_re], timeout=self.args.timeout)
+        self._expect_subsequence_any(
+            child,
+            [token],
+            phase="probe_echo",
+            timeout=float(self.args.timeout),
+        )
+
+    def _expect_subsequence_any(
+        self,
+        child: pexpect.spawn,
+        targets: List[str],
+        phase: str,
+        timeout: float,
+    ) -> str:
+        if not targets:
+            raise ValueError(f"{phase}: targets must not be empty")
+
+        deadline = time.monotonic() + timeout
+
+        # tmux can interleave redraw text from other panes between chars.
+        # Match target as ordered subsequence on ANSI-stripped stream.
+        normalized_targets = [t for t in targets if t]
+        if not normalized_targets:
+            raise ValueError(f"{phase}: all targets are empty")
+
+        progress = [0] * len(normalized_targets)
+
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise pexpect.TIMEOUT(
+                    f"{phase}: none of targets observed before timeout: {normalized_targets!r}"
+                )
+            try:
+                chunk = child.read_nonblocking(
+                    size=self.args.probe_read_size,
+                    timeout=min(self.args.probe_poll_timeout, remaining),
+                )
+            except pexpect.TIMEOUT:
+                continue
+
+            normalized = self._strip_ansi_and_ctrl(chunk)
+            if not normalized:
+                continue
+
+            for ch in normalized:
+                for i, target in enumerate(normalized_targets):
+                    if ch == target[progress[i]]:
+                        progress[i] += 1
+                        if progress[i] >= len(target):
+                            return target
 
     @staticmethod
     def _ensure_vim_insert_mode(child: pexpect.spawn) -> None:
@@ -350,7 +399,12 @@ class W3Benchmark:
         remote_file = self.args.remote_vim_file
         child.sendline(f"vim -Nu NONE -n {shlex.quote(remote_file)}")
         child.send("i")
-        child.expect([r"-- INSERT --", r"INSERT"], timeout=self.args.timeout)
+        self._expect_subsequence_any(
+            child,
+            ["-- INSERT --", "INSERT"],
+            phase="vim_start",
+            timeout=self.args.app_start_timeout,
+        )
 
         for _ in range(warmup):
             try:
@@ -384,7 +438,12 @@ class W3Benchmark:
     ) -> List[float]:
         remote_file = self.args.remote_nano_file
         child.sendline(f"nano --ignorercfiles {shlex.quote(remote_file)}")
-        child.expect([r"GNU nano", r"\^G Help"], timeout=self.args.timeout)
+        self._expect_subsequence_any(
+            child,
+            ["GNU nano", "^G Help"],
+            phase="nano_start",
+            timeout=self.args.app_start_timeout,
+        )
 
         for _ in range(warmup):
             try:
@@ -760,6 +819,24 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Retries when waiting prompt in noisy tmux redraw phases",
     )
     p.add_argument(
+        "--probe-read-size",
+        type=int,
+        default=4096,
+        help="read_nonblocking size when scanning probe token",
+    )
+    p.add_argument(
+        "--probe-poll-timeout",
+        type=float,
+        default=0.25,
+        help="per-read timeout while waiting probe token (seconds)",
+    )
+    p.add_argument(
+        "--app-start-timeout",
+        type=float,
+        default=30.0,
+        help="timeout waiting startup markers for vim/nano (seconds)",
+    )
+    p.add_argument(
         "--seed",
         type=int,
         default=42,
@@ -866,6 +943,12 @@ def main() -> int:
         parser.error("--warmup-rounds must be >= 0")
     if args.prompt_resync_attempts <= 0:
         parser.error("--prompt-resync-attempts must be > 0")
+    if args.probe_read_size <= 0:
+        parser.error("--probe-read-size must be > 0")
+    if args.probe_poll_timeout <= 0:
+        parser.error("--probe-poll-timeout must be > 0")
+    if args.app_start_timeout <= 0:
+        parser.error("--app-start-timeout must be > 0")
 
     bench = W3Benchmark(args)
     bench.run()
