@@ -88,6 +88,7 @@ class W3Benchmark:
             raise ValueError("Prompt must contain at least one non-space character")
         self.prompt_re = self._build_prompt_re(self.prompt_marker)
         self.probe_counter = 0
+        self.prev_probe_suffix: Optional[str] = None
         self.records:  List[SampleRecord]  = []
         self.failures: List[FailureRecord] = []
         self.results: Dict[str, Dict[str, List[float]]] = {
@@ -138,17 +139,32 @@ class W3Benchmark:
             except (pexpect.TIMEOUT, pexpect.EOF):
                 break
 
-    def _next_probe_token(self) -> str:
+    def _next_probe_suffix(self) -> str:
+        if self.prev_probe_suffix is None:
+            suffix = "".join(
+                random.choices(PROBE_RANDOM_ALPHABET, k=PROBE_RANDOM_LEN)
+            )
+            self.prev_probe_suffix = suffix
+            return suffix
+
+        suffix_chars: List[str] = []
+        for prev_ch in self.prev_probe_suffix:
+            choices = PROBE_RANDOM_ALPHABET.replace(prev_ch, "")
+            suffix_chars.append(random.choice(choices))
+        suffix = "".join(suffix_chars)
+        self.prev_probe_suffix = suffix
+        return suffix
+
+    def _next_probe_token(self) -> tuple[str, str]:
         self.probe_counter += 1
         if self.probe_counter > PROBE_COUNTER_MAX:
             self.probe_counter = 1
-        suffix = "".join(
-            random.choices(PROBE_RANDOM_ALPHABET, k=PROBE_RANDOM_LEN)
-        )
-        return (
+        suffix = self._next_probe_suffix()
+        token = (
             f"__{PROBE_TAG}_{self.probe_counter:0{PROBE_COUNTER_WIDTH}d}"
             f"_{suffix}__"
         )
+        return token, suffix
 
     def _probe_once(
         self,
@@ -156,10 +172,14 @@ class W3Benchmark:
         erase_after_echo: bool = False,
         suffix_echo_len: int = 0,
         erase_key: str = "\x7f",
+        match_probe_suffix: bool = False,
     ) -> float:
         self._drain_pending_output(child)
-        token = self._next_probe_token()
-        echo_re = self._build_probe_echo_re(token, suffix_len=suffix_echo_len)
+        token, suffix = self._next_probe_token()
+        if match_probe_suffix:
+            echo_re = self._build_probe_echo_re(suffix)
+        else:
+            echo_re = self._build_probe_echo_re(token, suffix_len=suffix_echo_len)
         child.send(token)
         start_ns = time.perf_counter_ns()
         child.expect(echo_re, timeout=self.args.timeout)
@@ -170,6 +190,10 @@ class W3Benchmark:
 
     @staticmethod
     def _recover_nano_state(child: pexpect.spawn) -> None:
+        child.sendcontrol("l")
+
+    @staticmethod
+    def _recover_shell_state(child: pexpect.spawn) -> None:
         child.sendcontrol("l")
 
     @staticmethod
@@ -256,19 +280,29 @@ class W3Benchmark:
     def _measure_interactive_shell(
         self,
         child: pexpect.spawn,
+        protocol: str,
         warmup: int,
         iterations: int,
         report_cb: Optional[Callable[[int, float], None]] = None,
     ) -> List[float]:
         child.sendline("cat")
         child.expect_exact("\n", timeout=self.args.timeout)
+        mosh_partial_redraw = protocol == "mosh"
 
         for _ in range(warmup):
-            self._probe_once(child)
+            try:
+                self._probe_once(child, match_probe_suffix=mosh_partial_redraw)
+            except pexpect.TIMEOUT:
+                self._recover_shell_state(child)
+                self._probe_once(child, match_probe_suffix=mosh_partial_redraw)
 
         latencies: List[float] = []
         for i in range(iterations):
-            lat = self._probe_once(child)
+            try:
+                lat = self._probe_once(child, match_probe_suffix=mosh_partial_redraw)
+            except pexpect.TIMEOUT:
+                self._recover_shell_state(child)
+                lat = self._probe_once(child, match_probe_suffix=mosh_partial_redraw)
             latencies.append(lat)
             if report_cb:
                 report_cb(i + 1, lat)
@@ -390,6 +424,7 @@ class W3Benchmark:
         if workload == "interactive_shell":
             latencies = self._measure_interactive_shell(
                 child,
+                protocol=protocol,
                 warmup=self.args.warmup_rounds,
                 iterations=self.args.iterations,
                 report_cb=report_cb,
