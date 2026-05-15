@@ -15,7 +15,7 @@ WORKLOADS="interactive_shell vim nano"
 TRIALS=3
 ITERATIONS=100
 WARMUP_ROUNDS=10
-TIMEOUT=20
+TIMEOUT=30
 SEED=42
 
 OUTPUT_DIR="w3_results"
@@ -312,7 +312,10 @@ resolve_tmux_setup_script
 setup_remote_tmux
 wait_pane_ready
 
-ATTACH_CMD="bash -lc 'tmux select-pane -t ${TMUX_SESSION}:${TMUX_PANE} >/dev/null 2>&1; exec tmux attach -t ${TMUX_SESSION}'"
+ATTACH_CMD="bash -lc 'tmux select-pane -t ${TMUX_SESSION}:${TMUX_PANE} >/dev/null 2>&1; \
+tmux resize-pane -Z -t ${TMUX_SESSION}:${TMUX_PANE} >/dev/null 2>&1 || true; \
+(sleep 2; tmux resize-pane -Z -t ${TMUX_SESSION}:${TMUX_PANE} >/dev/null 2>&1 || true) >/dev/null 2>&1 & \
+exec tmux attach -t ${TMUX_SESSION}'"
 probe_ssh3_attach_support
 
 export W3_REAL_SSH="$REAL_SSH"
