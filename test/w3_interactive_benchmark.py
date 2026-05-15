@@ -89,8 +89,11 @@ class W3Benchmark:
         )
         if not probe_chars:
             raise ValueError("--probe-chars must contain alphanumeric characters")
+        if args.probe_search_window <= 0:
+            raise ValueError("--probe-search-window must be > 0")
         self.prompt_re = self._build_prompt_re(self.prompt_marker)
         self.probe_chars = probe_chars
+        self.probe_search_window = max(8, args.probe_search_window)
         self.prev_probe_char: Optional[str] = None
         self.records:  List[SampleRecord]  = []
         self.failures: List[FailureRecord] = []
@@ -172,6 +175,26 @@ class W3Benchmark:
         self.prev_probe_char = probe_char
         return probe_char
 
+    def _consume_stray_probe_chars(
+        self,
+        child: pexpect.spawn,
+        probe_char: str,
+        max_polls: int = 4,
+    ) -> None:
+        # Remove buffered matches for the same probe character before timing.
+        # This avoids matching stale screen output from a previous step.
+        for _ in range(max_polls):
+            idx = child.expect_exact(
+                [probe_char, pexpect.TIMEOUT, pexpect.EOF],
+                timeout=0,
+                searchwindowsize=self.probe_search_window,
+            )
+            if idx == 0:
+                continue
+            if idx == 1:
+                return
+            raise pexpect.EOF("EOF while draining stale probe bytes")
+
     def _probe_once(
         self,
         child: pexpect.spawn,
@@ -180,9 +203,14 @@ class W3Benchmark:
     ) -> float:
         self._drain_pending_output(child)
         probe_char = self._next_probe_char()
+        self._consume_stray_probe_chars(child, probe_char)
         start_ns = time.perf_counter_ns()
         child.send(probe_char)
-        child.expect_exact(probe_char, timeout=self.args.timeout)
+        child.expect_exact(
+            probe_char,
+            timeout=self.args.timeout,
+            searchwindowsize=self.probe_search_window,
+        )
         end_ns = time.perf_counter_ns()
         if erase_after_echo:
             self._erase_probe_chars(child, 1, erase_key=erase_key)
@@ -288,6 +316,7 @@ class W3Benchmark:
         warmup: int,
         iterations: int,
         report_cb: Optional[Callable[[int, float], None]] = None,
+        fail_cb: Optional[Callable[[int, Exception], None]] = None,
     ) -> List[float]:
         self._refresh_prompt(child, protocol=protocol)
         cleanup_batch = max(1, self.args.editor_cleanup_batch)
@@ -299,7 +328,7 @@ class W3Benchmark:
             except pexpect.TIMEOUT:
                 self._recover_shell_state(child)
                 self._refresh_prompt(child, protocol=protocol)
-                self._probe_once(child, erase_after_echo=False)
+                continue
             pending_chars += 1
             if pending_chars >= cleanup_batch:
                 self._erase_probe_chars(child, pending_chars)
@@ -310,10 +339,12 @@ class W3Benchmark:
         for i in range(iterations):
             try:
                 lat = self._probe_once(child, erase_after_echo=False)
-            except pexpect.TIMEOUT:
+            except pexpect.TIMEOUT as exc:
+                if fail_cb:
+                    fail_cb(i + 1, exc)
                 self._recover_shell_state(child)
                 self._refresh_prompt(child, protocol=protocol)
-                lat = self._probe_once(child, erase_after_echo=False)
+                continue
             pending_chars += 1
             if pending_chars >= cleanup_batch:
                 self._erase_probe_chars(child, pending_chars)
@@ -337,6 +368,7 @@ class W3Benchmark:
         warmup: int,
         iterations: int,
         report_cb: Optional[Callable[[int, float], None]] = None,
+        fail_cb: Optional[Callable[[int, Exception], None]] = None,
     ) -> List[float]:
         remote_file = self.args.remote_vim_file
         child.sendline(f"vim -Nu NONE -n {shlex.quote(remote_file)}")
@@ -350,7 +382,7 @@ class W3Benchmark:
                 self._probe_vim_once(child, erase_after_echo=False)
             except pexpect.TIMEOUT:
                 self._recover_vim_state(child)
-                self._probe_vim_once(child, erase_after_echo=False)
+                continue
             pending_chars += 1
             if pending_chars >= cleanup_batch:
                 self._erase_probe_chars(child, pending_chars, erase_key="\b")
@@ -361,9 +393,11 @@ class W3Benchmark:
         for i in range(iterations):
             try:
                 lat = self._probe_vim_once(child, erase_after_echo=False)
-            except pexpect.TIMEOUT:
+            except pexpect.TIMEOUT as exc:
+                if fail_cb:
+                    fail_cb(i + 1, exc)
                 self._recover_vim_state(child)
-                lat = self._probe_vim_once(child, erase_after_echo=False)
+                continue
             pending_chars += 1
             if pending_chars >= cleanup_batch:
                 self._erase_probe_chars(child, pending_chars, erase_key="\b")
@@ -389,6 +423,7 @@ class W3Benchmark:
         warmup: int,
         iterations: int,
         report_cb: Optional[Callable[[int, float], None]] = None,
+        fail_cb: Optional[Callable[[int, Exception], None]] = None,
     ) -> List[float]:
         remote_file = self.args.remote_nano_file
         child.sendline(f"nano --ignorercfiles {shlex.quote(remote_file)}")
@@ -404,10 +439,7 @@ class W3Benchmark:
                 )
             except pexpect.TIMEOUT:
                 self._recover_nano_state(child)
-                self._probe_once(
-                    child,
-                    erase_after_echo=False,
-                )
+                continue
             pending_chars += 1
             if pending_chars >= cleanup_batch:
                 self._erase_probe_chars(child, pending_chars, erase_key="\b")
@@ -421,12 +453,11 @@ class W3Benchmark:
                     child,
                     erase_after_echo=False,
                 )
-            except pexpect.TIMEOUT:
+            except pexpect.TIMEOUT as exc:
+                if fail_cb:
+                    fail_cb(i + 1, exc)
                 self._recover_nano_state(child)
-                lat = self._probe_once(
-                    child,
-                    erase_after_echo=False,
-                )
+                continue
             pending_chars += 1
             if pending_chars >= cleanup_batch:
                 self._erase_probe_chars(child, pending_chars, erase_key="\b")
@@ -465,6 +496,25 @@ class W3Benchmark:
                 flush=True
             )
 
+        def fail_cb(s_idx: int, exc: Exception) -> None:
+            self.failures.append(
+                FailureRecord(
+                    protocol=protocol,
+                    workload=workload,
+                    round_id=trial_id,
+                    sample_id=s_idx,
+                    error_type=type(exc).__name__,
+                    error_message=str(exc),
+                )
+            )
+            print(
+                f"[{protocol:>4}/{workload:<18}]"
+                f" trial {trial_id:>2}"
+                f" measure {s_idx:>3}/{self.args.iterations}:"
+                f" FAIL ({type(exc).__name__})",
+                flush=True
+            )
+
         if workload == "interactive_shell":
             latencies = self._measure_interactive_shell(
                 child,
@@ -472,6 +522,7 @@ class W3Benchmark:
                 warmup=self.args.warmup_rounds,
                 iterations=self.args.iterations,
                 report_cb=report_cb,
+                fail_cb=fail_cb,
             )
         elif workload == "vim":
             latencies = self._measure_vim(
@@ -480,6 +531,7 @@ class W3Benchmark:
                 warmup=self.args.warmup_rounds,
                 iterations=self.args.iterations,
                 report_cb=report_cb,
+                fail_cb=fail_cb,
             )
         elif workload == "nano":
             latencies = self._measure_nano(
@@ -488,6 +540,7 @@ class W3Benchmark:
                 warmup=self.args.warmup_rounds,
                 iterations=self.args.iterations,
                 report_cb=report_cb,
+                fail_cb=fail_cb,
             )
         else:
             raise ValueError(f"Unsupported workload: {workload}")
@@ -764,7 +817,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Recorded samples per trial",
     )
     p.add_argument(
-        "--warmup-rounds", type=int, default=5,
+        "--warmup-rounds", type=int, default=10,
         help="Warmup samples per trial (not recorded)",
     )
     p.add_argument(
@@ -780,8 +833,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Alphanumeric character pool for random single-character probes",
     )
     p.add_argument(
+        "--probe-search-window", type=int, default=64,
+        help="Bytes scanned near buffer tail when matching probe echo",
+    )
+    p.add_argument(
         "--editor-cleanup-batch", type=int, default=32,
-        help="Typed chars between non-measured cleanup operations in vim/nano",
+        help="Typed chars between non-measured cleanup operations in workloads",
     )
     p.add_argument(
         "--output-dir", default="w3_results",
@@ -846,6 +903,8 @@ def main() -> int:
         parser.error("--warmup-rounds must be >= 0")
     if args.editor_cleanup_batch <= 0:
         parser.error("--editor-cleanup-batch must be > 0")
+    if args.probe_search_window <= 0:
+        parser.error("--probe-search-window must be > 0")
 
     bench = W3Benchmark(args)
     bench.run()
