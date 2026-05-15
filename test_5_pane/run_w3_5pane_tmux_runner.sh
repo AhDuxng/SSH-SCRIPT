@@ -30,7 +30,7 @@ TMUX_READY_TIMEOUT=60
 TMUX_READY_POLL_INTERVAL=0.5
 SETUP_TIMEOUT_SEC=25
 REMOTE_SETUP_LOG="/tmp/w3_tmux_setup_${TMUX_SESSION}.log"
-ATTACH_QUIET_SECONDS=8
+ATTACH_QUIET_SECONDS=45
 
 SSH3_ATTACH_MODE="auto"
 
@@ -317,6 +317,7 @@ wait_pane_ready
 ATTACH_CMD="bash -lc 'quiet=${ATTACH_QUIET_SECONDS}; marker=${PROMPT_MARKER}; pids=\"\"; \
 while read -r idx pid; do [ \"\$idx\" = \"0\" ] && continue; [ -n \"\$pid\" ] && pids=\"\$pids \$pid\"; done < <(tmux list-panes -t ${TMUX_SESSION}:0 -F \"#{pane_index} #{pane_pid}\" 2>/dev/null || true); \
 for p in \$pids; do kill -STOP -- -\$p >/dev/null 2>&1 || kill -STOP \$p >/dev/null 2>&1 || true; done; \
+( tmux respawn-pane -k -t ${TMUX_SESSION}:${TMUX_PANE} \"bash -lc \\\"stty echo -echoctl; exec bash --noprofile --norc\\\"\" >/dev/null 2>&1 || true ); \
 ( \
   end_ts=\$(( \$(date +%s) + quiet )); \
   while [ \$(date +%s) -lt \$end_ts ]; do \
