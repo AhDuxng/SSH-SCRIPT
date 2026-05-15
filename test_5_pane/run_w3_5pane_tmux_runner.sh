@@ -17,6 +17,9 @@ ITERATIONS=100
 WARMUP_ROUNDS=10
 TIMEOUT=30
 SEED=42
+PROBE_CHARS="QVXZ"
+OPEN_SESSION_RETRIES=3
+OPEN_RETRY_BACKOFF_MS=1000
 
 OUTPUT_DIR="w3_results"
 PROMPT="__W3_PROMPT__# "
@@ -347,7 +350,10 @@ CMD=(
     --iterations "$ITERATIONS"
     --warmup-rounds "$WARMUP_ROUNDS"
     --timeout "$TIMEOUT"
+    --open-session-retries "$OPEN_SESSION_RETRIES"
+    --open-retry-backoff-ms "$OPEN_RETRY_BACKOFF_MS"
     --seed "$SEED"
+    --probe-chars "$PROBE_CHARS"
     --output-dir "$OUTPUT_DIR"
     --prompt "$PROMPT"
     --ssh3-path "$SSH3_PATH"

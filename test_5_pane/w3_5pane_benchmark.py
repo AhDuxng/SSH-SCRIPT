@@ -28,7 +28,9 @@ DEFAULT_PROMPT    = "__W3_PROMPT__#"
 DEFAULT_SSH3_PATH = "/ssh3-term"
 BOOTSTRAP_MARKER_PREFIX = "__W3_BOOTSTRAP_READY__"
 
-PROBE_CHAR_ALPHABET = "abcdegijkopvwxz"
+# Use rare uppercase probes by default to avoid false-positive matches
+# from noisy lowercase pane logs and common ANSI redraw bytes.
+PROBE_CHAR_ALPHABET = "QVXZ"
 
 # Include common CSI sequences plus SCS sequences like ESC(B
 # that nano emits during screen redraws.
@@ -316,7 +318,7 @@ class W3Benchmark:
         child.delaybeforesend = 0
 
         start_ns = time.perf_counter_ns()
-        self._wait_for_session_ready(child)
+        self._wait_for_session_ready(child, protocol=protocol)
         setup_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
 
         child.sendline(f"export PS1={shlex.quote(self.args.prompt)}")
@@ -324,8 +326,15 @@ class W3Benchmark:
 
         return child, setup_ms
 
-    def _wait_for_session_ready(self, child: pexpect.spawn) -> None:
-        initial_timeout = min(6, self.args.timeout)
+    def _wait_for_session_ready(
+        self,
+        child: pexpect.spawn,
+        protocol: Optional[str] = None,
+    ) -> None:
+        initial_timeout = (
+            self.args.timeout if protocol == "mosh"
+            else min(6, self.args.timeout)
+        )
         try:
             child.expect(_INITIAL_PROMPT_RE, timeout=initial_timeout)
             return
@@ -344,7 +353,8 @@ class W3Benchmark:
         last_exc: Optional[pexpect.TIMEOUT] = None
         for _ in range(3):
             self._drain_pending_output(child)
-            child.sendcontrol("c")
+            if protocol != "mosh":
+                child.sendcontrol("c")
             child.sendline("")
             child.sendline(f"printf {shlex.quote(marker + chr(10))}")
             try:
@@ -601,8 +611,60 @@ class W3Benchmark:
     def _run_session_group(self, protocol: str, workload: str) -> None:
         for trial_id in range(1, self.args.trials + 1):
             child: Optional[pexpect.spawn] = None
+            setup_ms: Optional[float] = None
             try:
-                child, setup_ms = self._open_session(protocol)
+                open_exc: Optional[Exception] = None
+                open_attempts = max(1, self.args.open_session_retries)
+                for open_try in range(1, open_attempts + 1):
+                    try:
+                        child, setup_ms = self._open_session(protocol)
+                        break
+                    except (
+                        pexpect.TIMEOUT,
+                        pexpect.EOF,
+                        OSError,
+                        ValueError,
+                    ) as exc:
+                        open_exc = exc
+                        if child is not None:
+                            self._close_session(child)
+                            child = None
+                        if open_try < open_attempts:
+                            print(
+                                f"[{protocol:>4}/{workload:<18}]"
+                                f" trial {trial_id:>2}/{self.args.trials}"
+                                f" open {open_try}/{open_attempts}:"
+                                f" FAIL ({type(exc).__name__}), retrying...",
+                                flush=True,
+                            )
+                            time.sleep(self.args.open_retry_backoff_ms / 1000.0)
+
+                if child is None or setup_ms is None:
+                    msg = (
+                        f"open_session failed after {open_attempts} attempt(s): "
+                        f"{open_exc}"
+                    )
+                    self.failures.append(
+                        FailureRecord(
+                            protocol=protocol,
+                            workload=workload,
+                            round_id=trial_id,
+                            sample_id=-1,
+                            error_type=(
+                                type(open_exc).__name__
+                                if open_exc is not None
+                                else "OpenSessionError"
+                            ),
+                            error_message=msg,
+                        )
+                    )
+                    print(
+                        f"[{protocol:>4}/{workload:<18}]"
+                        f" trial {trial_id:>2}: FAIL ({msg})",
+                        flush=True,
+                    )
+                    continue
+
                 self.session_setups[protocol][workload].append(setup_ms)
                 print(
                     f"[{protocol:>4}/{workload:<18}]"
@@ -871,6 +933,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="pexpect timeout in seconds",
     )
     p.add_argument(
+        "--open-session-retries", type=int, default=2,
+        help="Maximum attempts to open one benchmark session per trial",
+    )
+    p.add_argument(
+        "--open-retry-backoff-ms", type=int, default=500,
+        help="Sleep between open-session retry attempts in milliseconds",
+    )
+    p.add_argument(
         "--seed", type=int, default=42,
         help="Random seed",
     )
@@ -947,6 +1017,12 @@ def main() -> int:
         parser.error("--iterations must be > 0")
     if args.warmup_rounds < 0:
         parser.error("--warmup-rounds must be >= 0")
+    if args.timeout <= 0:
+        parser.error("--timeout must be > 0")
+    if args.open_session_retries <= 0:
+        parser.error("--open-session-retries must be > 0")
+    if args.open_retry_backoff_ms < 0:
+        parser.error("--open-retry-backoff-ms must be >= 0")
     if args.editor_cleanup_batch <= 0:
         parser.error("--editor-cleanup-batch must be > 0")
     if args.probe_search_window < 0:

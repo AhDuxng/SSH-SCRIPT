@@ -17,6 +17,9 @@ WARMUP_ROUNDS=10
 TRIALS=3
 TIMEOUT=20
 SEED=42
+PROBE_CHARS="QVXZ"
+OPEN_SESSION_RETRIES=3
+OPEN_RETRY_BACKOFF_MS=1000
 
 OUTPUT_DIR="w3_results"
 PROMPT="__W3_PROMPT__# "
@@ -55,7 +58,10 @@ CMD=(
     --warmup-rounds   "$WARMUP_ROUNDS"
     --trials          "$TRIALS"
     --timeout         "$TIMEOUT"
+    --open-session-retries "$OPEN_SESSION_RETRIES"
+    --open-retry-backoff-ms "$OPEN_RETRY_BACKOFF_MS"
     --seed            "$SEED"
+    --probe-chars     "$PROBE_CHARS"
     --output-dir      "$OUTPUT_DIR"
     --prompt          "$PROMPT"
     --tmux-setup-script "$TMUX_SETUP"
