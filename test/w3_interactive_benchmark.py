@@ -89,11 +89,14 @@ class W3Benchmark:
         )
         if not probe_chars:
             raise ValueError("--probe-chars must contain alphanumeric characters")
-        if args.probe_search_window <= 0:
-            raise ValueError("--probe-search-window must be > 0")
+        if args.probe_search_window < 0:
+            raise ValueError("--probe-search-window must be >= 0")
         self.prompt_re = self._build_prompt_re(self.prompt_marker)
         self.probe_chars = probe_chars
-        self.probe_search_window = max(8, args.probe_search_window)
+        self.probe_search_window: Optional[int] = (
+            None if args.probe_search_window == 0
+            else max(8, args.probe_search_window)
+        )
         self.prev_probe_char: Optional[str] = None
         self.records:  List[SampleRecord]  = []
         self.failures: List[FailureRecord] = []
@@ -808,8 +811,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Alphanumeric character pool for random single-character probes",
     )
     p.add_argument(
-        "--probe-search-window", type=int, default=64,
-        help="Bytes scanned near buffer tail when matching probe echo",
+        "--probe-search-window", type=int, default=0,
+        help="Bytes scanned when matching probe echo (0 = full buffer search)",
     )
     p.add_argument(
         "--editor-cleanup-batch", type=int, default=32,
@@ -878,8 +881,8 @@ def main() -> int:
         parser.error("--warmup-rounds must be >= 0")
     if args.editor_cleanup_batch <= 0:
         parser.error("--editor-cleanup-batch must be > 0")
-    if args.probe_search_window <= 0:
-        parser.error("--probe-search-window must be > 0")
+    if args.probe_search_window < 0:
+        parser.error("--probe-search-window must be >= 0")
 
     bench = W3Benchmark(args)
     bench.run()
