@@ -20,6 +20,7 @@ SEED=42
 
 OUTPUT_DIR="w3_results"
 PROMPT="__W3_PROMPT__# "
+PROMPT_MARKER="$(printf '%s' "$PROMPT" | sed 's/[[:space:]]*$//')"
 
 TMUX_SETUP_SCRIPT="~/w3_tmux_setup.sh"
 TMUX_SESSION="w3bench5"
@@ -313,10 +314,17 @@ resolve_tmux_setup_script
 setup_remote_tmux
 wait_pane_ready
 
-ATTACH_CMD="bash -lc 'quiet=${ATTACH_QUIET_SECONDS}; pids=\"\"; \
+ATTACH_CMD="bash -lc 'quiet=${ATTACH_QUIET_SECONDS}; marker=${PROMPT_MARKER}; pids=\"\"; \
 while read -r idx pid; do [ \"\$idx\" = \"0\" ] && continue; [ -n \"\$pid\" ] && pids=\"\$pids \$pid\"; done < <(tmux list-panes -t ${TMUX_SESSION}:0 -F \"#{pane_index} #{pane_pid}\" 2>/dev/null || true); \
 for p in \$pids; do kill -STOP -- -\$p >/dev/null 2>&1 || kill -STOP \$p >/dev/null 2>&1 || true; done; \
-( sleep \"\$quiet\"; for p in \$pids; do kill -CONT -- -\$p >/dev/null 2>&1 || kill -CONT \$p >/dev/null 2>&1 || true; done ) >/dev/null 2>&1 & \
+( \
+  end_ts=\$(( \$(date +%s) + quiet )); \
+  while [ \$(date +%s) -lt \$end_ts ]; do \
+    if tmux capture-pane -p -t ${TMUX_SESSION}:${TMUX_PANE} | tail -n 80 | grep -F \"\$marker\" >/dev/null 2>&1; then break; fi; \
+    sleep 0.2; \
+  done; \
+  for p in \$pids; do kill -CONT -- -\$p >/dev/null 2>&1 || kill -CONT \$p >/dev/null 2>&1 || true; done; \
+) >/dev/null 2>&1 & \
 tmux select-pane -t ${TMUX_SESSION}:${TMUX_PANE} >/dev/null 2>&1; \
 tmux resize-pane -Z -t ${TMUX_SESSION}:${TMUX_PANE} >/dev/null 2>&1 || true; \
 exec tmux attach -t ${TMUX_SESSION}'"
