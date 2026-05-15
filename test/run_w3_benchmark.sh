@@ -25,7 +25,7 @@ SSH3_INSECURE=true
 
 BATCH_MODE=false              
 STRICT_HOST_KEY=false          
-MOSH_PREDICT="adaptive"           
+MOSH_PREDICT="always"           
 
 REMOTE_VIM_FILE="/tmp/w3_vim_bench.txt"
 REMOTE_NANO_FILE="/tmp/w3_nano_bench.txt"

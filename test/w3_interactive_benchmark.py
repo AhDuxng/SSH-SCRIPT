@@ -756,7 +756,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Keep strict host key checking enabled",
     )
     p.add_argument(
-        "--mosh-predict", default="adaptive",
+        "--mosh-predict", default="always",
         choices=["adaptive", "always", "never"],
         help="Mosh prediction mode",
     )
