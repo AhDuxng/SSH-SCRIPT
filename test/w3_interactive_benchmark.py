@@ -32,8 +32,11 @@ PROBE_COUNTER_WIDTH = 4
 PROBE_COUNTER_MAX = (10 ** PROBE_COUNTER_WIDTH) - 1
 PROBE_RANDOM_LEN = 8
 PROBE_RANDOM_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+NANO_ECHO_SUFFIX_LEN = PROBE_RANDOM_LEN + 2
 
-_ANSI_SEQ   = r"(?:\x1b\[\??[0-9;]*[a-zA-Z])"
+# Include common CSI sequences plus SCS sequences like ESC(B
+# that nano emits during screen redraws.
+_ANSI_SEQ   = r"(?:\x1b\[\??[0-9;]*[a-zA-Z]|\x1b[\(\)][0-9A-Za-z])"
 _ECHO_GAP   = rf"(?:{_ANSI_SEQ}|[\r\n\b])*"
 _INITIAL_PROMPT_RE = re.compile(
     r"[#$>](?:" + _ANSI_SEQ + r"|\s)*\s*$",
@@ -95,7 +98,12 @@ class W3Benchmark:
         }
 
     @staticmethod
-    def _build_probe_echo_re(token: str) -> re.Pattern[str]:
+    def _build_probe_echo_re(
+        token: str,
+        suffix_len: int = 0,
+    ) -> re.Pattern[str]:
+        if suffix_len > 0 and suffix_len < len(token):
+            token = token[-suffix_len:]
         parts = [re.escape(ch) + _ECHO_GAP for ch in token]
         return re.compile("".join(parts))
 
@@ -114,9 +122,13 @@ class W3Benchmark:
         child.send("i")
 
     @staticmethod
-    def _erase_probe_token(child: pexpect.spawn, token: str) -> None:
+    def _erase_probe_token(
+        child: pexpect.spawn,
+        token: str,
+        erase_key: str = "\x7f",
+    ) -> None:
         if token:
-            child.send("\x7f" * len(token))
+            child.send(erase_key * len(token))
 
     @staticmethod
     def _drain_pending_output(child: pexpect.spawn, max_reads: int = 8) -> None:
@@ -138,16 +150,22 @@ class W3Benchmark:
             f"_{suffix}__"
         )
 
-    def _probe_once(self, child: pexpect.spawn, erase_after_echo: bool = False) -> float:
+    def _probe_once(
+        self,
+        child: pexpect.spawn,
+        erase_after_echo: bool = False,
+        suffix_echo_len: int = 0,
+        erase_key: str = "\x7f",
+    ) -> float:
         self._drain_pending_output(child)
         token = self._next_probe_token()
-        echo_re = self._build_probe_echo_re(token)
+        echo_re = self._build_probe_echo_re(token, suffix_len=suffix_echo_len)
         child.send(token)
         start_ns = time.perf_counter_ns()
         child.expect(echo_re, timeout=self.args.timeout)
         end_ns = time.perf_counter_ns()
         if erase_after_echo:
-            self._erase_probe_token(child, token)
+            self._erase_probe_token(child, token, erase_key=erase_key)
         return (end_ns - start_ns) / 1_000_000.0
 
     @staticmethod
@@ -308,18 +326,38 @@ class W3Benchmark:
 
         for _ in range(warmup):
             try:
-                self._probe_once(child, erase_after_echo=True)
+                self._probe_once(
+                    child,
+                    erase_after_echo=True,
+                    suffix_echo_len=NANO_ECHO_SUFFIX_LEN,
+                    erase_key="\b",
+                )
             except pexpect.TIMEOUT:
                 self._recover_nano_state(child)
-                self._probe_once(child, erase_after_echo=True)
+                self._probe_once(
+                    child,
+                    erase_after_echo=True,
+                    suffix_echo_len=NANO_ECHO_SUFFIX_LEN,
+                    erase_key="\b",
+                )
 
         latencies: List[float] = []
         for i in range(iterations):
             try:
-                lat = self._probe_once(child, erase_after_echo=True)
+                lat = self._probe_once(
+                    child,
+                    erase_after_echo=True,
+                    suffix_echo_len=NANO_ECHO_SUFFIX_LEN,
+                    erase_key="\b",
+                )
             except pexpect.TIMEOUT:
                 self._recover_nano_state(child)
-                lat = self._probe_once(child, erase_after_echo=True)
+                lat = self._probe_once(
+                    child,
+                    erase_after_echo=True,
+                    suffix_echo_len=NANO_ECHO_SUFFIX_LEN,
+                    erase_key="\b",
+                )
             latencies.append(lat)
             if report_cb:
                 report_cb(i + 1, lat)
