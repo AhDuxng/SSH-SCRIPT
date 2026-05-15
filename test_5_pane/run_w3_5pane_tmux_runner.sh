@@ -96,7 +96,6 @@ if [[ "${BATCH_MODE}" == "true" ]]; then
 fi
 
 SSH_CTL=("$REAL_SSH" "${SSH_OPTS[@]}" "${USER_NAME}@${HOST}")
-SSH_TTY=("$REAL_SSH" -tt "${SSH_OPTS[@]}" "${USER_NAME}@${HOST}")
 
 TMUX_SETUP_SCRIPT_RESOLVED=""
 ATTACH_CMD=""
@@ -125,17 +124,24 @@ setup_remote_tmux() {
 
   echo "[setup] run ${TMUX_SETUP_SCRIPT_RESOLVED} on remote (session=${TMUX_SESSION})..."
 
-  local setup_cmd
-  setup_cmd="export TERM=\${TERM:-xterm-256color}; chmod +x ${setup_q}; NO_ATTACH=1 bash ${setup_q} ${session_q} > ${log_q} 2>&1"
+  # Launch setup asynchronously to avoid blocking if the remote script performs
+  # interactive operations. Prefer util-linux script(1) to provide a pseudo-tty.
+  local launch_cmd started
+  launch_cmd="set -e; export TERM=\${TERM:-xterm-256color}; chmod +x ${setup_q}; \
+if command -v script >/dev/null 2>&1; then \
+  nohup script -qfec \"NO_ATTACH=1 bash ${setup_q} ${session_q}\" /dev/null > ${log_q} 2>&1 < /dev/null & \
+else \
+  nohup env NO_ATTACH=1 bash ${setup_q} ${session_q} > ${log_q} 2>&1 < /dev/null & \
+fi; echo __W3_SETUP_STARTED__"
 
   if command -v timeout >/dev/null 2>&1; then
-    if ! timeout "${SETUP_TIMEOUT_SEC}s" "${SSH_TTY[@]}" "$setup_cmd" >/dev/null 2>&1; then
-      echo "[setup] setup command returned non-zero or timed out (${SETUP_TIMEOUT_SEC}s); continue waiting marker..." >&2
-    fi
+    started="$(timeout "${SETUP_TIMEOUT_SEC}s" "${SSH_CTL[@]}" "$launch_cmd" 2>/dev/null | tr -d '\r' | tail -n 1 || true)"
   else
-    if ! "${SSH_TTY[@]}" "$setup_cmd" >/dev/null 2>&1; then
-      echo "[setup] setup command returned non-zero; continue waiting marker..." >&2
-    fi
+    started="$("${SSH_CTL[@]}" "$launch_cmd" 2>/dev/null | tr -d '\r' | tail -n 1 || true)"
+  fi
+
+  if [[ "$started" != "__W3_SETUP_STARTED__" ]]; then
+    echo "[setup] WARN: setup launcher did not confirm start; continue waiting marker..." >&2
   fi
 }
 
