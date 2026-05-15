@@ -361,13 +361,13 @@ class W3Benchmark:
             try:
                 self._probe_once(
                     child,
-                    erase_after_echo=True,
+                    erase_after_echo=False,
                 )
             except pexpect.TIMEOUT:
                 self._recover_nano_state(child)
                 self._probe_once(
                     child,
-                    erase_after_echo=True,
+                    erase_after_echo=False,
                 )
 
         latencies: List[float] = []
@@ -375,13 +375,13 @@ class W3Benchmark:
             try:
                 lat = self._probe_once(
                     child,
-                    erase_after_echo=True,
+                    erase_after_echo=False,
                 )
             except pexpect.TIMEOUT:
                 self._recover_nano_state(child)
                 lat = self._probe_once(
                     child,
-                    erase_after_echo=True,
+                    erase_after_echo=False,
                 )
             latencies.append(lat)
             if report_cb:
