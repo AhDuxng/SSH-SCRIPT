@@ -133,6 +133,15 @@ class W3Benchmark:
         if last_exc is not None:
             raise last_exc
 
+    def _refresh_prompt(
+        self,
+        child: pexpect.spawn,
+        protocol: Optional[str] = None,
+    ) -> None:
+        self._drain_pending_output(child)
+        child.sendline("")
+        self._expect_prompt(child, protocol=protocol)
+
     @staticmethod
     def _ensure_vim_insert_mode(child: pexpect.spawn) -> None:
         child.send("\x1b")
@@ -281,13 +290,13 @@ class W3Benchmark:
         iterations: int,
         report_cb: Optional[Callable[[int, float], None]] = None,
     ) -> List[float]:
-        self._expect_prompt(child, protocol=protocol)
+        self._refresh_prompt(child, protocol=protocol)
         for _ in range(warmup):
             try:
                 self._probe_once(child, erase_after_echo=True)
             except pexpect.TIMEOUT:
                 self._recover_shell_state(child)
-                self._expect_prompt(child, protocol=protocol)
+                self._refresh_prompt(child, protocol=protocol)
                 self._probe_once(child, erase_after_echo=True)
 
         latencies: List[float] = []
@@ -296,13 +305,13 @@ class W3Benchmark:
                 lat = self._probe_once(child, erase_after_echo=True)
             except pexpect.TIMEOUT:
                 self._recover_shell_state(child)
-                self._expect_prompt(child, protocol=protocol)
+                self._refresh_prompt(child, protocol=protocol)
                 lat = self._probe_once(child, erase_after_echo=True)
             latencies.append(lat)
             if report_cb:
                 report_cb(i + 1, lat)
 
-        self._expect_prompt(child, protocol=protocol)
+        self._refresh_prompt(child, protocol=protocol)
         return latencies
 
     def _measure_vim(
