@@ -10,7 +10,7 @@ cd "$SCRIPT_DIR"
 HOST="192.168.8.102"
 USER_NAME="trungnt"
 SOURCE_IP="192.168.8.100"
-IDENTITY_FILE="${HOME}/.ssh/id_rsa"
+IDENTITY_FILE="$HOME/.ssh/id_rsa"
 
 # Keep python script unchanged; this runner only orchestrates tmux attach flow.
 PROTOCOLS="ssh mosh"
