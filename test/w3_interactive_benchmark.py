@@ -143,11 +143,6 @@ class W3Benchmark:
         self._expect_prompt(child, protocol=protocol)
 
     @staticmethod
-    def _ensure_vim_insert_mode(child: pexpect.spawn) -> None:
-        child.send("\x1b")
-        child.send("i")
-
-    @staticmethod
     def _erase_probe_chars(
         child: pexpect.spawn,
         length: int,
@@ -208,7 +203,7 @@ class W3Benchmark:
         child.send("i")
 
     def _probe_vim_once(self, child: pexpect.spawn) -> float:
-        self._ensure_vim_insert_mode(child)
+        # Assumes Vim is already in Insert mode.
         return self._probe_once(child, erase_after_echo=True)
 
     def _session_command(self, protocol: str) -> str:
