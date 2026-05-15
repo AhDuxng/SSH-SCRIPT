@@ -125,14 +125,12 @@ setup_remote_tmux() {
   echo "[setup] run ${TMUX_SETUP_SCRIPT_RESOLVED} on remote (session=${TMUX_SESSION})..."
 
   # Launch setup asynchronously to avoid blocking if the remote script performs
-  # interactive operations. Prefer util-linux script(1) to provide a pseudo-tty.
+  # interactive operations. Force a safe TERM and override `clear` to no-op
+  # because some environments report "terminal does not support clear".
   local launch_cmd started
-  launch_cmd="set -e; export TERM=\${TERM:-xterm-256color}; chmod +x ${setup_q}; \
-if command -v script >/dev/null 2>&1; then \
-  nohup script -qfec \"NO_ATTACH=1 bash ${setup_q} ${session_q}\" /dev/null > ${log_q} 2>&1 < /dev/null & \
-else \
-  nohup env NO_ATTACH=1 bash ${setup_q} ${session_q} > ${log_q} 2>&1 < /dev/null & \
-fi; echo __W3_SETUP_STARTED__"
+  launch_cmd="set -e; export TERM=xterm; chmod +x ${setup_q}; \
+nohup env TERM=xterm NO_ATTACH=1 bash -lc 'clear(){ :; }; export -f clear; bash ${setup_q} ${session_q}' > ${log_q} 2>&1 < /dev/null & \
+echo __W3_SETUP_STARTED__"
 
   if command -v timeout >/dev/null 2>&1; then
     started="$(timeout "${SETUP_TIMEOUT_SEC}s" "${SSH_CTL[@]}" "$launch_cmd" 2>/dev/null | tr -d '\r' | tail -n 1 || true)"
