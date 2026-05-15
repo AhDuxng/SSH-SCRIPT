@@ -86,9 +86,18 @@ class W3Benchmark:
         self.prompt_marker = args.prompt.rstrip()
         if not self.prompt_marker:
             raise ValueError("Prompt must contain at least one non-space character")
+        if (
+            len(args.probe_payload) != 1
+            or args.probe_payload in "\r\n"
+            or not args.probe_payload.isprintable()
+        ):
+            raise ValueError("--probe-payload must be exactly 1 printable character")
         self.prompt_re = self._build_prompt_re(self.prompt_marker)
+        self.probe_payload = args.probe_payload
+        self.probe_ack_re = self._build_probe_ack_re(self.probe_payload)
         self.probe_counter = 0
         self.prev_probe_suffix: Optional[str] = None
+        self.ack_counter = 0
         self.records:  List[SampleRecord]  = []
         self.failures: List[FailureRecord] = []
         self.results: Dict[str, Dict[str, List[float]]] = {
@@ -113,9 +122,38 @@ class W3Benchmark:
         parts = [re.escape(ch) + _ECHO_GAP for ch in prompt_marker]
         return re.compile("".join(parts) + rf"(?:{_ANSI_SEQ}|\s)*")
 
-    def _expect_prompt(self, child: pexpect.spawn) -> None:
+    @staticmethod
+    def _build_probe_ack_re(payload_char: str) -> re.Pattern[str]:
+        return re.compile(
+            rf"__{PROBE_TAG}_(?P<counter>[0-9]{{4}})_{re.escape(payload_char)}__"
+        )
+
+    def _expect_prompt(
+        self,
+        child: pexpect.spawn,
+        protocol: Optional[str] = None,
+    ) -> None:
         # TUI redraw (especially over mosh) may split prompt bytes with ANSI updates.
-        child.expect(self.prompt_re, timeout=self.args.timeout)
+        try:
+            child.expect(self.prompt_re, timeout=self.args.timeout)
+            return
+        except pexpect.TIMEOUT:
+            if protocol != "mosh":
+                raise
+
+        last_exc: Optional[pexpect.TIMEOUT] = None
+        for clear_screen in (False, True):
+            self._drain_pending_output(child)
+            if clear_screen:
+                child.sendcontrol("l")
+            child.sendline("")
+            try:
+                child.expect(self.prompt_re, timeout=self.args.timeout)
+                return
+            except pexpect.TIMEOUT as exc:
+                last_exc = exc
+        if last_exc is not None:
+            raise last_exc
 
     @staticmethod
     def _ensure_vim_insert_mode(child: pexpect.spawn) -> None:
@@ -172,14 +210,10 @@ class W3Benchmark:
         erase_after_echo: bool = False,
         suffix_echo_len: int = 0,
         erase_key: str = "\x7f",
-        match_probe_suffix: bool = False,
     ) -> float:
         self._drain_pending_output(child)
-        token, suffix = self._next_probe_token()
-        if match_probe_suffix:
-            echo_re = self._build_probe_echo_re(suffix)
-        else:
-            echo_re = self._build_probe_echo_re(token, suffix_len=suffix_echo_len)
+        token, _ = self._next_probe_token()
+        echo_re = self._build_probe_echo_re(token, suffix_len=suffix_echo_len)
         child.send(token)
         start_ns = time.perf_counter_ns()
         child.expect(echo_re, timeout=self.args.timeout)
@@ -189,11 +223,63 @@ class W3Benchmark:
         return (end_ns - start_ns) / 1_000_000.0
 
     @staticmethod
-    def _recover_nano_state(child: pexpect.spawn) -> None:
-        child.sendcontrol("l")
+    def _ack_server_script() -> str:
+        return "\n".join([
+            "import sys, termios",
+            "fd = sys.stdin.fileno()",
+            "old = termios.tcgetattr(fd)",
+            "new = termios.tcgetattr(fd)",
+            "new[3] &= ~(termios.ECHO | termios.ICANON)",
+            "new[6][termios.VMIN] = 1",
+            "new[6][termios.VTIME] = 0",
+            "termios.tcsetattr(fd, termios.TCSANOW, new)",
+            "counter = 0",
+            "try:",
+            "    while True:",
+            "        ch = sys.stdin.read(1)",
+            "        if ch == '':",
+            "            break",
+            "        counter = (counter % 9999) + 1",
+            "        sys.stdout.write(f'__KS_{counter:04d}_{ch}__\\\\n')",
+            "        sys.stdout.flush()",
+            "except KeyboardInterrupt:",
+            "    pass",
+            "finally:",
+            "    termios.tcsetattr(fd, termios.TCSADRAIN, old)",
+        ])
+
+    def _ack_server_command(self) -> str:
+        script = shlex.quote(self._ack_server_script())
+        return f"python3 -u -c {script} || python -u -c {script}"
+
+    def _start_ack_server(self, child: pexpect.spawn) -> None:
+        self.ack_counter = 0
+        self._drain_pending_output(child)
+        child.sendline(self._ack_server_command())
+        self._drain_pending_output(child)
+
+    def _probe_ack_once(self, child: pexpect.spawn) -> float:
+        expected_counter = (self.ack_counter % PROBE_COUNTER_MAX) + 1
+        self._drain_pending_output(child)
+        start_ns = time.perf_counter_ns()
+        child.send(self.probe_payload)
+        deadline = time.monotonic() + self.args.timeout
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise pexpect.TIMEOUT(
+                    f"ACK timeout waiting for payload {self.probe_payload!r}"
+                )
+            child.expect(self.probe_ack_re, timeout=remaining)
+            counter = int(child.match.group("counter"))
+            if counter != expected_counter:
+                continue
+            self.ack_counter = counter
+            end_ns = time.perf_counter_ns()
+            return (end_ns - start_ns) / 1_000_000.0
 
     @staticmethod
-    def _recover_shell_state(child: pexpect.spawn) -> None:
+    def _recover_nano_state(child: pexpect.spawn) -> None:
         child.sendcontrol("l")
 
     @staticmethod
@@ -260,7 +346,7 @@ class W3Benchmark:
         setup_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
 
         child.sendline(f"export PS1={shlex.quote(self.args.prompt)}")
-        self._expect_prompt(child)
+        self._expect_prompt(child, protocol=protocol)
 
         return child, setup_ms
 
@@ -285,36 +371,35 @@ class W3Benchmark:
         iterations: int,
         report_cb: Optional[Callable[[int, float], None]] = None,
     ) -> List[float]:
-        child.sendline("cat")
-        child.expect_exact("\n", timeout=self.args.timeout)
-        mosh_partial_redraw = protocol == "mosh"
+        self._start_ack_server(child)
+
+        def probe_with_retry() -> float:
+            try:
+                return self._probe_ack_once(child)
+            except pexpect.TIMEOUT:
+                child.sendcontrol("c")
+                self._expect_prompt(child, protocol=protocol)
+                self._start_ack_server(child)
+                return self._probe_ack_once(child)
 
         for _ in range(warmup):
-            try:
-                self._probe_once(child, match_probe_suffix=mosh_partial_redraw)
-            except pexpect.TIMEOUT:
-                self._recover_shell_state(child)
-                self._probe_once(child, match_probe_suffix=mosh_partial_redraw)
+            probe_with_retry()
 
         latencies: List[float] = []
         for i in range(iterations):
-            try:
-                lat = self._probe_once(child, match_probe_suffix=mosh_partial_redraw)
-            except pexpect.TIMEOUT:
-                self._recover_shell_state(child)
-                lat = self._probe_once(child, match_probe_suffix=mosh_partial_redraw)
+            lat = probe_with_retry()
             latencies.append(lat)
             if report_cb:
                 report_cb(i + 1, lat)
 
         child.sendcontrol("c")
-        child.sendcontrol("c")
-        self._expect_prompt(child)
+        self._expect_prompt(child, protocol=protocol)
         return latencies
 
     def _measure_vim(
         self,
         child: pexpect.spawn,
+        protocol: str,
         warmup: int,
         iterations: int,
         report_cb: Optional[Callable[[int, float], None]] = None,
@@ -344,12 +429,13 @@ class W3Benchmark:
 
         child.send("\x1b")
         child.sendline(":q!")
-        self._expect_prompt(child)
+        self._expect_prompt(child, protocol=protocol)
         return latencies
 
     def _measure_nano(
         self,
         child: pexpect.spawn,
+        protocol: str,
         warmup: int,
         iterations: int,
         report_cb: Optional[Callable[[int, float], None]] = None,
@@ -398,7 +484,7 @@ class W3Benchmark:
 
         child.sendcontrol("x")
         child.send("n")
-        self._expect_prompt(child)
+        self._expect_prompt(child, protocol=protocol)
         return latencies
 
     def _run_trial(
@@ -432,6 +518,7 @@ class W3Benchmark:
         elif workload == "vim":
             latencies = self._measure_vim(
                 child,
+                protocol=protocol,
                 warmup=self.args.warmup_rounds,
                 iterations=self.args.iterations,
                 report_cb=report_cb,
@@ -439,6 +526,7 @@ class W3Benchmark:
         elif workload == "nano":
             latencies = self._measure_nano(
                 child,
+                protocol=protocol,
                 warmup=self.args.warmup_rounds,
                 iterations=self.args.iterations,
                 report_cb=report_cb,
@@ -728,6 +816,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--seed", type=int, default=42,
         help="Random seed",
+    )
+    p.add_argument(
+        "--probe-payload", default="x",
+        help="Single payload character sent per measured probe",
     )
     p.add_argument(
         "--output-dir", default="w3_results",
