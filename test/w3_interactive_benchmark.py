@@ -35,7 +35,6 @@ _ANSI_SEQ   = r"(?:\x1b\[\??[0-9;]*[a-zA-Z]|\x1b[\(\)][0-9A-Za-z])"
 _ECHO_GAP   = rf"(?:{_ANSI_SEQ}|[\r\n\b])*"
 _INITIAL_PROMPT_RE = re.compile(
     r"[#$>](?:" + _ANSI_SEQ + r"|\s)*\s*$",
-    re.MULTILINE,
 )
 
 @dataclass
@@ -110,7 +109,7 @@ class W3Benchmark:
     @staticmethod
     def _build_prompt_re(prompt_marker: str) -> re.Pattern[str]:
         parts = [re.escape(ch) + _ECHO_GAP for ch in prompt_marker]
-        return re.compile("".join(parts) + rf"(?:{_ANSI_SEQ}|\s)*")
+        return re.compile("".join(parts) + rf"(?:{_ANSI_SEQ}|\s)*$")
 
     def _expect_prompt(
         self,
@@ -233,6 +232,26 @@ class W3Benchmark:
         child.sendcontrol("l")
         child.send("i")
 
+    def _reopen_session_for_sample_failure(
+        self,
+        child: pexpect.spawn,
+        protocol: str,
+    ) -> pexpect.spawn:
+        self._close_session(child)
+        reopened_child, _ = self._open_session(protocol)
+        return reopened_child
+
+    def _enter_vim_insert_mode(self, child: pexpect.spawn) -> None:
+        remote_file = self.args.remote_vim_file
+        child.sendline(f"vim -Nu NONE -n {shlex.quote(remote_file)}")
+        child.send("i")
+        child.expect([r"-- INSERT --", r"INSERT"], timeout=self.args.timeout)
+
+    def _enter_nano_mode(self, child: pexpect.spawn) -> None:
+        remote_file = self.args.remote_nano_file
+        child.sendline(f"nano --ignorercfiles {shlex.quote(remote_file)}")
+        child.expect([r"GNU nano", r"\^G Help"], timeout=self.args.timeout)
+
     def _probe_vim_once(
         self,
         child: pexpect.spawn,
@@ -320,7 +339,7 @@ class W3Benchmark:
         iterations: int,
         report_cb: Optional[Callable[[int, float], None]] = None,
         fail_cb: Optional[Callable[[int, Exception], None]] = None,
-    ) -> List[float]:
+    ) -> tuple[List[float], pexpect.spawn]:
         self._refresh_prompt(child, protocol=protocol)
         cleanup_batch = max(1, self.args.editor_cleanup_batch)
         pending_chars = 0
@@ -352,7 +371,10 @@ class W3Benchmark:
             except pexpect.TIMEOUT as exc:
                 if fail_cb:
                     fail_cb(i + 1, exc)
-                self._recover_shell_state(child)
+                if self.args.reopen_on_failure:
+                    child = self._reopen_session_for_sample_failure(child, protocol)
+                else:
+                    self._recover_shell_state(child)
                 self._refresh_prompt(child, protocol=protocol)
                 continue
             pending_chars += 1
@@ -369,7 +391,7 @@ class W3Benchmark:
             self._drain_pending_output(child)
 
         self._refresh_prompt(child, protocol=protocol)
-        return latencies
+        return latencies, child
 
     def _measure_vim(
         self,
@@ -379,11 +401,8 @@ class W3Benchmark:
         iterations: int,
         report_cb: Optional[Callable[[int, float], None]] = None,
         fail_cb: Optional[Callable[[int, Exception], None]] = None,
-    ) -> List[float]:
-        remote_file = self.args.remote_vim_file
-        child.sendline(f"vim -Nu NONE -n {shlex.quote(remote_file)}")
-        child.send("i")
-        child.expect([r"-- INSERT --", r"INSERT"], timeout=self.args.timeout)
+    ) -> tuple[List[float], pexpect.spawn]:
+        self._enter_vim_insert_mode(child)
 
         for _ in range(warmup):
             try:
@@ -399,7 +418,11 @@ class W3Benchmark:
             except pexpect.TIMEOUT as exc:
                 if fail_cb:
                     fail_cb(i + 1, exc)
-                self._recover_vim_state(child)
+                if self.args.reopen_on_failure:
+                    child = self._reopen_session_for_sample_failure(child, protocol)
+                    self._enter_vim_insert_mode(child)
+                else:
+                    self._recover_vim_state(child)
                 continue
             latencies.append(lat)
             if report_cb:
@@ -408,7 +431,7 @@ class W3Benchmark:
         child.send("\x1b")
         child.sendline(":q!")
         self._expect_prompt(child, protocol=protocol)
-        return latencies
+        return latencies, child
 
     def _measure_nano(
         self,
@@ -418,10 +441,8 @@ class W3Benchmark:
         iterations: int,
         report_cb: Optional[Callable[[int, float], None]] = None,
         fail_cb: Optional[Callable[[int, Exception], None]] = None,
-    ) -> List[float]:
-        remote_file = self.args.remote_nano_file
-        child.sendline(f"nano --ignorercfiles {shlex.quote(remote_file)}")
-        child.expect([r"GNU nano", r"\^G Help"], timeout=self.args.timeout)
+    ) -> tuple[List[float], pexpect.spawn]:
+        self._enter_nano_mode(child)
 
         for _ in range(warmup):
             try:
@@ -443,7 +464,11 @@ class W3Benchmark:
             except pexpect.TIMEOUT as exc:
                 if fail_cb:
                     fail_cb(i + 1, exc)
-                self._recover_nano_state(child)
+                if self.args.reopen_on_failure:
+                    child = self._reopen_session_for_sample_failure(child, protocol)
+                    self._enter_nano_mode(child)
+                else:
+                    self._recover_nano_state(child)
                 continue
             latencies.append(lat)
             if report_cb:
@@ -452,7 +477,7 @@ class W3Benchmark:
         child.sendcontrol("x")
         child.send("n")
         self._expect_prompt(child, protocol=protocol)
-        return latencies
+        return latencies, child
 
     def _run_trial(
         self,
@@ -460,7 +485,7 @@ class W3Benchmark:
         protocol: str,
         workload: str,
         trial_id: int,
-    ) -> List[float]:
+    ) -> tuple[List[float], pexpect.spawn]:
         def report_cb(s_idx: int, lat: float) -> None:
             self.results[protocol][workload].append(lat)
             self.records.append(
@@ -494,7 +519,7 @@ class W3Benchmark:
             )
 
         if workload == "interactive_shell":
-            latencies = self._measure_interactive_shell(
+            latencies, child = self._measure_interactive_shell(
                 child,
                 protocol=protocol,
                 warmup=self.args.warmup_rounds,
@@ -503,7 +528,7 @@ class W3Benchmark:
                 fail_cb=fail_cb,
             )
         elif workload == "vim":
-            latencies = self._measure_vim(
+            latencies, child = self._measure_vim(
                 child,
                 protocol=protocol,
                 warmup=self.args.warmup_rounds,
@@ -512,7 +537,7 @@ class W3Benchmark:
                 fail_cb=fail_cb,
             )
         elif workload == "nano":
-            latencies = self._measure_nano(
+            latencies, child = self._measure_nano(
                 child,
                 protocol=protocol,
                 warmup=self.args.warmup_rounds,
@@ -523,7 +548,7 @@ class W3Benchmark:
         else:
             raise ValueError(f"Unsupported workload: {workload}")
 
-        return latencies
+        return latencies, child
 
     def _run_session_group(self, protocol: str, workload: str) -> None:
         for trial_id in range(1, self.args.trials + 1):
@@ -538,7 +563,9 @@ class W3Benchmark:
                 )
 
                 try:
-                    self._run_trial(child, protocol, workload, trial_id)
+                    _, child = self._run_trial(
+                        child, protocol, workload, trial_id
+                    )
                 except (pexpect.TIMEOUT, pexpect.EOF, ValueError) as exc:
                     self.failures.append(
                         FailureRecord(
@@ -555,10 +582,6 @@ class W3Benchmark:
                         f" trial {trial_id:>2}: FAIL"
                         f" ({type(exc).__name__}: {exc})"
                     )
-                    if self.args.reopen_on_failure:
-                        if child is not None:
-                            self._close_session(child)
-                        child, setup_ms = self._open_session(protocol)
 
             finally:
                 if child is not None:
@@ -592,13 +615,10 @@ class W3Benchmark:
 
     def _summary_row(self, protocol: str, workload: str) -> SummaryRow:
         data   = self.results[protocol][workload]
-        fail_n = sum(
-            1 for f in self.failures
-            if f.protocol == protocol and f.workload == workload
-        )
-        n     = len(data)
-        total = n + fail_n
-        success_rate = (100.0 * n / total) if total else 0.0
+        expected_n = self.args.trials * self.args.iterations
+        n = len(data)
+        fail_n = max(0, expected_n - n)
+        success_rate = (100.0 * n / expected_n) if expected_n else 0.0
 
         if n == 0:
             return SummaryRow(
@@ -861,7 +881,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     p.add_argument(
         "--reopen-on-failure", action="store_true",
-        help="Reopen session after each failed measured sample",
+        help="Reopen session immediately after each failed measured sample",
     )
     p.add_argument(
         "--log-pexpect", action="store_true",
