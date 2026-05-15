@@ -20,17 +20,17 @@ SEED=42
 
 OUTPUT_DIR="w3_results"
 PROMPT="__W3_PROMPT__# "
-PROMPT_MARKER="$(printf '%s' "$PROMPT" | sed 's/[[:space:]]*$//')"
 
 TMUX_SETUP_SCRIPT="~/w3_tmux_setup.sh"
 TMUX_SESSION="w3bench5"
 TMUX_PANE="0.0"
 TMUX_READY_MARKER="__W3_5PANE_PANE0_READY__"
+TMUX_READY_MARKER_FALLBACK="__W3_PANE0_READY__"
 TMUX_READY_TIMEOUT=60
 TMUX_READY_POLL_INTERVAL=0.5
 SETUP_TIMEOUT_SEC=25
 REMOTE_SETUP_LOG="/tmp/w3_tmux_setup_${TMUX_SESSION}.log"
-ATTACH_QUIET_SECONDS=45
+ATTACH_BOOT_MARKER="__W3_ATTACH_PANE0_READY__"
 
 SSH3_ATTACH_MODE="auto"
 
@@ -146,11 +146,11 @@ echo __W3_SETUP_STARTED__"
 }
 
 wait_pane_ready() {
-  echo "[setup] waiting pane ${TMUX_SESSION}:${TMUX_PANE} ready marker: ${TMUX_READY_MARKER}"
+  echo "[setup] waiting pane ${TMUX_SESSION}:${TMUX_PANE} ready marker: ${TMUX_READY_MARKER} (fallback: ${TMUX_READY_MARKER_FALLBACK})"
   local start_ts now
   start_ts="$(date +%s)"
   while true; do
-    if "${SSH_CTL[@]}" "tmux capture-pane -p -t ${TMUX_SESSION}:${TMUX_PANE} | tail -n 200 | grep -F '${TMUX_READY_MARKER}' >/dev/null" >/dev/null 2>&1; then
+    if "${SSH_CTL[@]}" "tmux capture-pane -p -t ${TMUX_SESSION}:${TMUX_PANE} | tail -n 200 | (grep -F '${TMUX_READY_MARKER}' >/dev/null || grep -F '${TMUX_READY_MARKER_FALLBACK}' >/dev/null)" >/dev/null 2>&1; then
       echo "[setup] pane ready"
       return 0
     fi
@@ -314,20 +314,11 @@ resolve_tmux_setup_script
 setup_remote_tmux
 wait_pane_ready
 
-ATTACH_CMD="bash -lc 'quiet=${ATTACH_QUIET_SECONDS}; marker=${PROMPT_MARKER}; pids=\"\"; \
-while read -r idx pid; do [ \"\$idx\" = \"0\" ] && continue; [ -n \"\$pid\" ] && pids=\"\$pids \$pid\"; done < <(tmux list-panes -t ${TMUX_SESSION}:0 -F \"#{pane_index} #{pane_pid}\" 2>/dev/null || true); \
-for p in \$pids; do kill -STOP -- -\$p >/dev/null 2>&1 || kill -STOP \$p >/dev/null 2>&1 || true; done; \
-( tmux respawn-pane -k -t ${TMUX_SESSION}:${TMUX_PANE} \"bash -lc \\\"stty echo -echoctl; exec bash --noprofile --norc\\\"\" >/dev/null 2>&1 || true ); \
-( \
-  end_ts=\$(( \$(date +%s) + quiet )); \
-  while [ \$(date +%s) -lt \$end_ts ]; do \
-    if tmux capture-pane -p -t ${TMUX_SESSION}:${TMUX_PANE} | tail -n 80 | grep -F \"\$marker\" >/dev/null 2>&1; then break; fi; \
-    sleep 0.2; \
-  done; \
-  for p in \$pids; do kill -CONT -- -\$p >/dev/null 2>&1 || kill -CONT \$p >/dev/null 2>&1 || true; done; \
-) >/dev/null 2>&1 & \
-tmux select-pane -t ${TMUX_SESSION}:${TMUX_PANE} >/dev/null 2>&1; \
-tmux resize-pane -Z -t ${TMUX_SESSION}:${TMUX_PANE} >/dev/null 2>&1 || true; \
+ATTACH_CMD="bash -lc 'set -e; \
+tmux has-session -t ${TMUX_SESSION} >/dev/null 2>&1; \
+tmux respawn-pane -k -t ${TMUX_SESSION}:${TMUX_PANE} \"bash -lc \\\"stty echo -echoctl; printf ${ATTACH_BOOT_MARKER}\\\\r\\\\n; exec bash --noprofile --norc\\\"\" >/dev/null 2>&1 || true; \
+tmux select-layout -t ${TMUX_SESSION}:0 tiled >/dev/null 2>&1 || true; \
+tmux select-pane -t ${TMUX_SESSION}:${TMUX_PANE} >/dev/null 2>&1 || true; \
 exec tmux attach -t ${TMUX_SESSION}'"
 probe_ssh3_attach_support
 

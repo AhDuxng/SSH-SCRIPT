@@ -26,6 +26,7 @@ DEFAULT_PROTOCOLS = ["ssh", "ssh3", "mosh"]
 DEFAULT_WORKLOADS = ["interactive_shell", "vim", "nano"]
 DEFAULT_PROMPT    = "__W3_PROMPT__#"
 DEFAULT_SSH3_PATH = "/ssh3-term"
+BOOTSTRAP_MARKER_PREFIX = "__W3_BOOTSTRAP_READY__"
 
 PROBE_CHAR_ALPHABET = "abcdegijkopvwxz"
 
@@ -110,6 +111,11 @@ class W3Benchmark:
     def _build_prompt_re(prompt_marker: str) -> re.Pattern[str]:
         parts = [re.escape(ch) + _ECHO_GAP for ch in prompt_marker]
         return re.compile("".join(parts) + rf"(?:{_ANSI_SEQ}|\s)*$")
+
+    @staticmethod
+    def _build_interleaved_text_re(text: str) -> re.Pattern[str]:
+        parts = [re.escape(ch) + _ECHO_GAP for ch in text]
+        return re.compile("".join(parts))
 
     def _expect_prompt(
         self,
@@ -310,7 +316,7 @@ class W3Benchmark:
         child.delaybeforesend = 0
 
         start_ns = time.perf_counter_ns()
-        child.expect(_INITIAL_PROMPT_RE, timeout=self.args.timeout)
+        self._wait_for_session_ready(child)
         setup_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
 
         child.sendline(f"export PS1={shlex.quote(self.args.prompt)}")
@@ -318,10 +324,52 @@ class W3Benchmark:
 
         return child, setup_ms
 
-    def _close_session(self, child: pexpect.spawn) -> None:
+    def _wait_for_session_ready(self, child: pexpect.spawn) -> None:
+        initial_timeout = min(6, self.args.timeout)
         try:
+            child.expect(_INITIAL_PROMPT_RE, timeout=initial_timeout)
+            return
+        except pexpect.TIMEOUT:
+            pass
+
+        # In multiplexed tmux views, prompt bytes can be buried by redraw noise.
+        # Fallback: force a command execution and wait for a unique marker.
+        marker = (
+            f"{BOOTSTRAP_MARKER_PREFIX}"
+            f"{random.randrange(10_000, 99_999)}"
+            f"__"
+        )
+        marker_re = self._build_interleaved_text_re(marker)
+
+        last_exc: Optional[pexpect.TIMEOUT] = None
+        for _ in range(3):
+            self._drain_pending_output(child)
+            child.sendcontrol("c")
+            child.sendline("")
+            child.sendline(f"printf {shlex.quote(marker + chr(10))}")
+            try:
+                child.expect(marker_re, timeout=self.args.timeout)
+                return
+            except pexpect.TIMEOUT as exc:
+                last_exc = exc
+
+        if last_exc is not None:
+            raise last_exc
+
+    def _close_session(self, child: pexpect.spawn) -> None:
+        close_timeout = max(1, min(3, self.args.timeout))
+        try:
+            child.sendcontrol("b")
+            child.send("d")
+            child.expect(pexpect.EOF, timeout=close_timeout)
+            return
+        except Exception:
+            pass
+
+        try:
+            child.sendcontrol("u")
             child.sendline("exit")
-            child.expect(pexpect.EOF)
+            child.expect(pexpect.EOF, timeout=close_timeout)
         except Exception:
             child.close(force=True)
         finally:
