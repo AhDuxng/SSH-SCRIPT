@@ -29,6 +29,7 @@ TMUX_READY_TIMEOUT=60
 TMUX_READY_POLL_INTERVAL=0.5
 SETUP_TIMEOUT_SEC=25
 REMOTE_SETUP_LOG="/tmp/w3_tmux_setup_${TMUX_SESSION}.log"
+ATTACH_QUIET_SECONDS=8
 
 SSH3_ATTACH_MODE="auto"
 
@@ -312,9 +313,12 @@ resolve_tmux_setup_script
 setup_remote_tmux
 wait_pane_ready
 
-ATTACH_CMD="bash -lc 'tmux select-pane -t ${TMUX_SESSION}:${TMUX_PANE} >/dev/null 2>&1; \
+ATTACH_CMD="bash -lc 'quiet=${ATTACH_QUIET_SECONDS}; pids=\"\"; \
+while read -r idx pid; do [ \"\$idx\" = \"0\" ] && continue; [ -n \"\$pid\" ] && pids=\"\$pids \$pid\"; done < <(tmux list-panes -t ${TMUX_SESSION}:0 -F \"#{pane_index} #{pane_pid}\" 2>/dev/null || true); \
+for p in \$pids; do kill -STOP -- -\$p >/dev/null 2>&1 || kill -STOP \$p >/dev/null 2>&1 || true; done; \
+( sleep \"\$quiet\"; for p in \$pids; do kill -CONT -- -\$p >/dev/null 2>&1 || kill -CONT \$p >/dev/null 2>&1 || true; done ) >/dev/null 2>&1 & \
+tmux select-pane -t ${TMUX_SESSION}:${TMUX_PANE} >/dev/null 2>&1; \
 tmux resize-pane -Z -t ${TMUX_SESSION}:${TMUX_PANE} >/dev/null 2>&1 || true; \
-(sleep 2; tmux resize-pane -Z -t ${TMUX_SESSION}:${TMUX_PANE} >/dev/null 2>&1 || true) >/dev/null 2>&1 & \
 exec tmux attach -t ${TMUX_SESSION}'"
 probe_ssh3_attach_support
 
@@ -357,7 +361,22 @@ $SHUFFLE_PAIRS       && CMD+=(--shuffle-pairs)
 $REOPEN_ON_FAILURE   && CMD+=(--reopen-on-failure)
 
 printf '  %s \\\n' "${CMD[@]}"
-"${CMD[@]}"
+
+RUN_LOG="${OUTPUT_DIR}/w3_runner_$(date +%Y%m%d_%H%M%S).log"
+mkdir -p "$OUTPUT_DIR"
+echo "[run] log file: ${RUN_LOG}"
+
+(
+  "${CMD[@]}"
+) 2>&1 | tee "$RUN_LOG" &
+BENCH_PID=$!
+
+while kill -0 "$BENCH_PID" >/dev/null 2>&1; do
+  echo "[run] benchmark is still running... $(date +%H:%M:%S)"
+  sleep 20
+done
+
+wait "$BENCH_PID"
 
 if [[ -f plot_trend.py ]]; then
   "$PYTHON_BIN" plot_trend.py --output-dir "$OUTPUT_DIR" --prefix "w3" --group-fields protocol workload
