@@ -31,6 +31,7 @@ TMUX_PANE="0.0"
 TMUX_READY_MARKER="__W3_5PANE_PANE0_READY__"
 TMUX_READY_TIMEOUT=60
 TMUX_READY_POLL_INTERVAL=0.5
+REMOTE_SETUP_LOG="/tmp/w3_tmux_setup_${TMUX_SESSION}.log"
 
 MOSH_PREDICT="always"
 SSH3_PATH="/ssh3-term"
@@ -56,7 +57,7 @@ if [[ -z "$REAL_MOSH" ]]; then
   PROTOCOLS="ssh"
 fi
 
-SSH_BOOT=("$REAL_SSH" -tt)
+SSH_BOOT=("$REAL_SSH")
 if [[ -n "$SOURCE_IP" ]]; then
   SSH_BOOT+=( -b "$SOURCE_IP" )
 fi
@@ -73,11 +74,16 @@ if [[ "${BATCH_MODE}" == "true" ]]; then
 fi
 SSH_BOOT+=("${USER_NAME}@${HOST}")
 
-ATTACH_CMD="bash -lc 'NO_ATTACH=1 bash ${TMUX_SETUP_SCRIPT} ${TMUX_SESSION} >/dev/null 2>&1; tmux select-pane -t ${TMUX_SESSION}:${TMUX_PANE} >/dev/null 2>&1; exec tmux attach -t ${TMUX_SESSION}'"
+ATTACH_CMD="bash -lc 'tmux select-pane -t ${TMUX_SESSION}:${TMUX_PANE} >/dev/null 2>&1; exec tmux attach -t ${TMUX_SESSION}'"
 
 setup_remote_tmux() {
   echo "[setup] chmod +x and run ${TMUX_SETUP_SCRIPT} on remote..."
-  "${SSH_BOOT[@]}" "chmod +x ${TMUX_SETUP_SCRIPT} && NO_ATTACH=1 bash ${TMUX_SETUP_SCRIPT} ${TMUX_SESSION}" >/dev/null
+  "${SSH_BOOT[@]}" \
+    "set -e; \
+     chmod +x ${TMUX_SETUP_SCRIPT}; \
+     nohup env NO_ATTACH=1 bash ${TMUX_SETUP_SCRIPT} ${TMUX_SESSION} > ${REMOTE_SETUP_LOG} 2>&1 < /dev/null & \
+     echo __W3_SETUP_STARTED__" \
+    >/dev/null
 }
 
 wait_pane_ready() {
@@ -92,6 +98,8 @@ wait_pane_ready() {
     now="$(date +%s)"
     if (( now - start_ts >= TMUX_READY_TIMEOUT )); then
       echo "ERROR: timeout waiting for pane ready marker '${TMUX_READY_MARKER}'" >&2
+      echo "[setup] remote log tail (${REMOTE_SETUP_LOG}):" >&2
+      "${SSH_BOOT[@]}" "tail -n 80 ${REMOTE_SETUP_LOG} 2>/dev/null || true" >&2 || true
       return 1
     fi
     sleep "$TMUX_READY_POLL_INTERVAL"
