@@ -25,7 +25,7 @@ SEED=42
 OUTPUT_DIR="w3_results"
 PROMPT="__W3_PROMPT__# "
 
-TMUX_SETUP_SCRIPT="remote/w3_tmux_setup.sh"
+TMUX_SETUP_SCRIPT="w3_tmux_setup.sh"
 TMUX_SESSION="w3bench5"
 TMUX_PANE="0.0"
 TMUX_READY_MARKER="__W3_5PANE_PANE0_READY__"
