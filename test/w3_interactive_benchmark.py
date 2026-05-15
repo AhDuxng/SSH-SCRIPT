@@ -335,6 +335,13 @@ class W3Benchmark:
                 pending_chars = 0
                 self._drain_pending_output(child)
 
+        # Keep warmup side effects outside measured rounds.
+        if pending_chars > 0:
+            self._erase_probe_chars(child, pending_chars)
+            pending_chars = 0
+            self._drain_pending_output(child)
+        self._refresh_prompt(child, protocol=protocol)
+
         latencies: List[float] = []
         for i in range(iterations):
             try:
@@ -374,8 +381,6 @@ class W3Benchmark:
         child.sendline(f"vim -Nu NONE -n {shlex.quote(remote_file)}")
         child.send("i")
         child.expect([r"-- INSERT --", r"INSERT"], timeout=self.args.timeout)
-        cleanup_batch = max(1, self.args.editor_cleanup_batch)
-        pending_chars = 0
 
         for _ in range(warmup):
             try:
@@ -383,11 +388,6 @@ class W3Benchmark:
             except pexpect.TIMEOUT:
                 self._recover_vim_state(child)
                 continue
-            pending_chars += 1
-            if pending_chars >= cleanup_batch:
-                self._erase_probe_chars(child, pending_chars, erase_key="\b")
-                pending_chars = 0
-                self._drain_pending_output(child)
 
         latencies: List[float] = []
         for i in range(iterations):
@@ -398,18 +398,9 @@ class W3Benchmark:
                     fail_cb(i + 1, exc)
                 self._recover_vim_state(child)
                 continue
-            pending_chars += 1
-            if pending_chars >= cleanup_batch:
-                self._erase_probe_chars(child, pending_chars, erase_key="\b")
-                pending_chars = 0
-                self._drain_pending_output(child)
             latencies.append(lat)
             if report_cb:
                 report_cb(i + 1, lat)
-
-        if pending_chars > 0:
-            self._erase_probe_chars(child, pending_chars, erase_key="\b")
-            self._drain_pending_output(child)
 
         child.send("\x1b")
         child.sendline(":q!")
@@ -428,8 +419,6 @@ class W3Benchmark:
         remote_file = self.args.remote_nano_file
         child.sendline(f"nano --ignorercfiles {shlex.quote(remote_file)}")
         child.expect([r"GNU nano", r"\^G Help"], timeout=self.args.timeout)
-        cleanup_batch = max(1, self.args.editor_cleanup_batch)
-        pending_chars = 0
 
         for _ in range(warmup):
             try:
@@ -440,11 +429,6 @@ class W3Benchmark:
             except pexpect.TIMEOUT:
                 self._recover_nano_state(child)
                 continue
-            pending_chars += 1
-            if pending_chars >= cleanup_batch:
-                self._erase_probe_chars(child, pending_chars, erase_key="\b")
-                pending_chars = 0
-                self._drain_pending_output(child)
 
         latencies: List[float] = []
         for i in range(iterations):
@@ -458,18 +442,9 @@ class W3Benchmark:
                     fail_cb(i + 1, exc)
                 self._recover_nano_state(child)
                 continue
-            pending_chars += 1
-            if pending_chars >= cleanup_batch:
-                self._erase_probe_chars(child, pending_chars, erase_key="\b")
-                pending_chars = 0
-                self._drain_pending_output(child)
             latencies.append(lat)
             if report_cb:
                 report_cb(i + 1, lat)
-
-        if pending_chars > 0:
-            self._erase_probe_chars(child, pending_chars, erase_key="\b")
-            self._drain_pending_output(child)
 
         child.sendcontrol("x")
         child.send("n")
@@ -838,7 +813,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     p.add_argument(
         "--editor-cleanup-batch", type=int, default=32,
-        help="Typed chars between non-measured cleanup operations in workloads",
+        help="Typed chars between non-measured cleanup operations in interactive_shell",
     )
     p.add_argument(
         "--output-dir", default="w3_results",
