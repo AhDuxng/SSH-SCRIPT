@@ -1,4 +1,0 @@
-protocol,workload,trial_id,session_setup_ms
-ssh,top,1,1252.611682
-ssh,tail,1,1083.087678
-ssh,ping,1,1091.989403

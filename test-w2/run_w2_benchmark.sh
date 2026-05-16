@@ -1,26 +1,23 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-HOST="100.66.79.93"
+# HOST="100.66.79.93"
+HOST="10.42.0.206"
 USER_NAME="pi"
-SOURCE_IP="100.70.166.91"
+# SOURCE_IP="100.70.166.91"
+SOURCE_IP="10.42.0.1"
 IDENTITY_FILE="$HOME/.ssh/id_ed25519"
 
 PROTOCOLS="ssh ssh3 mosh"
 WORKLOADS="top tail ping"
 
-ITERATIONS=50
+ITERATIONS=100
 TRIALS=10
 TIMEOUT=30
 SEED=42
 
-<<<<<<< HEAD
-OUTPUT_DIR="w2_results_low"
-LOG_PEXPECT=true
-=======
 OUTPUT_DIR="w2_results"
 LOG_PEXPECT=false
->>>>>>> master
 PROMPT="__W2_PROMPT__# "
 
 SSH3_PATH=":4433/ssh3-term"
@@ -41,7 +38,7 @@ MAX_INVALID_SAMPLES=100
 SHUFFLE_PAIRS=true
 
 CLOCK_OFFSET_MODE="estimate"
-CLOCK_OFFSET_PROBES=5
+CLOCK_OFFSET_PROBES=10
 NEGATIVE_LATENCY_TOLERANCE_MS=50
 
 CMD=(
@@ -79,7 +76,6 @@ $STRICT_HOST_KEY   && CMD+=(--strict-host-key-checking)
 $LOG_PEXPECT       && CMD+=(--log-pexpect)
 $SHUFFLE_PAIRS     && CMD+=(--shuffle-pairs)
 
-# Always reopen session on failure to continue remaining trials
 CMD+=(--reopen-on-failure)
 
 echo "=== W2 Continuous Monitoring Benchmark ==="
