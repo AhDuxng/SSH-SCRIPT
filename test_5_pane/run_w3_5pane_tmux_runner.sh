@@ -4,6 +4,12 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+if [[ "${W3_LEGACY_TMUX:-false}" != "true" ]]; then
+  echo "INFO: run_w3_5pane_tmux_runner.sh now defaults to protocol-multiplex mode."
+  echo "INFO: set W3_LEGACY_TMUX=true to run the old tmux-pane workload."
+  exec bash "${SCRIPT_DIR}/run_w3_protocol_multiplex_runner.sh" "$@"
+fi
+
 # Default keeps the same single-Pi style as the other runners. For two Pis,
 # override HOSTS explicitly, for example:
 #   HOSTS="192.168.8.102 192.168.8.103" ./run_w3_5pane_tmux_runner.sh

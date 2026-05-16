@@ -11,6 +11,8 @@ import shlex
 import statistics
 import subprocess
 import sys
+import tempfile
+import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -63,6 +65,16 @@ class FailureRecord:
 
 
 @dataclass
+class BackgroundSession:
+    label: str
+    child: pexpect.spawn
+    bytes_read: int = 0
+    lines_read: int = 0
+    eof: bool = False
+    thread: Optional[threading.Thread] = None
+
+
+@dataclass
 class SummaryRow:
     protocol:           str
     workload:           str
@@ -111,6 +123,10 @@ class W3Benchmark:
         self.session_setups: Dict[str, Dict[str, List[float]]] = {
             p: {w: [] for w in args.workloads} for p in args.protocols
         }
+        self.ssh_control_dir: Optional[tempfile.TemporaryDirectory[str]] = None
+        self.ssh_control_path: Optional[str] = None
+        self.background_sessions: List[BackgroundSession] = []
+        self.background_stop = threading.Event()
 
     @staticmethod
     def _build_prompt_re(prompt_marker: str) -> re.Pattern[str]:
@@ -388,37 +404,54 @@ class W3Benchmark:
         # Assumes Vim is already in Insert mode.
         return self._probe_once(child, erase_after_echo=erase_after_echo)
 
-    def _session_command(self, protocol: str) -> str:
-        target     = self.target
-        ssh_common = ["ssh", "-tt"]
+    def _ssh_common_parts(
+        self,
+        force_tty: bool = True,
+        use_control_path: bool = True,
+    ) -> list[str]:
+        parts = [os.environ.get("W3_REAL_SSH") or "ssh"]
+        if force_tty:
+            parts.append("-tt")
         if self.args.source_ip:
-            ssh_common += ["-b", self.args.source_ip]
+            parts += ["-b", self.args.source_ip]
         if self.args.strict_host_key_checking:
-            ssh_common += ["-o", "StrictHostKeyChecking=yes"]
+            parts += ["-o", "StrictHostKeyChecking=yes"]
         else:
-            ssh_common += [
+            parts += [
                 "-o", "StrictHostKeyChecking=no",
                 "-o", "UserKnownHostsFile=/dev/null",
             ]
         if self.args.identity_file:
-            ssh_common += ["-i", self.args.identity_file]
+            parts += ["-i", self.args.identity_file]
         if self.args.batch_mode:
-            ssh_common += ["-o", "BatchMode=yes"]
-        ssh_common += [target]
+            parts += ["-o", "BatchMode=yes"]
+        if use_control_path and self.ssh_control_path:
+            parts += [
+                "-o", "ControlMaster=auto",
+                "-S", self.ssh_control_path,
+            ]
+        parts += [self.target]
+        return parts
+
+    def _session_command(self, protocol: str) -> str:
+        target = self.target
+        ssh_common = self._ssh_common_parts(force_tty=True)
 
         if protocol == "ssh":
             return shlex.join(ssh_common)
 
         if protocol == "mosh":
-            ssh_cmd    = shlex.join(ssh_common[:-1])
-            mosh_parts = ["mosh", f"--ssh={ssh_cmd}"]
+            ssh_cmd    = shlex.join(self._ssh_common_parts(force_tty=True)[:-1])
+            mosh_bin = os.environ.get("W3_REAL_MOSH") or "mosh"
+            mosh_parts = [mosh_bin, f"--ssh={ssh_cmd}"]
             if self.args.mosh_predict and self.args.mosh_predict != "adaptive":
                 mosh_parts += ["--predict", self.args.mosh_predict]
             mosh_parts += [target]
             return shlex.join(mosh_parts)
 
         if protocol == "ssh3":
-            parts = ["ssh3"]
+            ssh3_bin = os.environ.get("W3_REAL_SSH3") or os.environ.get("SSH3_BIN") or "ssh3"
+            parts = [ssh3_bin]
             if self.args.identity_file:
                 parts += ["-privkey", self.args.identity_file]
             if self.args.ssh3_insecure:
@@ -853,17 +886,165 @@ class W3Benchmark:
                 if child is not None:
                     self._close_session(child)
 
+    def _background_commands(self) -> list[str]:
+        return [
+            "while true; do printf 'bg1 heartbeat %(%s)T\\n' -1; sleep 0.2; done",
+            "while true; do for i in $(seq 1 200); do echo \"bg2 burst line $i $(date +%s%N)\"; done; sleep 0.2; done",
+            "while true; do echo \"bg3 /etc snapshot $(date +%s)\"; ls /etc | head -n 25; sleep 0.4; done",
+            "while true; do echo \"bg4 log $(date +%s%N) background-event\"; sleep 0.05; done",
+        ]
+
+    def _start_ssh_control_master(self, protocol: str) -> None:
+        if protocol != "ssh" or not self.args.ssh_control_master:
+            self.ssh_control_path = None
+            return
+
+        self.ssh_control_dir = tempfile.TemporaryDirectory(prefix="w3_ssh_ctl_")
+        control_path = str(Path(self.ssh_control_dir.name) / "ctl")
+        base = self._ssh_common_parts(force_tty=False, use_control_path=False)
+        cmd = [base[0], "-M", "-N", "-f", "-S", control_path] + base[1:]
+
+        proc = subprocess.run(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=max(5, min(15, self.args.timeout)),
+        )
+        if proc.returncode != 0:
+            raise RuntimeError(
+                "failed to start ssh ControlMaster: "
+                f"{proc.stderr.strip() or proc.returncode}"
+            )
+        self.ssh_control_path = control_path
+        print(f"[ ssh/background          ] ControlMaster={control_path}", flush=True)
+
+    def _stop_ssh_control_master(self) -> None:
+        control_path = self.ssh_control_path
+        if control_path:
+            base = self._ssh_common_parts(force_tty=False, use_control_path=False)
+            cmd = [base[0], "-S", control_path, "-O", "exit"] + base[1:]
+            try:
+                subprocess.run(
+                    cmd,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=5,
+                )
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+        self.ssh_control_path = None
+        if self.ssh_control_dir is not None:
+            self.ssh_control_dir.cleanup()
+            self.ssh_control_dir = None
+
+    def _background_reader(self, session: BackgroundSession) -> None:
+        while not self.background_stop.is_set():
+            try:
+                data = session.child.read_nonblocking(
+                    size=self.args.background_read_chunk,
+                    timeout=0.2,
+                )
+            except pexpect.TIMEOUT:
+                continue
+            except pexpect.EOF:
+                session.eof = True
+                return
+            session.bytes_read += len(data)
+            session.lines_read += data.count("\n")
+
+    def _start_background_load(self, protocol: str) -> None:
+        channels = max(0, self.args.background_channels)
+        if channels == 0:
+            return
+
+        commands = self._background_commands()
+        self.background_stop.clear()
+        self.background_sessions = []
+
+        for idx in range(channels):
+            command = commands[idx % len(commands)]
+            child = pexpect.spawn(
+                self._session_command(protocol),
+                encoding="utf-8",
+                codec_errors="ignore",
+                timeout=self.args.timeout,
+            )
+            child.delaybeforesend = 0
+            self._wait_for_session_ready(child, protocol=protocol)
+            child.sendline(f"exec bash -lc {shlex.quote(command)}")
+
+            session = BackgroundSession(
+                label=f"{protocol}/bg{idx + 1}",
+                child=child,
+            )
+            session.thread = threading.Thread(
+                target=self._background_reader,
+                args=(session,),
+                name=f"w3-{protocol}-bg{idx + 1}",
+                daemon=True,
+            )
+            session.thread.start()
+            self.background_sessions.append(session)
+
+        if self.args.background_warmup_sec > 0:
+            time.sleep(self.args.background_warmup_sec)
+
+        print(
+            f"[{protocol:>4}/background        ]"
+            f" started {len(self.background_sessions)} protocol sessions",
+            flush=True,
+        )
+
+    def _stop_background_load(self, protocol: str) -> None:
+        if not self.background_sessions:
+            return
+
+        self.background_stop.set()
+        for session in self.background_sessions:
+            try:
+                session.child.sendcontrol("c")
+                session.child.sendline("exit")
+            except Exception:
+                pass
+        for session in self.background_sessions:
+            try:
+                session.child.close(force=True)
+            except Exception:
+                pass
+            if session.thread is not None:
+                session.thread.join(timeout=1)
+
+        total_bytes = sum(s.bytes_read for s in self.background_sessions)
+        total_lines = sum(s.lines_read for s in self.background_sessions)
+        eof_count = sum(1 for s in self.background_sessions if s.eof)
+        print(
+            f"[{protocol:>4}/background        ]"
+            f" stopped sessions={len(self.background_sessions)}"
+            f" bytes={total_bytes} lines={total_lines} eof={eof_count}",
+            flush=True,
+        )
+        self.background_sessions = []
+
     def run(self) -> None:
         random.seed(self.args.seed)
-        pairs = [
-            (p, w)
-            for p in self.args.protocols
-            for w in self.args.workloads
-        ]
+        protocols = list(self.args.protocols)
         if self.args.shuffle_pairs:
-            random.shuffle(pairs)
-        for protocol, workload in pairs:
-            self._run_session_group(protocol, workload)
+            random.shuffle(protocols)
+
+        for protocol in protocols:
+            workloads = list(self.args.workloads)
+            if self.args.shuffle_pairs:
+                random.shuffle(workloads)
+
+            self._start_ssh_control_master(protocol)
+            try:
+                self._start_background_load(protocol)
+                for workload in workloads:
+                    self._run_session_group(protocol, workload)
+            finally:
+                self._stop_background_load(protocol)
+                self._stop_ssh_control_master()
 
     @staticmethod
     def _percentile(values: List[float], p: float) -> Optional[float]:
@@ -1169,6 +1350,29 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Reopen session immediately after each failed measured sample",
     )
     p.add_argument(
+        "--background-channels",
+        type=int,
+        default=0,
+        help="Number of concurrent background protocol sessions while measuring",
+    )
+    p.add_argument(
+        "--background-warmup-sec",
+        type=float,
+        default=1.0,
+        help="Seconds to let background sessions start producing output",
+    )
+    p.add_argument(
+        "--background-read-chunk",
+        type=int,
+        default=4096,
+        help="Bytes read per background session polling operation",
+    )
+    p.add_argument(
+        "--ssh-control-master",
+        action="store_true",
+        help="Use one OpenSSH ControlMaster TCP connection for ssh sessions",
+    )
+    p.add_argument(
         "--log-pexpect", action="store_true",
         help="Deprecated compatibility flag (no-op): pexpect logs are disabled",
     )
@@ -1194,6 +1398,12 @@ def main() -> int:
         parser.error("--editor-cleanup-batch must be > 0")
     if args.probe_search_window < 0:
         parser.error("--probe-search-window must be >= 0")
+    if args.background_channels < 0:
+        parser.error("--background-channels must be >= 0")
+    if args.background_warmup_sec < 0:
+        parser.error("--background-warmup-sec must be >= 0")
+    if args.background_read_chunk <= 0:
+        parser.error("--background-read-chunk must be > 0")
 
     bench = W3Benchmark(args)
     bench.run()
