@@ -41,7 +41,7 @@ BATCH_MODE="${BATCH_MODE:-false}"
 STRICT_HOST_KEY="${STRICT_HOST_KEY:-false}"
 SHUFFLE_PAIRS="${SHUFFLE_PAIRS:-false}"
 REOPEN_ON_FAILURE="${REOPEN_ON_FAILURE:-true}"
-MOSH_PREDICT="${MOSH_PREDICT:-never}"
+MOSH_PREDICT="${MOSH_PREDICT:-always}"
 
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
