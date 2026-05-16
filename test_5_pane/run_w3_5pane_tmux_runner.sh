@@ -40,7 +40,10 @@ SETUP_TIMEOUT_SEC="${SETUP_TIMEOUT_SEC:-25}"
 REMOTE_SETUP_LOG="${REMOTE_SETUP_LOG:-/tmp/w3_tmux_setup_${TMUX_SESSION}.log}"
 ATTACH_BOOT_MARKER="${ATTACH_BOOT_MARKER:-__W3_ATTACH_PANE0_READY__}"
 
-SSH3_ATTACH_MODE="${SSH3_ATTACH_MODE:-auto}"
+# Keep ssh3 in the benchmark, but do not probe remote-command support by
+# default. Some ssh3 builds hang on command-mode probes; attach after login is
+# more stable for this tmux workload.
+SSH3_ATTACH_MODE="${SSH3_ATTACH_MODE:-never}"
 
 MOSH_PREDICT="${MOSH_PREDICT:-always}"
 SSH3_PATH="${SSH3_PATH:-/ssh3-term}"
@@ -262,7 +265,7 @@ probe_ssh3_attach_support() {
 
   local probe_out=""
   if command -v timeout >/dev/null 2>&1; then
-    probe_out="$(timeout 10s "${cmd[@]}" 2>/dev/null | tr -d '\r' || true)"
+    probe_out="$(timeout --kill-after=2s 10s "${cmd[@]}" 2>/dev/null | tr -d '\r' || true)"
   else
     probe_out="$("${cmd[@]}" 2>/dev/null | tr -d '\r' || true)"
   fi
@@ -387,6 +390,7 @@ run_for_host() {
   setup_remote_tmux || return 1
   wait_pane_ready || return 1
   build_attach_cmd
+  echo "[${HOST}] setup: ssh3 attach mode=${SSH3_ATTACH_MODE}"
   probe_ssh3_attach_support
 
   if [[ " ${host_protocols} " == *" mosh "* ]]; then
