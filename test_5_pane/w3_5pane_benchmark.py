@@ -112,6 +112,16 @@ class W3Benchmark:
         parts = [re.escape(ch) + _ECHO_GAP for ch in prompt_marker]
         return re.compile("".join(parts) + rf"(?:{_ANSI_SEQ}|\s)*$")
 
+    @staticmethod
+    def _build_interleaved_text_re(text: str) -> re.Pattern[str]:
+        parts = [re.escape(ch) + _ECHO_GAP for ch in text]
+        return re.compile("".join(parts))
+
+    @staticmethod
+    def _printf_literal_cmd(text: str) -> str:
+        escaped = "".join(f"\\{ord(ch):03o}" for ch in text)
+        return f"printf {shlex.quote(escaped)}"
+
     def _expect_prompt(
         self,
         child: pexpect.spawn,
@@ -121,9 +131,30 @@ class W3Benchmark:
         try:
             child.expect(self.prompt_re, timeout=self.args.timeout)
             return
-        except pexpect.TIMEOUT:
+        except pexpect.TIMEOUT as first_exc:
+            pass
+
+        # In tmux attach mode, prompt bytes are often hidden by redraw traffic
+        # from the other panes. Use a unique marker to confirm command
+        # round-trip instead of relying only on prompt matching.
+        if os.environ.get("W3_ATTACH_CMD"):
+            marker = f"__W3_PROMPT_READY__{random.randrange(10_000, 99_999)}__"
+            marker_re = self._build_interleaved_text_re(marker)
+            last_marker_exc: Optional[pexpect.TIMEOUT] = None
+            for _ in range(3):
+                self._drain_pending_output(child, max_reads=16)
+                child.sendline("")
+                child.sendline(self._printf_literal_cmd(marker + "\n"))
+                try:
+                    child.expect(marker_re, timeout=self.args.timeout)
+                    return
+                except pexpect.TIMEOUT as exc:
+                    last_marker_exc = exc
             if protocol != "mosh":
-                raise
+                raise last_marker_exc if last_marker_exc is not None else first_exc
+
+        if protocol != "mosh":
+            raise first_exc
 
         last_exc: Optional[pexpect.TIMEOUT] = None
         for clear_screen in (False, True):
