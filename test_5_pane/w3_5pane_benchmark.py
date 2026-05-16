@@ -9,10 +9,7 @@ import random
 import re
 import shlex
 import statistics
-import subprocess
 import sys
-import tempfile
-import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -28,14 +25,10 @@ except ImportError as exc:
 
 DEFAULT_PROTOCOLS = ["ssh", "ssh3", "mosh"]
 DEFAULT_WORKLOADS = ["interactive_shell", "vim", "nano"]
-WORKLOAD_ALIASES = {"shell": "interactive_shell"}
 DEFAULT_PROMPT    = "__W3_PROMPT__#"
 DEFAULT_SSH3_PATH = "/ssh3-term"
-BOOTSTRAP_MARKER_PREFIX = "__W3_BOOTSTRAP_READY__"
 
-# Use rare uppercase probes to avoid false-positive matches from the noisy
-# lowercase pane logs. Keep this tiny because pane 3 may list /etc/X11.
-PROBE_CHAR_ALPHABET = "QZ"
+PROBE_CHAR_ALPHABET = "abcdegijkopvwxz"
 
 # Include common CSI sequences plus SCS sequences like ESC(B
 # that nano emits during screen redraws.
@@ -62,16 +55,6 @@ class FailureRecord:
     sample_id:     int
     error_type:    str
     error_message: str
-
-
-@dataclass
-class BackgroundSession:
-    label: str
-    child: pexpect.spawn
-    bytes_read: int = 0
-    lines_read: int = 0
-    eof: bool = False
-    thread: Optional[threading.Thread] = None
 
 
 @dataclass
@@ -123,49 +106,33 @@ class W3Benchmark:
         self.session_setups: Dict[str, Dict[str, List[float]]] = {
             p: {w: [] for w in args.workloads} for p in args.protocols
         }
-        self.ssh_control_dir: Optional[tempfile.TemporaryDirectory[str]] = None
-        self.ssh_control_path: Optional[str] = None
-        self.background_sessions: List[BackgroundSession] = []
-        self.background_stop = threading.Event()
 
     @staticmethod
     def _build_prompt_re(prompt_marker: str) -> re.Pattern[str]:
         parts = [re.escape(ch) + _ECHO_GAP for ch in prompt_marker]
         return re.compile("".join(parts) + rf"(?:{_ANSI_SEQ}|\s)*$")
 
-    @staticmethod
-    def _build_interleaved_text_re(text: str) -> re.Pattern[str]:
-        parts = [re.escape(ch) + _ECHO_GAP for ch in text]
-        return re.compile("".join(parts))
-
-    @staticmethod
-    def _printf_literal_cmd(text: str) -> str:
-        escaped = "".join(f"\\{ord(ch):03o}" for ch in text)
-        return f"printf {shlex.quote(escaped)}"
-
     def _expect_prompt(
         self,
         child: pexpect.spawn,
         protocol: Optional[str] = None,
     ) -> None:
+        # TUI redraw (especially over mosh) may split prompt bytes with ANSI updates.
         try:
             child.expect(self.prompt_re, timeout=self.args.timeout)
             return
-        except pexpect.TIMEOUT as exc:
-            last_exc: Optional[pexpect.TIMEOUT] = exc
+        except pexpect.TIMEOUT:
+            if protocol != "mosh":
+                raise
 
-        for _ in range(3):
-            marker = (
-                f"{BOOTSTRAP_MARKER_PREFIX}"
-                f"{random.randrange(10_000, 99_999)}"
-                f"__"
-            )
-            marker_re = self._build_interleaved_text_re(marker)
+        last_exc: Optional[pexpect.TIMEOUT] = None
+        for clear_screen in (False, True):
             self._drain_pending_output(child)
+            if clear_screen:
+                child.sendcontrol("l")
             child.sendline("")
-            child.sendline(self._printf_literal_cmd(marker + "\n"))
             try:
-                child.expect(marker_re, timeout=self.args.timeout)
+                child.expect(self.prompt_re, timeout=self.args.timeout)
                 return
             except pexpect.TIMEOUT as exc:
                 last_exc = exc
@@ -253,35 +220,6 @@ class W3Benchmark:
         return (end_ns - start_ns) / 1_000_000.0
 
     @staticmethod
-    def _next_probe_token() -> str:
-        return f"W3T{random.randrange(0x100000, 0xFFFFFF):06X}"
-
-    def _probe_token_once(
-        self,
-        child: pexpect.spawn,
-        erase_after_echo: bool = True,
-    ) -> float:
-        self._drain_pending_output(child, max_reads=16)
-        token = self._next_probe_token()
-        token_re = self._build_interleaved_text_re(token)
-        search_window = (
-            None if self.probe_search_window is None
-            else max(self.probe_search_window, 8192)
-        )
-
-        start_ns = time.perf_counter_ns()
-        child.send(token)
-        child.expect(
-            token_re,
-            timeout=self.args.timeout,
-            searchwindowsize=search_window,
-        )
-        end_ns = time.perf_counter_ns()
-        if erase_after_echo:
-            child.sendcontrol("u")
-        return (end_ns - start_ns) / 1_000_000.0
-
-    @staticmethod
     def _recover_nano_state(child: pexpect.spawn) -> None:
         child.sendcontrol("l")
 
@@ -295,97 +233,6 @@ class W3Benchmark:
         child.sendcontrol("l")
         child.send("i")
 
-    def _remote_tmux_current_command(self) -> str:
-        if not self.args.tmux_session:
-            return ""
-
-        ssh_bin = os.environ.get("W3_REAL_SSH") or "ssh"
-        target = f"{self.target}"
-        tmux_target = f"{self.args.tmux_session}:{self.args.tmux_pane}"
-        remote_cmd = shlex.join(
-            [
-                "tmux",
-                "display-message",
-                "-p",
-                "-t",
-                tmux_target,
-                "#{pane_current_command}",
-            ]
-        )
-
-        cmd = [ssh_bin]
-        if self.args.source_ip:
-            cmd += ["-b", self.args.source_ip]
-        if self.args.strict_host_key_checking:
-            cmd += ["-o", "StrictHostKeyChecking=yes"]
-        else:
-            cmd += [
-                "-o", "StrictHostKeyChecking=no",
-                "-o", "UserKnownHostsFile=/dev/null",
-            ]
-        if self.args.identity_file:
-            cmd += ["-i", self.args.identity_file]
-        if self.args.batch_mode:
-            cmd += ["-o", "BatchMode=yes"]
-        cmd += [target, remote_cmd]
-
-        try:
-            proc = subprocess.run(
-                cmd,
-                check=False,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-                text=True,
-                timeout=max(2, min(5, self.args.timeout)),
-            )
-        except (OSError, subprocess.TimeoutExpired):
-            return ""
-
-        if proc.returncode != 0:
-            return ""
-        return proc.stdout.strip().splitlines()[-1] if proc.stdout.strip() else ""
-
-    def _wait_remote_pane_command(
-        self,
-        expected_prefixes: tuple[str, ...],
-        timeout: float,
-    ) -> bool:
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            current = Path(self._remote_tmux_current_command()).name
-            if current and any(
-                current == prefix or current.startswith(prefix)
-                for prefix in expected_prefixes
-            ):
-                return True
-            time.sleep(0.2)
-        return False
-
-    def _expect_tui_started(
-        self,
-        child: pexpect.spawn,
-        patterns: list[str],
-        expected_commands: tuple[str, ...],
-    ) -> None:
-        first_timeout = min(3, self.args.timeout)
-        try:
-            child.expect(patterns, timeout=first_timeout)
-            return
-        except pexpect.TIMEOUT as exc:
-            first_exc = exc
-
-        remaining = max(1.0, self.args.timeout - first_timeout)
-        if self._wait_remote_pane_command(expected_commands, remaining):
-            self._drain_pending_output(child)
-            return
-
-        child.sendcontrol("l")
-        try:
-            child.expect(patterns, timeout=max(1, min(5, self.args.timeout)))
-            return
-        except pexpect.TIMEOUT:
-            raise first_exc
-
     def _reopen_session_for_sample_failure(
         self,
         child: pexpect.spawn,
@@ -394,162 +241,6 @@ class W3Benchmark:
         self._close_session(child)
         reopened_child, _ = self._open_session(protocol)
         return reopened_child
-
-    def _should_reopen_on_sample_failure(self, protocol: str) -> bool:
-        # Reattaching tmux after a single lost echo is expensive and fragile,
-        # especially for ssh3/mosh. Prefer in-place recovery in the 5-pane view.
-        if self.args.tmux_session:
-            return False
-
-        # Mosh reconnect/reopen is fragile even outside tmux. A light in-place
-        # recovery avoids turning one lost echo into a trial-level bootstrap
-        # timeout.
-        return self.args.reopen_on_failure and protocol != "mosh"
-
-    def _enter_vim_insert_mode(self, child: pexpect.spawn) -> None:
-        remote_file = self.args.remote_vim_file
-        child.sendline(f"vim -Nu NONE -n {shlex.quote(remote_file)}")
-        last_exc: Optional[pexpect.TIMEOUT] = None
-        for _ in range(3):
-            child.send("i")
-            try:
-                child.expect(
-                    [r"-- INSERT --", r"INSERT"],
-                    timeout=max(2, min(5, self.args.timeout)),
-                )
-                return
-            except pexpect.TIMEOUT as exc:
-                last_exc = exc
-                child.sendcontrol("l")
-
-        if self._wait_remote_pane_command(("vim", "vi", "nvim"), 1.0):
-            child.send("i")
-            return
-        if last_exc is not None:
-            raise last_exc
-
-    def _enter_nano_mode(self, child: pexpect.spawn) -> None:
-        remote_file = self.args.remote_nano_file
-        child.sendline(f"nano --ignorercfiles {shlex.quote(remote_file)}")
-        self._expect_tui_started(
-            child,
-            [r"GNU nano", r"\^G Help", r"New Buffer"],
-            ("nano",),
-        )
-
-    def _probe_vim_once(
-        self,
-        child: pexpect.spawn,
-        erase_after_echo: bool = True,
-    ) -> float:
-        # Assumes Vim is already in Insert mode.
-        return self._probe_once(child, erase_after_echo=erase_after_echo)
-
-    def _ssh_common_parts(
-        self,
-        force_tty: bool = True,
-        use_control_path: bool = True,
-    ) -> list[str]:
-        parts = [os.environ.get("W3_REAL_SSH") or "ssh"]
-        if force_tty:
-            parts.append("-tt")
-        if self.args.source_ip:
-            parts += ["-b", self.args.source_ip]
-        if self.args.strict_host_key_checking:
-            parts += ["-o", "StrictHostKeyChecking=yes"]
-        else:
-            parts += [
-                "-o", "StrictHostKeyChecking=no",
-                "-o", "UserKnownHostsFile=/dev/null",
-            ]
-        if self.args.identity_file:
-            parts += ["-i", self.args.identity_file]
-        if self.args.batch_mode:
-            parts += ["-o", "BatchMode=yes"]
-        if use_control_path and self.ssh_control_path:
-            parts += [
-                "-o", "ControlMaster=auto",
-                "-S", self.ssh_control_path,
-            ]
-        parts += [self.target]
-        return parts
-
-    def _ssh3_common_parts(self) -> List[str]:
-        ssh3_bin = os.environ.get("W3_REAL_SSH3") or os.environ.get("SSH3_BIN") or "ssh3"
-        parts = [ssh3_bin]
-        if self.args.identity_file:
-            parts += ["-privkey", self.args.identity_file]
-        if self.args.ssh3_insecure:
-            parts += ["-insecure"]
-        parts.append(f"{self.target}{self.args.ssh3_path}")
-        return parts
-
-    def _session_command(self, protocol: str) -> str:
-        target = self.target
-        ssh_common = self._ssh_common_parts(force_tty=True)
-
-        if protocol == "ssh":
-            return shlex.join(ssh_common)
-
-        if protocol == "mosh":
-            ssh_cmd    = shlex.join(self._ssh_common_parts(force_tty=True)[:-1])
-            mosh_bin = os.environ.get("W3_REAL_MOSH") or "mosh"
-            mosh_parts = [mosh_bin, f"--ssh={ssh_cmd}"]
-            if self.args.mosh_predict and self.args.mosh_predict != "adaptive":
-                mosh_parts += ["--predict", self.args.mosh_predict]
-            mosh_parts += [target]
-            return shlex.join(mosh_parts)
-
-        if protocol == "ssh3":
-            return shlex.join(self._ssh3_common_parts())
-
-        raise ValueError(f"Unsupported protocol: {protocol}")
-
-    def _background_session_command(
-        self,
-        protocol: str,
-        label: str,
-        command: str,
-    ) -> Optional[tuple[str, re.Pattern[str]]]:
-        if protocol not in {"ssh", "ssh3"}:
-            return None
-
-        safe_label = re.sub(r"[^A-Za-z0-9_]", "_", label)
-        marker = (
-            f"__W3_BG_READY__"
-            f"{safe_label}_{random.randrange(10_000, 99_999)}"
-            f"__"
-        )
-        marker_re = self._build_interleaved_text_re(marker)
-        bootstrap = (
-            f"{self._printf_literal_cmd(marker + chr(10))}; "
-            f"exec bash -lc {shlex.quote(command)}"
-        )
-
-        if protocol == "ssh":
-            parts = self._ssh_common_parts(force_tty=False)
-            parts += ["bash", "-lc", bootstrap]
-            return shlex.join(parts), marker_re
-
-        if protocol == "ssh3":
-            parts = self._ssh3_common_parts()
-            parts.append(f"bash -lc {shlex.quote(bootstrap)}")
-            return shlex.join(parts), marker_re
-
-        return None
-
-    @staticmethod
-    def _spawn_failure_tail(child: Optional[pexpect.spawn]) -> str:
-        if child is None:
-            return ""
-        text = getattr(child, "before", "") or getattr(child, "buffer", "") or ""
-        if isinstance(text, bytes):
-            text = text.decode("utf-8", "ignore")
-        text = re.sub(_ANSI_SEQ, "", str(text))
-        text = text.replace("\r", "\\r").replace("\n", " | ").strip()
-        if not text:
-            return ""
-        return text[-220:]
 
     @staticmethod
     def _should_attach_after_login(protocol: str) -> bool:
@@ -564,23 +255,75 @@ class W3Benchmark:
         attach_cmd = os.environ.get("W3_ATTACH_CMD", "").strip()
         if not attach_cmd:
             raise ValueError(
-                f"{protocol} requires after-login tmux attach, but "
-                "W3_ATTACH_CMD is not set"
+                f"{protocol} requires tmux attach, but W3_ATTACH_CMD is not set"
             )
 
         boot_marker = os.environ.get(
             "W3_ATTACH_BOOT_MARKER",
             "__W3_ATTACH_PANE0_READY__",
         )
-        boot_marker_re = self._build_interleaved_text_re(boot_marker)
-
         self._drain_pending_output(child)
         child.sendline(attach_cmd)
-        try:
-            child.expect(boot_marker_re, timeout=min(8, self.args.timeout))
-            return
-        except pexpect.TIMEOUT:
-            self._wait_for_session_ready(child, protocol=protocol)
+        child.expect(re.escape(boot_marker), timeout=self.args.timeout)
+
+    def _enter_vim_insert_mode(self, child: pexpect.spawn) -> None:
+        remote_file = self.args.remote_vim_file
+        child.sendline(f"vim -Nu NONE -n {shlex.quote(remote_file)}")
+        child.send("i")
+        child.expect([r"-- INSERT --", r"INSERT"], timeout=self.args.timeout)
+
+    def _enter_nano_mode(self, child: pexpect.spawn) -> None:
+        remote_file = self.args.remote_nano_file
+        child.sendline(f"nano --ignorercfiles {shlex.quote(remote_file)}")
+        child.expect([r"GNU nano", r"\^G Help"], timeout=self.args.timeout)
+
+    def _probe_vim_once(
+        self,
+        child: pexpect.spawn,
+        erase_after_echo: bool = True,
+    ) -> float:
+        # Assumes Vim is already in Insert mode.
+        return self._probe_once(child, erase_after_echo=erase_after_echo)
+
+    def _session_command(self, protocol: str) -> str:
+        target     = self.target
+        ssh_common = ["ssh", "-tt"]
+        if self.args.source_ip:
+            ssh_common += ["-b", self.args.source_ip]
+        if self.args.strict_host_key_checking:
+            ssh_common += ["-o", "StrictHostKeyChecking=yes"]
+        else:
+            ssh_common += [
+                "-o", "StrictHostKeyChecking=no",
+                "-o", "UserKnownHostsFile=/dev/null",
+            ]
+        if self.args.identity_file:
+            ssh_common += ["-i", self.args.identity_file]
+        if self.args.batch_mode:
+            ssh_common += ["-o", "BatchMode=yes"]
+        ssh_common += [target]
+
+        if protocol == "ssh":
+            return shlex.join(ssh_common)
+
+        if protocol == "mosh":
+            ssh_cmd    = shlex.join(ssh_common[:-1])
+            mosh_parts = ["mosh", f"--ssh={ssh_cmd}"]
+            if self.args.mosh_predict and self.args.mosh_predict != "adaptive":
+                mosh_parts += ["--predict", self.args.mosh_predict]
+            mosh_parts += [target]
+            return shlex.join(mosh_parts)
+
+        if protocol == "ssh3":
+            parts = ["ssh3"]
+            if self.args.identity_file:
+                parts += ["-privkey", self.args.identity_file]
+            if self.args.ssh3_insecure:
+                parts += ["-insecure"]
+            parts.append(f"{target}{self.args.ssh3_path}")
+            return shlex.join(parts)
+
+        raise ValueError(f"Unsupported protocol: {protocol}")
 
     def _open_session(self, protocol: str) -> tuple:
         child = pexpect.spawn(
@@ -592,7 +335,7 @@ class W3Benchmark:
         child.delaybeforesend = 0
 
         start_ns = time.perf_counter_ns()
-        self._wait_for_session_ready(child, protocol=protocol)
+        child.expect(_INITIAL_PROMPT_RE, timeout=self.args.timeout)
         if self._should_attach_after_login(protocol):
             self._attach_tmux_after_login(child, protocol)
         setup_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
@@ -602,61 +345,19 @@ class W3Benchmark:
 
         return child, setup_ms
 
-    def _wait_for_session_ready(
-        self,
-        child: pexpect.spawn,
-        protocol: Optional[str] = None,
-    ) -> None:
-        initial_timeout = (
-            self.args.timeout if protocol == "mosh"
-            else min(6, self.args.timeout)
-        )
-        try:
-            child.expect(_INITIAL_PROMPT_RE, timeout=initial_timeout)
-            return
-        except pexpect.TIMEOUT:
-            pass
-
-        # In a multiplexed tmux view, prompt bytes can be buried by redraw
-        # traffic from the other four panes. Force a command in pane 0 and wait
-        # for a unique marker that tolerates ANSI bytes between characters.
-        marker = (
-            f"{BOOTSTRAP_MARKER_PREFIX}"
-            f"{random.randrange(10_000, 99_999)}"
-            f"__"
-        )
-        marker_re = self._build_interleaved_text_re(marker)
-
-        last_exc: Optional[pexpect.TIMEOUT] = None
-        for _ in range(3):
-            self._drain_pending_output(child)
-            if protocol != "mosh":
-                child.sendcontrol("c")
-            child.sendline("")
-            child.sendline(self._printf_literal_cmd(marker + "\n"))
-            try:
-                child.expect(marker_re, timeout=self.args.timeout)
-                return
-            except pexpect.TIMEOUT as exc:
-                last_exc = exc
-
-        if last_exc is not None:
-            raise last_exc
-
     def _close_session(self, child: pexpect.spawn) -> None:
-        close_timeout = max(1, min(3, self.args.timeout))
-        try:
-            child.sendcontrol("b")
-            child.send("d")
-            child.expect(pexpect.EOF, timeout=close_timeout)
-            return
-        except Exception:
-            pass
+        if os.environ.get("W3_ATTACH_CMD"):
+            try:
+                child.sendcontrol("b")
+                child.send("d")
+                child.expect(pexpect.EOF, timeout=max(1, min(3, self.args.timeout)))
+                return
+            except Exception:
+                pass
 
         try:
-            child.sendcontrol("u")
             child.sendline("exit")
-            child.expect(pexpect.EOF, timeout=close_timeout)
+            child.expect(pexpect.EOF)
         except Exception:
             child.close(force=True)
         finally:
@@ -676,38 +377,6 @@ class W3Benchmark:
         fail_cb: Optional[Callable[[int, Exception], None]] = None,
     ) -> tuple[List[float], pexpect.spawn]:
         self._refresh_prompt(child, protocol=protocol)
-
-        if self.args.tmux_session:
-            for _ in range(warmup):
-                try:
-                    self._probe_token_once(child, erase_after_echo=True)
-                except pexpect.TIMEOUT:
-                    self._recover_shell_state(child)
-                    self._refresh_prompt(child, protocol=protocol)
-                    continue
-
-            self._refresh_prompt(child, protocol=protocol)
-
-            latencies: List[float] = []
-            for i in range(iterations):
-                try:
-                    lat = self._probe_token_once(child, erase_after_echo=True)
-                except pexpect.TIMEOUT as exc:
-                    if fail_cb:
-                        fail_cb(i + 1, exc)
-                    if self._should_reopen_on_sample_failure(protocol):
-                        child = self._reopen_session_for_sample_failure(child, protocol)
-                    else:
-                        self._recover_shell_state(child)
-                    self._refresh_prompt(child, protocol=protocol)
-                    continue
-                latencies.append(lat)
-                if report_cb:
-                    report_cb(i + 1, lat)
-
-            self._refresh_prompt(child, protocol=protocol)
-            return latencies, child
-
         cleanup_batch = max(1, self.args.editor_cleanup_batch)
         pending_chars = 0
 
@@ -738,7 +407,7 @@ class W3Benchmark:
             except pexpect.TIMEOUT as exc:
                 if fail_cb:
                     fail_cb(i + 1, exc)
-                if self._should_reopen_on_sample_failure(protocol):
+                if self.args.reopen_on_failure:
                     child = self._reopen_session_for_sample_failure(child, protocol)
                 else:
                     self._recover_shell_state(child)
@@ -785,7 +454,7 @@ class W3Benchmark:
             except pexpect.TIMEOUT as exc:
                 if fail_cb:
                     fail_cb(i + 1, exc)
-                if self._should_reopen_on_sample_failure(protocol):
+                if self.args.reopen_on_failure:
                     child = self._reopen_session_for_sample_failure(child, protocol)
                     self._enter_vim_insert_mode(child)
                 else:
@@ -831,7 +500,7 @@ class W3Benchmark:
             except pexpect.TIMEOUT as exc:
                 if fail_cb:
                     fail_cb(i + 1, exc)
-                if self._should_reopen_on_sample_failure(protocol):
+                if self.args.reopen_on_failure:
                     child = self._reopen_session_for_sample_failure(child, protocol)
                     self._enter_nano_mode(child)
                 else:
@@ -885,9 +554,7 @@ class W3Benchmark:
                 flush=True
             )
 
-        effective_workload = WORKLOAD_ALIASES.get(workload, workload)
-
-        if effective_workload == "interactive_shell":
+        if workload == "interactive_shell":
             latencies, child = self._measure_interactive_shell(
                 child,
                 protocol=protocol,
@@ -896,7 +563,7 @@ class W3Benchmark:
                 report_cb=report_cb,
                 fail_cb=fail_cb,
             )
-        elif effective_workload == "vim":
+        elif workload == "vim":
             latencies, child = self._measure_vim(
                 child,
                 protocol=protocol,
@@ -905,7 +572,7 @@ class W3Benchmark:
                 report_cb=report_cb,
                 fail_cb=fail_cb,
             )
-        elif effective_workload == "nano":
+        elif workload == "nano":
             latencies, child = self._measure_nano(
                 child,
                 protocol=protocol,
@@ -922,60 +589,8 @@ class W3Benchmark:
     def _run_session_group(self, protocol: str, workload: str) -> None:
         for trial_id in range(1, self.args.trials + 1):
             child: Optional[pexpect.spawn] = None
-            setup_ms: Optional[float] = None
             try:
-                open_exc: Optional[Exception] = None
-                open_attempts = max(1, self.args.open_session_retries)
-                for open_try in range(1, open_attempts + 1):
-                    try:
-                        child, setup_ms = self._open_session(protocol)
-                        break
-                    except (
-                        pexpect.TIMEOUT,
-                        pexpect.EOF,
-                        OSError,
-                        ValueError,
-                    ) as exc:
-                        open_exc = exc
-                        if child is not None:
-                            self._close_session(child)
-                            child = None
-                        if open_try < open_attempts:
-                            print(
-                                f"[{protocol:>4}/{workload:<18}]"
-                                f" trial {trial_id:>2}/{self.args.trials}"
-                                f" open {open_try}/{open_attempts}:"
-                                f" FAIL ({type(exc).__name__}), retrying...",
-                                flush=True,
-                            )
-                            time.sleep(self.args.open_retry_backoff_ms / 1000.0)
-
-                if child is None or setup_ms is None:
-                    msg = (
-                        f"open_session failed after {open_attempts} attempt(s): "
-                        f"{open_exc}"
-                    )
-                    self.failures.append(
-                        FailureRecord(
-                            protocol=protocol,
-                            workload=workload,
-                            round_id=trial_id,
-                            sample_id=-1,
-                            error_type=(
-                                type(open_exc).__name__
-                                if open_exc is not None
-                                else "OpenSessionError"
-                            ),
-                            error_message=msg,
-                        )
-                    )
-                    print(
-                        f"[{protocol:>4}/{workload:<18}]"
-                        f" trial {trial_id:>2}: FAIL ({msg})",
-                        flush=True,
-                    )
-                    continue
-
+                child, setup_ms = self._open_session(protocol)
                 self.session_setups[protocol][workload].append(setup_ms)
                 print(
                     f"[{protocol:>4}/{workload:<18}]"
@@ -1008,242 +623,17 @@ class W3Benchmark:
                 if child is not None:
                     self._close_session(child)
 
-    def _background_commands(self) -> list[str]:
-        return [
-            "while true; do printf 'bg1 heartbeat %(%s)T\\n' -1; sleep 0.2; done",
-            "while true; do for i in $(seq 1 200); do echo \"bg2 burst line $i $(date +%s%N)\"; done; sleep 0.2; done",
-            "while true; do echo \"bg3 /etc snapshot $(date +%s)\"; ls /etc | head -n 25; sleep 0.4; done",
-            "while true; do echo \"bg4 log $(date +%s%N) background-event\"; sleep 0.05; done",
-        ]
-
-    def _start_ssh_control_master(self, protocol: str) -> None:
-        if protocol != "ssh" or not self.args.ssh_control_master:
-            self.ssh_control_path = None
-            return
-
-        self.ssh_control_dir = tempfile.TemporaryDirectory(prefix="w3_ssh_ctl_")
-        control_path = str(Path(self.ssh_control_dir.name) / "ctl")
-        base = self._ssh_common_parts(force_tty=False, use_control_path=False)
-        cmd = [base[0], "-M", "-N", "-f", "-S", control_path] + base[1:]
-
-        proc = subprocess.run(
-            cmd,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-            text=True,
-            timeout=max(5, min(15, self.args.timeout)),
-        )
-        if proc.returncode != 0:
-            raise RuntimeError(
-                "failed to start ssh ControlMaster: "
-                f"{proc.stderr.strip() or proc.returncode}"
-            )
-        self.ssh_control_path = control_path
-        print(f"[ ssh/background          ] ControlMaster={control_path}", flush=True)
-
-    def _stop_ssh_control_master(self) -> None:
-        control_path = self.ssh_control_path
-        if control_path:
-            base = self._ssh_common_parts(force_tty=False, use_control_path=False)
-            cmd = [base[0], "-S", control_path, "-O", "exit"] + base[1:]
-            try:
-                subprocess.run(
-                    cmd,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    timeout=5,
-                )
-            except (OSError, subprocess.TimeoutExpired):
-                pass
-        self.ssh_control_path = None
-        if self.ssh_control_dir is not None:
-            self.ssh_control_dir.cleanup()
-            self.ssh_control_dir = None
-
-    def _background_reader(self, session: BackgroundSession) -> None:
-        while not self.background_stop.is_set():
-            try:
-                data = session.child.read_nonblocking(
-                    size=self.args.background_read_chunk,
-                    timeout=0.2,
-                )
-            except pexpect.TIMEOUT:
-                continue
-            except pexpect.EOF:
-                session.eof = True
-                return
-            except OSError:
-                session.eof = True
-                return
-            session.bytes_read += len(data)
-            session.lines_read += data.count("\n")
-
-    def _open_background_session(
-        self,
-        protocol: str,
-        label: str,
-        command: str,
-    ) -> Optional[BackgroundSession]:
-        last_exc: Optional[Exception] = None
-        last_detail = ""
-        attempts = max(1, self.args.background_open_retries)
-        for attempt in range(1, attempts + 1):
-            child: Optional[pexpect.spawn] = None
-            try:
-                direct_command = self._background_session_command(
-                    protocol,
-                    label,
-                    command,
-                )
-                child_command = (
-                    direct_command[0]
-                    if direct_command is not None
-                    else self._session_command(protocol)
-                )
-                child = pexpect.spawn(
-                    child_command,
-                    encoding="utf-8",
-                    codec_errors="ignore",
-                    timeout=self.args.timeout,
-                )
-                child.delaybeforesend = 0
-                if direct_command is not None:
-                    child.expect(
-                        direct_command[1],
-                        timeout=max(3, min(10, self.args.timeout)),
-                    )
-                else:
-                    self._wait_for_session_ready(child, protocol=protocol)
-                    child.sendline(f"exec bash -lc {shlex.quote(command)}")
-
-                session = BackgroundSession(label=label, child=child)
-                session.thread = threading.Thread(
-                    target=self._background_reader,
-                    args=(session,),
-                    name=f"w3-{label}",
-                    daemon=True,
-                )
-                session.thread.start()
-                return session
-            except (pexpect.TIMEOUT, pexpect.EOF, OSError) as exc:
-                last_exc = exc
-                last_detail = self._spawn_failure_tail(child)
-                if child is not None:
-                    try:
-                        child.close(force=True)
-                    except Exception:
-                        pass
-                if attempt < attempts:
-                    print(
-                        f"[{protocol:>4}/background        ]"
-                        f" {label} open {attempt}/{attempts}:"
-                        f" FAIL ({type(exc).__name__}), retrying...",
-                        flush=True,
-                    )
-                    if last_detail:
-                        print(
-                            f"[{protocol:>4}/background        ]"
-                            f" {label} detail: {last_detail}",
-                            flush=True,
-                        )
-                    time.sleep(self.args.background_open_backoff_ms / 1000.0)
-
-        print(
-            f"[{protocol:>4}/background        ]"
-            f" WARN: {label} disabled after {attempts} open attempt(s)"
-            f" ({type(last_exc).__name__ if last_exc else 'unknown'})",
-            flush=True,
-        )
-        if last_detail:
-            print(
-                f"[{protocol:>4}/background        ]"
-                f" {label} last detail: {last_detail}",
-                flush=True,
-            )
-        return None
-
-    def _start_background_load(self, protocol: str) -> None:
-        channels = max(0, self.args.background_channels)
-        if channels == 0:
-            return
-
-        commands = self._background_commands()
-        self.background_stop.clear()
-        self.background_sessions = []
-
-        for idx in range(channels):
-            command = commands[idx % len(commands)]
-            session = self._open_background_session(
-                protocol,
-                f"{protocol}-bg{idx + 1}",
-                command,
-            )
-            if session is not None:
-                self.background_sessions.append(session)
-            if self.args.background_open_gap_sec > 0:
-                time.sleep(self.args.background_open_gap_sec)
-
-        if self.args.background_warmup_sec > 0:
-            time.sleep(self.args.background_warmup_sec)
-
-        print(
-            f"[{protocol:>4}/background        ]"
-            f" started {len(self.background_sessions)} protocol sessions",
-            flush=True,
-        )
-
-    def _stop_background_load(self, protocol: str) -> None:
-        if not self.background_sessions:
-            return
-
-        self.background_stop.set()
-        for session in self.background_sessions:
-            try:
-                session.child.sendcontrol("c")
-                session.child.sendline("exit")
-            except Exception:
-                pass
-        for session in self.background_sessions:
-            if session.thread is not None:
-                session.thread.join(timeout=1)
-        for session in self.background_sessions:
-            try:
-                session.child.close(force=True)
-            except Exception:
-                pass
-
-        total_bytes = sum(s.bytes_read for s in self.background_sessions)
-        total_lines = sum(s.lines_read for s in self.background_sessions)
-        eof_count = sum(1 for s in self.background_sessions if s.eof)
-        print(
-            f"[{protocol:>4}/background        ]"
-            f" stopped sessions={len(self.background_sessions)}"
-            f" bytes={total_bytes} lines={total_lines} eof={eof_count}",
-            flush=True,
-        )
-        self.background_sessions = []
-
     def run(self) -> None:
         random.seed(self.args.seed)
-        protocols = list(self.args.protocols)
+        pairs = [
+            (p, w)
+            for p in self.args.protocols
+            for w in self.args.workloads
+        ]
         if self.args.shuffle_pairs:
-            random.shuffle(protocols)
-
-        for protocol in protocols:
-            if self.args.protocol_cooldown_sec > 0:
-                time.sleep(self.args.protocol_cooldown_sec)
-            workloads = list(self.args.workloads)
-            if self.args.shuffle_pairs:
-                random.shuffle(workloads)
-
-            self._start_ssh_control_master(protocol)
-            try:
-                self._start_background_load(protocol)
-                for workload in workloads:
-                    self._run_session_group(protocol, workload)
-            finally:
-                self._stop_background_load(protocol)
-                self._stop_ssh_control_master()
+            random.shuffle(pairs)
+        for protocol, workload in pairs:
+            self._run_session_group(protocol, workload)
 
     @staticmethod
     def _percentile(values: List[float], p: float) -> Optional[float]:
@@ -1427,7 +817,6 @@ class W3Benchmark:
 
 def build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="W3 Interactive Editing benchmark")
-    workload_choices = sorted(set(DEFAULT_WORKLOADS) | set(WORKLOAD_ALIASES))
     p.add_argument(
         "--host", default="192.168.8.102",
         help="Target host IP or hostname",
@@ -1451,7 +840,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     p.add_argument(
         "--workloads", nargs="+",
-        default=DEFAULT_WORKLOADS, choices=workload_choices,
+        default=DEFAULT_WORKLOADS, choices=DEFAULT_WORKLOADS,
     )
     p.add_argument(
         "--trials", type=int, default=15,
@@ -1468,14 +857,6 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--timeout", type=int, default=20,
         help="pexpect timeout in seconds",
-    )
-    p.add_argument(
-        "--open-session-retries", type=int, default=2,
-        help="Maximum attempts to open one benchmark session per trial",
-    )
-    p.add_argument(
-        "--open-retry-backoff-ms", type=int, default=500,
-        help="Sleep between open-session retry attempts in milliseconds",
     )
     p.add_argument(
         "--seed", type=int, default=42,
@@ -1500,16 +881,6 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--prompt", default=DEFAULT_PROMPT,
         help="Unique shell prompt marker used after session is ready",
-    )
-    p.add_argument(
-        "--tmux-session",
-        default="",
-        help="Remote tmux session used for out-of-band pane state checks",
-    )
-    p.add_argument(
-        "--tmux-pane",
-        default="0.0",
-        help="Remote tmux pane used for out-of-band pane state checks",
     )
     p.add_argument(
         "--ssh3-path", default=DEFAULT_SSH3_PATH,
@@ -1549,53 +920,6 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Reopen session immediately after each failed measured sample",
     )
     p.add_argument(
-        "--background-channels",
-        type=int,
-        default=0,
-        help="Number of concurrent background protocol sessions while measuring",
-    )
-    p.add_argument(
-        "--background-warmup-sec",
-        type=float,
-        default=1.0,
-        help="Seconds to let background sessions start producing output",
-    )
-    p.add_argument(
-        "--background-read-chunk",
-        type=int,
-        default=4096,
-        help="Bytes read per background session polling operation",
-    )
-    p.add_argument(
-        "--background-open-retries",
-        type=int,
-        default=3,
-        help="Open attempts for each background protocol session",
-    )
-    p.add_argument(
-        "--background-open-backoff-ms",
-        type=int,
-        default=1000,
-        help="Sleep between background session open retries",
-    )
-    p.add_argument(
-        "--background-open-gap-sec",
-        type=float,
-        default=0.5,
-        help="Delay between starting background sessions",
-    )
-    p.add_argument(
-        "--protocol-cooldown-sec",
-        type=float,
-        default=2.0,
-        help="Delay before starting each protocol group",
-    )
-    p.add_argument(
-        "--ssh-control-master",
-        action="store_true",
-        help="Use one OpenSSH ControlMaster TCP connection for ssh sessions",
-    )
-    p.add_argument(
         "--log-pexpect", action="store_true",
         help="Deprecated compatibility flag (no-op): pexpect logs are disabled",
     )
@@ -1611,30 +935,10 @@ def main() -> int:
         parser.error("--iterations must be > 0")
     if args.warmup_rounds < 0:
         parser.error("--warmup-rounds must be >= 0")
-    if args.timeout <= 0:
-        parser.error("--timeout must be > 0")
-    if args.open_session_retries <= 0:
-        parser.error("--open-session-retries must be > 0")
-    if args.open_retry_backoff_ms < 0:
-        parser.error("--open-retry-backoff-ms must be >= 0")
     if args.editor_cleanup_batch <= 0:
         parser.error("--editor-cleanup-batch must be > 0")
     if args.probe_search_window < 0:
         parser.error("--probe-search-window must be >= 0")
-    if args.background_channels < 0:
-        parser.error("--background-channels must be >= 0")
-    if args.background_warmup_sec < 0:
-        parser.error("--background-warmup-sec must be >= 0")
-    if args.background_read_chunk <= 0:
-        parser.error("--background-read-chunk must be > 0")
-    if args.background_open_retries <= 0:
-        parser.error("--background-open-retries must be > 0")
-    if args.background_open_backoff_ms < 0:
-        parser.error("--background-open-backoff-ms must be >= 0")
-    if args.background_open_gap_sec < 0:
-        parser.error("--background-open-gap-sec must be >= 0")
-    if args.protocol_cooldown_sec < 0:
-        parser.error("--protocol-cooldown-sec must be >= 0")
 
     bench = W3Benchmark(args)
     bench.run()
