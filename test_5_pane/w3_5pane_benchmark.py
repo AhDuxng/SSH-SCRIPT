@@ -350,6 +350,12 @@ class W3Benchmark:
         reopened_child, _ = self._open_session(protocol)
         return reopened_child
 
+    def _should_reopen_on_sample_failure(self, protocol: str) -> bool:
+        # Mosh reconnect/reopen is fragile inside a noisy tmux attach. A light
+        # in-place recovery avoids turning one lost echo into a trial-level
+        # bootstrap timeout.
+        return self.args.reopen_on_failure and protocol != "mosh"
+
     def _enter_vim_insert_mode(self, child: pexpect.spawn) -> None:
         remote_file = self.args.remote_vim_file
         child.sendline(f"vim -Nu NONE -n {shlex.quote(remote_file)}")
@@ -577,7 +583,7 @@ class W3Benchmark:
             except pexpect.TIMEOUT as exc:
                 if fail_cb:
                     fail_cb(i + 1, exc)
-                if self.args.reopen_on_failure:
+                if self._should_reopen_on_sample_failure(protocol):
                     child = self._reopen_session_for_sample_failure(child, protocol)
                 else:
                     self._recover_shell_state(child)
@@ -612,7 +618,7 @@ class W3Benchmark:
 
         for _ in range(warmup):
             try:
-                self._probe_vim_once(child, erase_after_echo=False)
+                self._probe_vim_once(child, erase_after_echo=True)
             except pexpect.TIMEOUT:
                 self._recover_vim_state(child)
                 continue
@@ -620,11 +626,11 @@ class W3Benchmark:
         latencies: List[float] = []
         for i in range(iterations):
             try:
-                lat = self._probe_vim_once(child, erase_after_echo=False)
+                lat = self._probe_vim_once(child, erase_after_echo=True)
             except pexpect.TIMEOUT as exc:
                 if fail_cb:
                     fail_cb(i + 1, exc)
-                if self.args.reopen_on_failure:
+                if self._should_reopen_on_sample_failure(protocol):
                     child = self._reopen_session_for_sample_failure(child, protocol)
                     self._enter_vim_insert_mode(child)
                 else:
@@ -654,7 +660,7 @@ class W3Benchmark:
             try:
                 self._probe_once(
                     child,
-                    erase_after_echo=False,
+                    erase_after_echo=True,
                 )
             except pexpect.TIMEOUT:
                 self._recover_nano_state(child)
@@ -665,12 +671,12 @@ class W3Benchmark:
             try:
                 lat = self._probe_once(
                     child,
-                    erase_after_echo=False,
+                    erase_after_echo=True,
                 )
             except pexpect.TIMEOUT as exc:
                 if fail_cb:
                     fail_cb(i + 1, exc)
-                if self.args.reopen_on_failure:
+                if self._should_reopen_on_sample_failure(protocol):
                     child = self._reopen_session_for_sample_failure(child, protocol)
                     self._enter_nano_mode(child)
                 else:
