@@ -707,7 +707,7 @@ class W3Benchmark:
 
         for _ in range(warmup):
             try:
-                self._probe_vim_once(child, erase_after_echo=True)
+                self._probe_vim_once(child, erase_after_echo=False)
             except pexpect.TIMEOUT:
                 self._recover_vim_state(child)
                 continue
@@ -715,7 +715,7 @@ class W3Benchmark:
         latencies: List[float] = []
         for i in range(iterations):
             try:
-                lat = self._probe_vim_once(child, erase_after_echo=True)
+                lat = self._probe_vim_once(child, erase_after_echo=False)
             except pexpect.TIMEOUT as exc:
                 if fail_cb:
                     fail_cb(i + 1, exc)
@@ -749,7 +749,7 @@ class W3Benchmark:
             try:
                 self._probe_once(
                     child,
-                    erase_after_echo=True,
+                    erase_after_echo=False,
                 )
             except pexpect.TIMEOUT:
                 self._recover_nano_state(child)
@@ -760,7 +760,7 @@ class W3Benchmark:
             try:
                 lat = self._probe_once(
                     child,
-                    erase_after_echo=True,
+                    erase_after_echo=False,
                 )
             except pexpect.TIMEOUT as exc:
                 if fail_cb:
