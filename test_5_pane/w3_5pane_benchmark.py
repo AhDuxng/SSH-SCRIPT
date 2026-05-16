@@ -253,6 +253,35 @@ class W3Benchmark:
         return (end_ns - start_ns) / 1_000_000.0
 
     @staticmethod
+    def _next_probe_token() -> str:
+        return f"W3T{random.randrange(0x100000, 0xFFFFFF):06X}"
+
+    def _probe_token_once(
+        self,
+        child: pexpect.spawn,
+        erase_after_echo: bool = True,
+    ) -> float:
+        self._drain_pending_output(child, max_reads=16)
+        token = self._next_probe_token()
+        token_re = self._build_interleaved_text_re(token)
+        search_window = (
+            None if self.probe_search_window is None
+            else max(self.probe_search_window, 8192)
+        )
+
+        start_ns = time.perf_counter_ns()
+        child.send(token)
+        child.expect(
+            token_re,
+            timeout=self.args.timeout,
+            searchwindowsize=search_window,
+        )
+        end_ns = time.perf_counter_ns()
+        if erase_after_echo:
+            child.sendcontrol("u")
+        return (end_ns - start_ns) / 1_000_000.0
+
+    @staticmethod
     def _recover_nano_state(child: pexpect.spawn) -> None:
         child.sendcontrol("l")
 
@@ -367,9 +396,14 @@ class W3Benchmark:
         return reopened_child
 
     def _should_reopen_on_sample_failure(self, protocol: str) -> bool:
-        # Mosh reconnect/reopen is fragile inside a noisy tmux attach. A light
-        # in-place recovery avoids turning one lost echo into a trial-level
-        # bootstrap timeout.
+        # Reattaching tmux after a single lost echo is expensive and fragile,
+        # especially for ssh3/mosh. Prefer in-place recovery in the 5-pane view.
+        if self.args.tmux_session:
+            return False
+
+        # Mosh reconnect/reopen is fragile even outside tmux. A light in-place
+        # recovery avoids turning one lost echo into a trial-level bootstrap
+        # timeout.
         return self.args.reopen_on_failure and protocol != "mosh"
 
     def _enter_vim_insert_mode(self, child: pexpect.spawn) -> None:
@@ -642,6 +676,38 @@ class W3Benchmark:
         fail_cb: Optional[Callable[[int, Exception], None]] = None,
     ) -> tuple[List[float], pexpect.spawn]:
         self._refresh_prompt(child, protocol=protocol)
+
+        if self.args.tmux_session:
+            for _ in range(warmup):
+                try:
+                    self._probe_token_once(child, erase_after_echo=True)
+                except pexpect.TIMEOUT:
+                    self._recover_shell_state(child)
+                    self._refresh_prompt(child, protocol=protocol)
+                    continue
+
+            self._refresh_prompt(child, protocol=protocol)
+
+            latencies: List[float] = []
+            for i in range(iterations):
+                try:
+                    lat = self._probe_token_once(child, erase_after_echo=True)
+                except pexpect.TIMEOUT as exc:
+                    if fail_cb:
+                        fail_cb(i + 1, exc)
+                    if self._should_reopen_on_sample_failure(protocol):
+                        child = self._reopen_session_for_sample_failure(child, protocol)
+                    else:
+                        self._recover_shell_state(child)
+                    self._refresh_prompt(child, protocol=protocol)
+                    continue
+                latencies.append(lat)
+                if report_cb:
+                    report_cb(i + 1, lat)
+
+            self._refresh_prompt(child, protocol=protocol)
+            return latencies, child
+
         cleanup_batch = max(1, self.args.editor_cleanup_batch)
         pending_chars = 0
 
