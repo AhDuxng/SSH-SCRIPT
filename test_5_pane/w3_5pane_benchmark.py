@@ -440,6 +440,16 @@ class W3Benchmark:
         parts += [self.target]
         return parts
 
+    def _ssh3_common_parts(self) -> List[str]:
+        ssh3_bin = os.environ.get("W3_REAL_SSH3") or os.environ.get("SSH3_BIN") or "ssh3"
+        parts = [ssh3_bin]
+        if self.args.identity_file:
+            parts += ["-privkey", self.args.identity_file]
+        if self.args.ssh3_insecure:
+            parts += ["-insecure"]
+        parts.append(f"{self.target}{self.args.ssh3_path}")
+        return parts
+
     def _session_command(self, protocol: str) -> str:
         target = self.target
         ssh_common = self._ssh_common_parts(force_tty=True)
@@ -457,16 +467,55 @@ class W3Benchmark:
             return shlex.join(mosh_parts)
 
         if protocol == "ssh3":
-            ssh3_bin = os.environ.get("W3_REAL_SSH3") or os.environ.get("SSH3_BIN") or "ssh3"
-            parts = [ssh3_bin]
-            if self.args.identity_file:
-                parts += ["-privkey", self.args.identity_file]
-            if self.args.ssh3_insecure:
-                parts += ["-insecure"]
-            parts.append(f"{target}{self.args.ssh3_path}")
-            return shlex.join(parts)
+            return shlex.join(self._ssh3_common_parts())
 
         raise ValueError(f"Unsupported protocol: {protocol}")
+
+    def _background_session_command(
+        self,
+        protocol: str,
+        label: str,
+        command: str,
+    ) -> Optional[tuple[str, re.Pattern[str]]]:
+        if protocol not in {"ssh", "ssh3"}:
+            return None
+
+        safe_label = re.sub(r"[^A-Za-z0-9_]", "_", label)
+        marker = (
+            f"__W3_BG_READY__"
+            f"{safe_label}_{random.randrange(10_000, 99_999)}"
+            f"__"
+        )
+        marker_re = self._build_interleaved_text_re(marker)
+        bootstrap = (
+            f"{self._printf_literal_cmd(marker + chr(10))}; "
+            f"exec bash -lc {shlex.quote(command)}"
+        )
+
+        if protocol == "ssh":
+            parts = self._ssh_common_parts(force_tty=False)
+            parts += ["bash", "-lc", bootstrap]
+            return shlex.join(parts), marker_re
+
+        if protocol == "ssh3":
+            parts = self._ssh3_common_parts()
+            parts.append(f"bash -lc {shlex.quote(bootstrap)}")
+            return shlex.join(parts), marker_re
+
+        return None
+
+    @staticmethod
+    def _spawn_failure_tail(child: Optional[pexpect.spawn]) -> str:
+        if child is None:
+            return ""
+        text = getattr(child, "before", "") or getattr(child, "buffer", "") or ""
+        if isinstance(text, bytes):
+            text = text.decode("utf-8", "ignore")
+        text = re.sub(_ANSI_SEQ, "", str(text))
+        text = text.replace("\r", "\\r").replace("\n", " | ").strip()
+        if not text:
+            return ""
+        return text[-220:]
 
     @staticmethod
     def _should_attach_after_login(protocol: str) -> bool:
@@ -970,19 +1019,36 @@ class W3Benchmark:
         command: str,
     ) -> Optional[BackgroundSession]:
         last_exc: Optional[Exception] = None
+        last_detail = ""
         attempts = max(1, self.args.background_open_retries)
         for attempt in range(1, attempts + 1):
             child: Optional[pexpect.spawn] = None
             try:
+                direct_command = self._background_session_command(
+                    protocol,
+                    label,
+                    command,
+                )
+                child_command = (
+                    direct_command[0]
+                    if direct_command is not None
+                    else self._session_command(protocol)
+                )
                 child = pexpect.spawn(
-                    self._session_command(protocol),
+                    child_command,
                     encoding="utf-8",
                     codec_errors="ignore",
                     timeout=self.args.timeout,
                 )
                 child.delaybeforesend = 0
-                self._wait_for_session_ready(child, protocol=protocol)
-                child.sendline(f"exec bash -lc {shlex.quote(command)}")
+                if direct_command is not None:
+                    child.expect(
+                        direct_command[1],
+                        timeout=max(3, min(10, self.args.timeout)),
+                    )
+                else:
+                    self._wait_for_session_ready(child, protocol=protocol)
+                    child.sendline(f"exec bash -lc {shlex.quote(command)}")
 
                 session = BackgroundSession(label=label, child=child)
                 session.thread = threading.Thread(
@@ -995,6 +1061,7 @@ class W3Benchmark:
                 return session
             except (pexpect.TIMEOUT, pexpect.EOF, OSError) as exc:
                 last_exc = exc
+                last_detail = self._spawn_failure_tail(child)
                 if child is not None:
                     try:
                         child.close(force=True)
@@ -1007,6 +1074,12 @@ class W3Benchmark:
                         f" FAIL ({type(exc).__name__}), retrying...",
                         flush=True,
                     )
+                    if last_detail:
+                        print(
+                            f"[{protocol:>4}/background        ]"
+                            f" {label} detail: {last_detail}",
+                            flush=True,
+                        )
                     time.sleep(self.args.background_open_backoff_ms / 1000.0)
 
         print(
@@ -1015,6 +1088,12 @@ class W3Benchmark:
             f" ({type(last_exc).__name__ if last_exc else 'unknown'})",
             flush=True,
         )
+        if last_detail:
+            print(
+                f"[{protocol:>4}/background        ]"
+                f" {label} last detail: {last_detail}",
+                flush=True,
+            )
         return None
 
     def _start_background_load(self, protocol: str) -> None:
