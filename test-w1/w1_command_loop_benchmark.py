@@ -34,6 +34,8 @@ DEFAULT_COMMANDS = [
     "df -h",
     "ps aux",
     "grep -n root /etc/passwd",
+    "cat /proc/meminfo",
+    "find /usr -maxdepth 3",
 ]
 _ANSI_SEQ = r"(?:\x1b\[\??[0-9;]*[a-zA-Z])"
 _ECHO_GAP = rf"(?:{_ANSI_SEQ}|[\r\n\b])*"
@@ -233,68 +235,68 @@ class W1Benchmark:
         end_ns = time.perf_counter_ns()
         return (end_ns - start_ns) / 1_000_000.0
 
-    def _run_trial(
-        self,
-        child: pexpect.spawn,
-        protocol: str,
-        workload: str,
-        command: str,
-        command_id: int,
-        trial_id: int,
-    ) -> None:
-        for sample_id in range(1, self.args.iterations + 1):
-            is_warmup = sample_id <= self.warmup
-            marker_tail = self._next_marker_tail()
-            marker = f"__W1_DONE_{trial_id}_{sample_id}_{command_id}_{marker_tail}__"
-            try:
-                lat = self._measure_command_completion(
-                    child,
-                    command,
-                    marker,
-                    marker_tail,
-                )
-                if not is_warmup:
-                    self.results[protocol][command].append(lat)
-                self.records.append(
-                    SampleRecord(
-                        protocol,
-                        workload,
-                        trial_id,
-                        sample_id,
-                        command_id,
-                        command,
-                        lat,
-                        warmup=is_warmup,
-                    )
-                )
-                tag = "WARM" if is_warmup else "meas"
-                print(
-                    f"[{protocol:>4}/{command:<18}] trial {trial_id:>2}/{self.args.trials}"
-                    f" {tag} {sample_id:>3}/{self.args.iterations}: {lat:.2f} ms",
-                    flush=True,
-                )
-            except (pexpect.TIMEOUT, pexpect.EOF, ValueError) as exc:
-                self.failures.append(
-                    FailureRecord(
-                        protocol=protocol,
-                        workload=workload,
-                        round_id=trial_id,
-                        sample_id=sample_id,
-                        command_id=command_id,
-                        command=command,
-                        error_type=type(exc).__name__,
-                        error_message=str(exc),
-                        warmup=is_warmup,
-                    )
-                )
-                tag = "WARM-FAIL" if is_warmup else "FAIL"
-                print(
-                    f"[{protocol:>4}/{command:<18}] trial {trial_id:>2}"
-                    f" {tag} {sample_id:>3}: ({type(exc).__name__}: {exc})",
-                    flush=True,
-                )
-                if self.args.reopen_on_failure:
-                    raise
+    # def _run_trial(
+    #     self,
+    #     child: pexpect.spawn,
+    #     protocol: str,
+    #     workload: str,
+    #     command: str,
+    #     command_id: int,
+    #     trial_id: int,
+    # ) -> None:
+    #     for sample_id in range(1, self.args.iterations + 1):
+    #         is_warmup = sample_id <= self.warmup
+    #         marker_tail = self._next_marker_tail()
+    #         marker = f"__W1_DONE_{trial_id}_{sample_id}_{command_id}_{marker_tail}__"
+    #         try:
+    #             lat = self._measure_command_completion(
+    #                 child,
+    #                 command,
+    #                 marker,
+    #                 marker_tail,
+    #             )
+    #             if not is_warmup:
+    #                 self.results[protocol][command].append(lat)
+    #             self.records.append(
+    #                 SampleRecord(
+    #                     protocol,
+    #                     workload,
+    #                     trial_id,
+    #                     sample_id,
+    #                     command_id,
+    #                     command,
+    #                     lat,
+    #                     warmup=is_warmup,
+    #                 )
+    #             )
+    #             tag = "WARM" if is_warmup else "meas"
+    #             print(
+    #                 f"[{protocol:>4}/{command:<18}] trial {trial_id:>2}/{self.args.trials}"
+    #                 f" {tag} {sample_id:>3}/{self.args.iterations}: {lat:.2f} ms",
+    #                 flush=True,
+    #             )
+    #         except (pexpect.TIMEOUT, pexpect.EOF, ValueError) as exc:
+    #             self.failures.append(
+    #                 FailureRecord(
+    #                     protocol=protocol,
+    #                     workload=workload,
+    #                     round_id=trial_id,
+    #                     sample_id=sample_id,
+    #                     command_id=command_id,
+    #                     command=command,
+    #                     error_type=type(exc).__name__,
+    #                     error_message=str(exc),
+    #                     warmup=is_warmup,
+    #                 )
+    #             )
+    #             tag = "WARM-FAIL" if is_warmup else "FAIL"
+    #             print(
+    #                 f"[{protocol:>4}/{command:<18}] trial {trial_id:>2}"
+    #                 f" {tag} {sample_id:>3}: ({type(exc).__name__}: {exc})",
+    #                 flush=True,
+    #             )
+    #             if self.args.reopen_on_failure:
+    #                 raise
 
     def _run_session_group(
         self,
@@ -304,30 +306,74 @@ class W1Benchmark:
         command_id: int,
     ) -> None:
         for trial_id in range(1, self.args.trials + 1):
-            child: Optional[pexpect.spawn] = None
-            try:
-                child, setup_ms = self._open_session(protocol)
-                self.session_setups[protocol][command].append(setup_ms)
-                print(
-                    f"[{protocol:>4}/{command:<18}] trial {trial_id:>2}/{self.args.trials}"
-                    f" session_setup={setup_ms:.1f} ms",
-                    flush=True,
-                )
+            sample_id = 1
+            while sample_id <= self.args.iterations:
+                child: Optional[pexpect.spawn] = None
                 try:
-                    self._run_trial(
-                        child,
-                        protocol,
-                        workload,
-                        command,
-                        command_id,
-                        trial_id,
+                    child, setup_ms = self._open_session(protocol)
+                    if sample_id == 1:
+                        self.session_setups[protocol][command].append(setup_ms)
+                    print(
+                        f"[{protocol:>4}/{command:<18}] trial {trial_id:>2}/{self.args.trials}"
+                        f" session_setup={setup_ms:.1f} ms (resuming from sample {sample_id})",
+                        flush=True,
                     )
-                except (pexpect.TIMEOUT, pexpect.EOF):
-                    if self.args.reopen_on_failure:
-                        continue
-            finally:
-                if child is not None:
-                    self._close_session(child)
+                    
+                    # Chạy các samples còn lại của trial
+                    while sample_id <= self.args.iterations:
+                        is_warmup = sample_id <= self.warmup
+                        marker_tail = self._next_marker_tail()
+                        marker = f"__W1_DONE_{trial_id}_{sample_id}_{command_id}_{marker_tail}__"
+                        
+                        lat = self._measure_command_completion(
+                            child,
+                            command,
+                            marker,
+                            marker_tail,
+                        )
+                        if not is_warmup:
+                            self.results[protocol][command].append(lat)
+                        self.records.append(
+                            SampleRecord(
+                                protocol, workload, trial_id, sample_id,
+                                command_id, command, lat, warmup=is_warmup,
+                            )
+                        )
+                        tag = "WARM" if is_warmup else "meas"
+                        print(
+                            f"[{protocol:>4}/{command:<18}] trial {trial_id:>2}/{self.args.trials}"
+                            f" {tag} {sample_id:>3}/{self.args.iterations}: {lat:.2f} ms",
+                            flush=True,
+                        )
+                        sample_id += 1
+
+                except (pexpect.TIMEOUT, pexpect.EOF, ValueError) as exc:
+                    self.failures.append(
+                        FailureRecord(
+                            protocol=protocol,
+                            workload=workload,
+                            round_id=trial_id,
+                            sample_id=sample_id,
+                            command_id=command_id,
+                            command=command,
+                            error_type=type(exc).__name__,
+                            error_message=str(exc),
+                            warmup=(sample_id <= self.warmup),
+                        )
+                    )
+                    tag = "WARM-FAIL" if (sample_id <= self.warmup) else "FAIL"
+                    print(
+                        f"[{protocol:>4}/{command:<18}] trial {trial_id:>2}"
+                        f" {tag} {sample_id:>3}: ({type(exc).__name__}: {exc})",
+                        flush=True,
+                    )
+                    
+                    if not self.args.reopen_on_failure:
+                        break # Bỏ qua trial này nếu không bật reopen_on_failure
+                    # Nếu bật reopen, vòng lặp while bên ngoài sẽ mở lại child và tiếp tục tại sample_id hiện tại
+                finally:
+                    if child is not None:
+                        self._close_session(child)
 
     def run(self) -> None:
         random.seed(self.args.seed)

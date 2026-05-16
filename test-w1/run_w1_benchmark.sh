@@ -17,11 +17,11 @@ set -euo pipefail
 
 SCENARIO="${1:?usage: $0 <scenario-label, e.g. low|medium|high>}"
 
-HOST="100.66.79.93"
-# HOST="10.42.0.206"
+# HOST="100.66.79.93"
+HOST="10.42.0.206"
 USER_NAME="pi"
-SOURCE_IP="100.70.166.91"
-# SOURCE_IP="10.42.0.1"
+# SOURCE_IP="100.70.166.91"
+SOURCE_IP="10.42.0.1"
 IDENTITY_FILE="$HOME/.ssh/id_ed25519"
 
 PROTOCOLS="ssh ssh3 mosh"
@@ -32,6 +32,8 @@ COMMANDS=(
   "df -h"
   "ps aux"
   "grep -n root /etc/passwd"
+  "cat /proc/meminfo"
+  "find /usr -maxdepth 3"
 )
 
 ITERATIONS=50
@@ -81,7 +83,7 @@ echo "=== Collecting baseline snapshot -> $BASELINE_FILE"
   echo
   echo "## tc qdisc (server side, via ssh)"
   ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i "$IDENTITY_FILE" \
-      "$USER_NAME@$HOST" "tc qdisc show" 2>&1 || echo "(tc show on server failed)"
+      "$USER_NAME@$HOST" "PATH=/usr/sbin:/sbin:/usr/bin:/bin:\$PATH tc qdisc show" 2>&1 || echo "(tc show on server failed)"
   echo
   echo "## uptime (client)"
   uptime || true
