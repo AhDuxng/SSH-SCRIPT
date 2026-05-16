@@ -590,7 +590,25 @@ class W3Benchmark:
         for trial_id in range(1, self.args.trials + 1):
             child: Optional[pexpect.spawn] = None
             try:
-                child, setup_ms = self._open_session(protocol)
+                try:
+                    child, setup_ms = self._open_session(protocol)
+                except (pexpect.TIMEOUT, pexpect.EOF, ValueError) as exc:
+                    self.failures.append(
+                        FailureRecord(
+                            protocol=protocol,
+                            workload=workload,
+                            round_id=trial_id,
+                            sample_id=-1,
+                            error_type=type(exc).__name__,
+                            error_message=str(exc),
+                        )
+                    )
+                    print(
+                        f"[{protocol:>4}/{workload:<18}]"
+                        f" trial {trial_id:>2}/{self.args.trials}: FAIL"
+                        f" (open_session {type(exc).__name__}: {exc})"
+                    )
+                    continue
                 self.session_setups[protocol][workload].append(setup_ms)
                 print(
                     f"[{protocol:>4}/{workload:<18}]"

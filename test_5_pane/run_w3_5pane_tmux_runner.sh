@@ -292,49 +292,7 @@ cat >"${WRAP_DIR}/ssh" <<'SSH_WRAPPER'
 #!/usr/bin/env bash
 set -euo pipefail
 REAL_SSH="${W3_REAL_SSH:?W3_REAL_SSH is not set}"
-ATTACH_CMD="${W3_ATTACH_CMD:?W3_ATTACH_CMD is not set}"
-
-args=("$@")
-argc=${#args[@]}
-if (( argc == 0 )); then
-  exec "$REAL_SSH"
-fi
-
-host_idx=-1
-i=0
-while (( i < argc )); do
-  a="${args[$i]}"
-  if [[ "$a" == "--" ]]; then
-    ((i+=1))
-    break
-  fi
-  if [[ "$a" == -* ]]; then
-    case "$a" in
-      -b|-c|-D|-E|-e|-F|-I|-i|-J|-L|-l|-m|-O|-o|-p|-Q|-R|-S|-W|-w)
-        ((i+=2))
-        continue
-        ;;
-      *)
-        ((i+=1))
-        continue
-        ;;
-    esac
-  fi
-  host_idx=$i
-  break
-done
-
-if (( host_idx < 0 )); then
-  exec "$REAL_SSH" "${args[@]}"
-fi
-
-if (( host_idx < argc - 1 )); then
-  exec "$REAL_SSH" "${args[@]}"
-fi
-
-host="${args[$host_idx]}"
-prefix=("${args[@]:0:host_idx}")
-exec "$REAL_SSH" "${prefix[@]}" "$host" "$ATTACH_CMD"
+exec "$REAL_SSH" "$@"
 SSH_WRAPPER
 
 cat >"${WRAP_DIR}/mosh" <<'MOSH_WRAPPER'
@@ -396,6 +354,9 @@ run_for_host() {
   echo "[${HOST}] setup: ssh3 attach mode=${SSH3_ATTACH_MODE}"
   probe_ssh3_attach_support
 
+  if [[ " ${host_protocols} " == *" ssh "* ]]; then
+    ATTACH_AFTER_LOGIN_PROTOCOLS="${ATTACH_AFTER_LOGIN_PROTOCOLS} ssh"
+  fi
   if [[ " ${host_protocols} " == *" mosh "* ]]; then
     ATTACH_AFTER_LOGIN_PROTOCOLS="${ATTACH_AFTER_LOGIN_PROTOCOLS} mosh"
   fi
