@@ -26,8 +26,10 @@ ITERATIONS="${ITERATIONS:-100}"
 WARMUP_ROUNDS="${WARMUP_ROUNDS:-10}"
 TIMEOUT="${TIMEOUT:-20}"
 SEED="${SEED:-42}"
-PROBE_CHARS="${PROBE_CHARS:-abcdegijkopvwxz}"
-PROBE_SEARCH_WINDOW="${PROBE_SEARCH_WINDOW:-0}"
+# In a 5-pane tmux view, background panes continuously redraw text.
+# Keep probe chars rare and limit search window to reduce false matches.
+PROBE_CHARS="${PROBE_CHARS:-QZ}"
+PROBE_SEARCH_WINDOW="${PROBE_SEARCH_WINDOW:-1024}"
 
 OUTPUT_DIR="${OUTPUT_DIR:-w3_results}"
 PROMPT="${PROMPT:-__W3_PROMPT__# }"
