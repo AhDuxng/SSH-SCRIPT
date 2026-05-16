@@ -26,6 +26,7 @@ OPEN_RETRY_BACKOFF_MS="${OPEN_RETRY_BACKOFF_MS:-1000}"
 BACKGROUND_CHANNELS="${BACKGROUND_CHANNELS:-4}"
 BACKGROUND_WARMUP_SEC="${BACKGROUND_WARMUP_SEC:-1.0}"
 BACKGROUND_READ_CHUNK="${BACKGROUND_READ_CHUNK:-4096}"
+SSH_CONTROL_MASTER="${SSH_CONTROL_MASTER:-false}"
 
 OUTPUT_DIR="${OUTPUT_DIR:-w3_protocol_multiplex_results}"
 PROMPT="${PROMPT:-__W3_PROMPT__# }"
@@ -123,7 +124,7 @@ run_for_host() {
   echo "[${host}] protocols: ${PROTOCOLS}"
   echo "[${host}] workloads: ${WORKLOADS}"
   echo "[${host}] background channels: ${BACKGROUND_CHANNELS}"
-  echo "[${host}] ssh ControlMaster: enabled for protocol=ssh"
+  echo "[${host}] ssh ControlMaster: ${SSH_CONTROL_MASTER}"
   echo "[${host}] output dir: ${host_output_dir}"
 
   local -a cmd
@@ -151,7 +152,6 @@ run_for_host() {
       --background-channels "$BACKGROUND_CHANNELS"
       --background-warmup-sec "$BACKGROUND_WARMUP_SEC"
       --background-read-chunk "$BACKGROUND_READ_CHUNK"
-      --ssh-control-master
   )
 
   is_true "$SSH3_INSECURE"     && cmd+=(--ssh3-insecure)
@@ -159,6 +159,7 @@ run_for_host() {
   is_true "$STRICT_HOST_KEY"   && cmd+=(--strict-host-key-checking)
   is_true "$SHUFFLE_PAIRS"     && cmd+=(--shuffle-pairs)
   is_true "$REOPEN_ON_FAILURE" && cmd+=(--reopen-on-failure)
+  is_true "$SSH_CONTROL_MASTER" && cmd+=(--ssh-control-master)
 
   printf '[%s] command: ' "$host"
   printf '%q ' "${cmd[@]}"
