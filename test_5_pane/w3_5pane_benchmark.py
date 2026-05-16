@@ -375,17 +375,24 @@ class W3Benchmark:
     def _enter_vim_insert_mode(self, child: pexpect.spawn) -> None:
         remote_file = self.args.remote_vim_file
         child.sendline(f"vim -Nu NONE -n {shlex.quote(remote_file)}")
-        self._expect_tui_started(
-            child,
-            [r"-- INSERT --", r"INSERT", r"VIM", r"Vi IMproved"],
-            ("vim", "vi", "nvim"),
-        )
-        child.send("i")
-        try:
-            child.expect([r"-- INSERT --", r"INSERT"], timeout=min(3, self.args.timeout))
-        except pexpect.TIMEOUT:
-            if not self._wait_remote_pane_command(("vim", "vi", "nvim"), 1.0):
-                raise
+        last_exc: Optional[pexpect.TIMEOUT] = None
+        for _ in range(3):
+            child.send("i")
+            try:
+                child.expect(
+                    [r"-- INSERT --", r"INSERT"],
+                    timeout=max(2, min(5, self.args.timeout)),
+                )
+                return
+            except pexpect.TIMEOUT as exc:
+                last_exc = exc
+                child.sendcontrol("l")
+
+        if self._wait_remote_pane_command(("vim", "vi", "nvim"), 1.0):
+            child.send("i")
+            return
+        if last_exc is not None:
+            raise last_exc
 
     def _enter_nano_mode(self, child: pexpect.spawn) -> None:
         remote_file = self.args.remote_nano_file
@@ -950,8 +957,65 @@ class W3Benchmark:
             except pexpect.EOF:
                 session.eof = True
                 return
+            except OSError:
+                session.eof = True
+                return
             session.bytes_read += len(data)
             session.lines_read += data.count("\n")
+
+    def _open_background_session(
+        self,
+        protocol: str,
+        label: str,
+        command: str,
+    ) -> Optional[BackgroundSession]:
+        last_exc: Optional[Exception] = None
+        attempts = max(1, self.args.background_open_retries)
+        for attempt in range(1, attempts + 1):
+            child: Optional[pexpect.spawn] = None
+            try:
+                child = pexpect.spawn(
+                    self._session_command(protocol),
+                    encoding="utf-8",
+                    codec_errors="ignore",
+                    timeout=self.args.timeout,
+                )
+                child.delaybeforesend = 0
+                self._wait_for_session_ready(child, protocol=protocol)
+                child.sendline(f"exec bash -lc {shlex.quote(command)}")
+
+                session = BackgroundSession(label=label, child=child)
+                session.thread = threading.Thread(
+                    target=self._background_reader,
+                    args=(session,),
+                    name=f"w3-{label}",
+                    daemon=True,
+                )
+                session.thread.start()
+                return session
+            except (pexpect.TIMEOUT, pexpect.EOF, OSError) as exc:
+                last_exc = exc
+                if child is not None:
+                    try:
+                        child.close(force=True)
+                    except Exception:
+                        pass
+                if attempt < attempts:
+                    print(
+                        f"[{protocol:>4}/background        ]"
+                        f" {label} open {attempt}/{attempts}:"
+                        f" FAIL ({type(exc).__name__}), retrying...",
+                        flush=True,
+                    )
+                    time.sleep(self.args.background_open_backoff_ms / 1000.0)
+
+        print(
+            f"[{protocol:>4}/background        ]"
+            f" WARN: {label} disabled after {attempts} open attempt(s)"
+            f" ({type(last_exc).__name__ if last_exc else 'unknown'})",
+            flush=True,
+        )
+        return None
 
     def _start_background_load(self, protocol: str) -> None:
         channels = max(0, self.args.background_channels)
@@ -964,28 +1028,15 @@ class W3Benchmark:
 
         for idx in range(channels):
             command = commands[idx % len(commands)]
-            child = pexpect.spawn(
-                self._session_command(protocol),
-                encoding="utf-8",
-                codec_errors="ignore",
-                timeout=self.args.timeout,
+            session = self._open_background_session(
+                protocol,
+                f"{protocol}-bg{idx + 1}",
+                command,
             )
-            child.delaybeforesend = 0
-            self._wait_for_session_ready(child, protocol=protocol)
-            child.sendline(f"exec bash -lc {shlex.quote(command)}")
-
-            session = BackgroundSession(
-                label=f"{protocol}/bg{idx + 1}",
-                child=child,
-            )
-            session.thread = threading.Thread(
-                target=self._background_reader,
-                args=(session,),
-                name=f"w3-{protocol}-bg{idx + 1}",
-                daemon=True,
-            )
-            session.thread.start()
-            self.background_sessions.append(session)
+            if session is not None:
+                self.background_sessions.append(session)
+            if self.args.background_open_gap_sec > 0:
+                time.sleep(self.args.background_open_gap_sec)
 
         if self.args.background_warmup_sec > 0:
             time.sleep(self.args.background_warmup_sec)
@@ -1008,12 +1059,13 @@ class W3Benchmark:
             except Exception:
                 pass
         for session in self.background_sessions:
+            if session.thread is not None:
+                session.thread.join(timeout=1)
+        for session in self.background_sessions:
             try:
                 session.child.close(force=True)
             except Exception:
                 pass
-            if session.thread is not None:
-                session.thread.join(timeout=1)
 
         total_bytes = sum(s.bytes_read for s in self.background_sessions)
         total_lines = sum(s.lines_read for s in self.background_sessions)
@@ -1033,6 +1085,8 @@ class W3Benchmark:
             random.shuffle(protocols)
 
         for protocol in protocols:
+            if self.args.protocol_cooldown_sec > 0:
+                time.sleep(self.args.protocol_cooldown_sec)
             workloads = list(self.args.workloads)
             if self.args.shuffle_pairs:
                 random.shuffle(workloads)
@@ -1368,6 +1422,30 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Bytes read per background session polling operation",
     )
     p.add_argument(
+        "--background-open-retries",
+        type=int,
+        default=3,
+        help="Open attempts for each background protocol session",
+    )
+    p.add_argument(
+        "--background-open-backoff-ms",
+        type=int,
+        default=1000,
+        help="Sleep between background session open retries",
+    )
+    p.add_argument(
+        "--background-open-gap-sec",
+        type=float,
+        default=0.5,
+        help="Delay between starting background sessions",
+    )
+    p.add_argument(
+        "--protocol-cooldown-sec",
+        type=float,
+        default=2.0,
+        help="Delay before starting each protocol group",
+    )
+    p.add_argument(
         "--ssh-control-master",
         action="store_true",
         help="Use one OpenSSH ControlMaster TCP connection for ssh sessions",
@@ -1404,6 +1482,14 @@ def main() -> int:
         parser.error("--background-warmup-sec must be >= 0")
     if args.background_read_chunk <= 0:
         parser.error("--background-read-chunk must be > 0")
+    if args.background_open_retries <= 0:
+        parser.error("--background-open-retries must be > 0")
+    if args.background_open_backoff_ms < 0:
+        parser.error("--background-open-backoff-ms must be >= 0")
+    if args.background_open_gap_sec < 0:
+        parser.error("--background-open-gap-sec must be >= 0")
+    if args.protocol_cooldown_sec < 0:
+        parser.error("--protocol-cooldown-sec must be >= 0")
 
     bench = W3Benchmark(args)
     bench.run()
