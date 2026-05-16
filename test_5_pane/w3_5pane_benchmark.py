@@ -4,10 +4,12 @@ from __future__ import annotations
 import argparse
 import csv
 import math
+import os
 import random
 import re
 import shlex
 import statistics
+import subprocess
 import sys
 import time
 from dataclasses import dataclass
@@ -120,6 +122,11 @@ class W3Benchmark:
         parts = [re.escape(ch) + _ECHO_GAP for ch in text]
         return re.compile("".join(parts))
 
+    @staticmethod
+    def _printf_literal_cmd(text: str) -> str:
+        escaped = "".join(f"\\{ord(ch):03o}" for ch in text)
+        return f"printf {shlex.quote(escaped)}"
+
     def _expect_prompt(
         self,
         child: pexpect.spawn,
@@ -140,7 +147,7 @@ class W3Benchmark:
             marker_re = self._build_interleaved_text_re(marker)
             self._drain_pending_output(child)
             child.sendline("")
-            child.sendline(f"printf {shlex.quote(marker + chr(10))}")
+            child.sendline(self._printf_literal_cmd(marker + "\n"))
             try:
                 child.expect(marker_re, timeout=self.args.timeout)
                 return
@@ -243,6 +250,97 @@ class W3Benchmark:
         child.sendcontrol("l")
         child.send("i")
 
+    def _remote_tmux_current_command(self) -> str:
+        if not self.args.tmux_session:
+            return ""
+
+        ssh_bin = os.environ.get("W3_REAL_SSH") or "ssh"
+        target = f"{self.target}"
+        tmux_target = f"{self.args.tmux_session}:{self.args.tmux_pane}"
+        remote_cmd = shlex.join(
+            [
+                "tmux",
+                "display-message",
+                "-p",
+                "-t",
+                tmux_target,
+                "#{pane_current_command}",
+            ]
+        )
+
+        cmd = [ssh_bin]
+        if self.args.source_ip:
+            cmd += ["-b", self.args.source_ip]
+        if self.args.strict_host_key_checking:
+            cmd += ["-o", "StrictHostKeyChecking=yes"]
+        else:
+            cmd += [
+                "-o", "StrictHostKeyChecking=no",
+                "-o", "UserKnownHostsFile=/dev/null",
+            ]
+        if self.args.identity_file:
+            cmd += ["-i", self.args.identity_file]
+        if self.args.batch_mode:
+            cmd += ["-o", "BatchMode=yes"]
+        cmd += [target, remote_cmd]
+
+        try:
+            proc = subprocess.run(
+                cmd,
+                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                timeout=max(2, min(5, self.args.timeout)),
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return ""
+
+        if proc.returncode != 0:
+            return ""
+        return proc.stdout.strip().splitlines()[-1] if proc.stdout.strip() else ""
+
+    def _wait_remote_pane_command(
+        self,
+        expected_prefixes: tuple[str, ...],
+        timeout: float,
+    ) -> bool:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            current = Path(self._remote_tmux_current_command()).name
+            if current and any(
+                current == prefix or current.startswith(prefix)
+                for prefix in expected_prefixes
+            ):
+                return True
+            time.sleep(0.2)
+        return False
+
+    def _expect_tui_started(
+        self,
+        child: pexpect.spawn,
+        patterns: list[str],
+        expected_commands: tuple[str, ...],
+    ) -> None:
+        first_timeout = min(3, self.args.timeout)
+        try:
+            child.expect(patterns, timeout=first_timeout)
+            return
+        except pexpect.TIMEOUT as exc:
+            first_exc = exc
+
+        remaining = max(1.0, self.args.timeout - first_timeout)
+        if self._wait_remote_pane_command(expected_commands, remaining):
+            self._drain_pending_output(child)
+            return
+
+        child.sendcontrol("l")
+        try:
+            child.expect(patterns, timeout=max(1, min(5, self.args.timeout)))
+            return
+        except pexpect.TIMEOUT:
+            raise first_exc
+
     def _reopen_session_for_sample_failure(
         self,
         child: pexpect.spawn,
@@ -255,13 +353,26 @@ class W3Benchmark:
     def _enter_vim_insert_mode(self, child: pexpect.spawn) -> None:
         remote_file = self.args.remote_vim_file
         child.sendline(f"vim -Nu NONE -n {shlex.quote(remote_file)}")
+        self._expect_tui_started(
+            child,
+            [r"-- INSERT --", r"INSERT", r"VIM", r"Vi IMproved"],
+            ("vim", "vi", "nvim"),
+        )
         child.send("i")
-        child.expect([r"-- INSERT --", r"INSERT"], timeout=self.args.timeout)
+        try:
+            child.expect([r"-- INSERT --", r"INSERT"], timeout=min(3, self.args.timeout))
+        except pexpect.TIMEOUT:
+            if not self._wait_remote_pane_command(("vim", "vi", "nvim"), 1.0):
+                raise
 
     def _enter_nano_mode(self, child: pexpect.spawn) -> None:
         remote_file = self.args.remote_nano_file
         child.sendline(f"nano --ignorercfiles {shlex.quote(remote_file)}")
-        child.expect([r"GNU nano", r"\^G Help"], timeout=self.args.timeout)
+        self._expect_tui_started(
+            child,
+            [r"GNU nano", r"\^G Help", r"New Buffer"],
+            ("nano",),
+        )
 
     def _probe_vim_once(
         self,
@@ -311,6 +422,37 @@ class W3Benchmark:
 
         raise ValueError(f"Unsupported protocol: {protocol}")
 
+    @staticmethod
+    def _should_attach_after_login(protocol: str) -> bool:
+        protocols = os.environ.get("W3_ATTACH_AFTER_LOGIN_PROTOCOLS", "")
+        return protocol in protocols.split()
+
+    def _attach_tmux_after_login(
+        self,
+        child: pexpect.spawn,
+        protocol: str,
+    ) -> None:
+        attach_cmd = os.environ.get("W3_ATTACH_CMD", "").strip()
+        if not attach_cmd:
+            raise ValueError(
+                f"{protocol} requires after-login tmux attach, but "
+                "W3_ATTACH_CMD is not set"
+            )
+
+        boot_marker = os.environ.get(
+            "W3_ATTACH_BOOT_MARKER",
+            "__W3_ATTACH_PANE0_READY__",
+        )
+        boot_marker_re = self._build_interleaved_text_re(boot_marker)
+
+        self._drain_pending_output(child)
+        child.sendline(attach_cmd)
+        try:
+            child.expect(boot_marker_re, timeout=min(8, self.args.timeout))
+            return
+        except pexpect.TIMEOUT:
+            self._wait_for_session_ready(child, protocol=protocol)
+
     def _open_session(self, protocol: str) -> tuple:
         child = pexpect.spawn(
             self._session_command(protocol),
@@ -322,6 +464,8 @@ class W3Benchmark:
 
         start_ns = time.perf_counter_ns()
         self._wait_for_session_ready(child, protocol=protocol)
+        if self._should_attach_after_login(protocol):
+            self._attach_tmux_after_login(child, protocol)
         setup_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
 
         child.sendline(f"export PS1={shlex.quote(self.args.prompt)}")
@@ -360,7 +504,7 @@ class W3Benchmark:
             if protocol != "mosh":
                 child.sendcontrol("c")
             child.sendline("")
-            child.sendline(f"printf {shlex.quote(marker + chr(10))}")
+            child.sendline(self._printf_literal_cmd(marker + "\n"))
             try:
                 child.expect(marker_re, timeout=self.args.timeout)
                 return
@@ -970,6 +1114,16 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--prompt", default=DEFAULT_PROMPT,
         help="Unique shell prompt marker used after session is ready",
+    )
+    p.add_argument(
+        "--tmux-session",
+        default="",
+        help="Remote tmux session used for out-of-band pane state checks",
+    )
+    p.add_argument(
+        "--tmux-pane",
+        default="0.0",
+        help="Remote tmux pane used for out-of-band pane state checks",
     )
     p.add_argument(
         "--ssh3-path", default=DEFAULT_SSH3_PATH,

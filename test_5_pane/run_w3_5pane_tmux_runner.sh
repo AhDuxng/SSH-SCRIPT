@@ -85,9 +85,20 @@ sanitize_token() {
   printf '%s' "${value:-unknown}"
 }
 
+octal_escape() {
+  local value="$1"
+  local out="" escaped="" i
+  LC_ALL=C
+  for ((i = 0; i < ${#value}; i++)); do
+    printf -v escaped '\\%03o' "'${value:i:1}"
+    out+="$escaped"
+  done
+  printf '%s' "$out"
+}
+
 REAL_SSH="$(command -v ssh || true)"
 REAL_MOSH="$(command -v mosh || true)"
-REAL_SSH3="$(command -v ssh3 || true)"
+REAL_SSH3="${SSH3_BIN:-$(command -v ssh3 || true)}"
 
 if [[ -z "$REAL_SSH" ]]; then
   echo "ERROR: ssh not found in PATH." >&2
@@ -126,7 +137,9 @@ if is_true "$BATCH_MODE"; then
 fi
 
 TMUX_SETUP_SCRIPT_RESOLVED=""
+ATTACH_SCRIPT=""
 ATTACH_CMD=""
+ATTACH_AFTER_LOGIN_PROTOCOLS=""
 SSH3_ATTACH_ENABLED=0
 SSH_CTL=()
 
@@ -195,12 +208,15 @@ wait_pane_ready() {
 }
 
 build_attach_cmd() {
-  ATTACH_CMD="bash -lc 'set -e; \
+  local boot_marker_escaped
+  boot_marker_escaped="$(octal_escape "$ATTACH_BOOT_MARKER")"
+  ATTACH_SCRIPT="set -e; \
 tmux has-session -t ${TMUX_SESSION} >/dev/null 2>&1; \
-tmux respawn-pane -k -t ${TMUX_SESSION}:${TMUX_PANE} \"bash -lc \\\"stty echo -echoctl 2>/dev/null || true; printf ${ATTACH_BOOT_MARKER}\\\\r\\\\n; exec bash --noprofile --norc\\\"\" >/dev/null 2>&1; \
+tmux respawn-pane -k -t ${TMUX_SESSION}:${TMUX_PANE} \"bash -lc \\\"stty echo -echoctl 2>/dev/null || true; printf '${boot_marker_escaped}\\\\r\\\\n'; exec bash --noprofile --norc\\\"\" >/dev/null 2>&1; \
 tmux select-layout -t ${TMUX_SESSION}:0 tiled >/dev/null 2>&1 || true; \
 tmux select-pane -t ${TMUX_SESSION}:${TMUX_PANE} >/dev/null 2>&1; \
-exec tmux attach -t ${TMUX_SESSION}'"
+exec tmux attach -t ${TMUX_SESSION}"
+  ATTACH_CMD="bash -lc $(printf '%q' "$ATTACH_SCRIPT")"
 }
 
 probe_ssh3_attach_support() {
@@ -319,16 +335,8 @@ cat >"${WRAP_DIR}/mosh" <<'MOSH_WRAPPER'
 #!/usr/bin/env bash
 set -euo pipefail
 REAL_MOSH="${W3_REAL_MOSH:?W3_REAL_MOSH is not set}"
-ATTACH_CMD="${W3_ATTACH_CMD:?W3_ATTACH_CMD is not set}"
 
-args=("$@")
-for a in "${args[@]}"; do
-  if [[ "$a" == "--" ]]; then
-    exec "$REAL_MOSH" "${args[@]}"
-  fi
-done
-
-exec "$REAL_MOSH" "${args[@]}" -- "$ATTACH_CMD"
+exec "$REAL_MOSH" "$@"
 MOSH_WRAPPER
 
 cat >"${WRAP_DIR}/ssh3" <<'SSH3_WRAPPER'
@@ -366,6 +374,7 @@ run_for_host() {
   HOST="$1"
   SSH_CTL=("$REAL_SSH" "${SSH_OPTS[@]}" "${USER_NAME}@${HOST}")
   TMUX_SETUP_SCRIPT_RESOLVED=""
+  ATTACH_AFTER_LOGIN_PROTOCOLS=""
   SSH3_ATTACH_ENABLED=0
   local host_protocols="$PROTOCOLS"
 
@@ -380,16 +389,22 @@ run_for_host() {
   build_attach_cmd
   probe_ssh3_attach_support
 
+  if [[ " ${host_protocols} " == *" mosh "* ]]; then
+    ATTACH_AFTER_LOGIN_PROTOCOLS="${ATTACH_AFTER_LOGIN_PROTOCOLS} mosh"
+  fi
   if [[ " ${host_protocols} " == *" ssh3 "* && "$SSH3_ATTACH_ENABLED" != "1" ]]; then
-    echo "[${HOST}] setup: removing ssh3 because it cannot be forced into tmux pane 0" >&2
-    host_protocols="$(drop_proto_from_list "$host_protocols" ssh3)"
+    echo "[${HOST}] setup: ssh3 remote-command attach unavailable; will attach tmux after ssh3 login"
+    ATTACH_AFTER_LOGIN_PROTOCOLS="${ATTACH_AFTER_LOGIN_PROTOCOLS} ssh3"
   fi
   if [[ -z "$host_protocols" ]]; then
     echo "ERROR: no protocols left for ${HOST} after attach checks." >&2
     return 1
   fi
 
+  export W3_ATTACH_SCRIPT="$ATTACH_SCRIPT"
   export W3_ATTACH_CMD="$ATTACH_CMD"
+  export W3_ATTACH_BOOT_MARKER="$ATTACH_BOOT_MARKER"
+  export W3_ATTACH_AFTER_LOGIN_PROTOCOLS="$(printf '%s' "$ATTACH_AFTER_LOGIN_PROTOCOLS" | xargs || true)"
   export W3_SSH3_ATTACH_ENABLED="$SSH3_ATTACH_ENABLED"
 
   local host_output_dir="$OUTPUT_DIR"
@@ -401,6 +416,7 @@ run_for_host() {
   echo "[${HOST}] setup script resolved: ${TMUX_SETUP_SCRIPT_RESOLVED}"
   echo "[${HOST}] attach command: ${ATTACH_CMD}"
   echo "[${HOST}] protocols effective: ${host_protocols}"
+  echo "[${HOST}] attach after login: ${W3_ATTACH_AFTER_LOGIN_PROTOCOLS:-none}"
   echo "[${HOST}] output dir: ${host_output_dir}"
   echo "[${HOST}] run: executing benchmark..."
 
@@ -424,6 +440,8 @@ run_for_host() {
       --probe-search-window "$PROBE_SEARCH_WINDOW"
       --output-dir "$host_output_dir"
       --prompt "$PROMPT"
+      --tmux-session "$TMUX_SESSION"
+      --tmux-pane "$TMUX_PANE"
       --ssh3-path "$SSH3_PATH"
       --mosh-predict "$MOSH_PREDICT"
   )
