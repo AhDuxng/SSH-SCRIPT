@@ -24,13 +24,14 @@ except ImportError as exc:
 
 DEFAULT_PROTOCOLS = ["ssh", "ssh3", "mosh"]
 DEFAULT_WORKLOADS = ["interactive_shell", "vim", "nano"]
+WORKLOAD_ALIASES = {"shell": "interactive_shell"}
 DEFAULT_PROMPT    = "__W3_PROMPT__#"
 DEFAULT_SSH3_PATH = "/ssh3-term"
 BOOTSTRAP_MARKER_PREFIX = "__W3_BOOTSTRAP_READY__"
 
-# Use rare uppercase probes by default to avoid false-positive matches
-# from noisy lowercase pane logs and common ANSI redraw bytes.
-PROBE_CHAR_ALPHABET = "QVXZ"
+# Use rare uppercase probes to avoid false-positive matches from the noisy
+# lowercase pane logs. Keep this tiny because pane 3 may list /etc/X11.
+PROBE_CHAR_ALPHABET = "QZ"
 
 # Include common CSI sequences plus SCS sequences like ESC(B
 # that nano emits during screen redraws.
@@ -124,22 +125,24 @@ class W3Benchmark:
         child: pexpect.spawn,
         protocol: Optional[str] = None,
     ) -> None:
-        # TUI redraw (especially over mosh) may split prompt bytes with ANSI updates.
         try:
             child.expect(self.prompt_re, timeout=self.args.timeout)
             return
-        except pexpect.TIMEOUT:
-            if protocol != "mosh":
-                raise
+        except pexpect.TIMEOUT as exc:
+            last_exc: Optional[pexpect.TIMEOUT] = exc
 
-        last_exc: Optional[pexpect.TIMEOUT] = None
-        for clear_screen in (False, True):
+        for _ in range(3):
+            marker = (
+                f"{BOOTSTRAP_MARKER_PREFIX}"
+                f"{random.randrange(10_000, 99_999)}"
+                f"__"
+            )
+            marker_re = self._build_interleaved_text_re(marker)
             self._drain_pending_output(child)
-            if clear_screen:
-                child.sendcontrol("l")
             child.sendline("")
+            child.sendline(f"printf {shlex.quote(marker + chr(10))}")
             try:
-                child.expect(self.prompt_re, timeout=self.args.timeout)
+                child.expect(marker_re, timeout=self.args.timeout)
                 return
             except pexpect.TIMEOUT as exc:
                 last_exc = exc
@@ -341,8 +344,9 @@ class W3Benchmark:
         except pexpect.TIMEOUT:
             pass
 
-        # In multiplexed tmux views, prompt bytes can be buried by redraw noise.
-        # Fallback: force a command execution and wait for a unique marker.
+        # In a multiplexed tmux view, prompt bytes can be buried by redraw
+        # traffic from the other four panes. Force a command in pane 0 and wait
+        # for a unique marker that tolerates ANSI bytes between characters.
         marker = (
             f"{BOOTSTRAP_MARKER_PREFIX}"
             f"{random.randrange(10_000, 99_999)}"
@@ -576,7 +580,9 @@ class W3Benchmark:
                 flush=True
             )
 
-        if workload == "interactive_shell":
+        effective_workload = WORKLOAD_ALIASES.get(workload, workload)
+
+        if effective_workload == "interactive_shell":
             latencies, child = self._measure_interactive_shell(
                 child,
                 protocol=protocol,
@@ -585,7 +591,7 @@ class W3Benchmark:
                 report_cb=report_cb,
                 fail_cb=fail_cb,
             )
-        elif workload == "vim":
+        elif effective_workload == "vim":
             latencies, child = self._measure_vim(
                 child,
                 protocol=protocol,
@@ -594,7 +600,7 @@ class W3Benchmark:
                 report_cb=report_cb,
                 fail_cb=fail_cb,
             )
-        elif workload == "nano":
+        elif effective_workload == "nano":
             latencies, child = self._measure_nano(
                 child,
                 protocol=protocol,
@@ -891,6 +897,7 @@ class W3Benchmark:
 
 def build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="W3 Interactive Editing benchmark")
+    workload_choices = sorted(set(DEFAULT_WORKLOADS) | set(WORKLOAD_ALIASES))
     p.add_argument(
         "--host", default="192.168.8.102",
         help="Target host IP or hostname",
@@ -914,7 +921,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     p.add_argument(
         "--workloads", nargs="+",
-        default=DEFAULT_WORKLOADS, choices=DEFAULT_WORKLOADS,
+        default=DEFAULT_WORKLOADS, choices=workload_choices,
     )
     p.add_argument(
         "--trials", type=int, default=15,

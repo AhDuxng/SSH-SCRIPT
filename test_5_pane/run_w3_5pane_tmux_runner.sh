@@ -4,51 +4,62 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-HOST="192.168.8.102"
-USER_NAME="trungnt"
-SOURCE_IP="192.168.8.100"
-IDENTITY_FILE="$HOME/.ssh/id_rsa"
+# Default keeps the same single-Pi style as the other runners. For two Pis,
+# override HOSTS explicitly, for example:
+#   HOSTS="192.168.8.102 192.168.8.103" ./run_w3_5pane_tmux_runner.sh
+HOST="${HOST:-192.168.8.102}"
+HOSTS="${HOSTS:-$HOST}"
+USER_NAME="${USER_NAME:-trungnt}"
+SOURCE_IP="${SOURCE_IP:-192.168.8.100}"
+IDENTITY_FILE="${IDENTITY_FILE:-$HOME/.ssh/id_rsa}"
 
-PROTOCOLS="ssh ssh3 mosh"
-WORKLOADS="interactive_shell vim nano"
+PROTOCOLS="${PROTOCOLS:-ssh ssh3 mosh}"
+WORKLOADS="${WORKLOADS:-shell vim nano}"
 
-TRIALS=3
-ITERATIONS=100
-WARMUP_ROUNDS=10
-TIMEOUT=30
-SEED=42
-PROBE_CHARS="QVXZ"
-OPEN_SESSION_RETRIES=3
-OPEN_RETRY_BACKOFF_MS=1000
+TRIALS="${TRIALS:-3}"
+ITERATIONS="${ITERATIONS:-100}"
+WARMUP_ROUNDS="${WARMUP_ROUNDS:-10}"
+TIMEOUT="${TIMEOUT:-30}"
+SEED="${SEED:-42}"
+PROBE_CHARS="${PROBE_CHARS:-QZ}"
+PROBE_SEARCH_WINDOW="${PROBE_SEARCH_WINDOW:-1024}"
+OPEN_SESSION_RETRIES="${OPEN_SESSION_RETRIES:-3}"
+OPEN_RETRY_BACKOFF_MS="${OPEN_RETRY_BACKOFF_MS:-1000}"
 
-OUTPUT_DIR="w3_results"
-PROMPT="__W3_PROMPT__# "
+OUTPUT_DIR="${OUTPUT_DIR:-w3_results}"
+PROMPT="${PROMPT:-__W3_PROMPT__# }"
 
-TMUX_SETUP_SCRIPT="~/w3_tmux_setup.sh"
-TMUX_SESSION="w3bench5"
-TMUX_PANE="0.0"
-TMUX_READY_MARKER="__W3_5PANE_PANE0_READY__"
-TMUX_READY_MARKER_FALLBACK="__W3_PANE0_READY__"
-TMUX_READY_TIMEOUT=60
-TMUX_READY_POLL_INTERVAL=0.5
-SETUP_TIMEOUT_SEC=25
-REMOTE_SETUP_LOG="/tmp/w3_tmux_setup_${TMUX_SESSION}.log"
-ATTACH_BOOT_MARKER="__W3_ATTACH_PANE0_READY__"
+TMUX_SETUP_SCRIPT="${TMUX_SETUP_SCRIPT:-~/w3_tmux_setup.sh}"
+TMUX_SESSION="${TMUX_SESSION:-w3bench}"
+TMUX_PANE="${TMUX_PANE:-0.0}"
+TMUX_READY_MARKER="${TMUX_READY_MARKER:-__W3_PANE0_READY__}"
+TMUX_READY_MARKER_FALLBACK="${TMUX_READY_MARKER_FALLBACK:-__W3_5PANE_PANE0_READY__}"
+TMUX_READY_TIMEOUT="${TMUX_READY_TIMEOUT:-60}"
+TMUX_READY_POLL_INTERVAL="${TMUX_READY_POLL_INTERVAL:-0.5}"
+SETUP_TIMEOUT_SEC="${SETUP_TIMEOUT_SEC:-25}"
+REMOTE_SETUP_LOG="${REMOTE_SETUP_LOG:-/tmp/w3_tmux_setup_${TMUX_SESSION}.log}"
+ATTACH_BOOT_MARKER="${ATTACH_BOOT_MARKER:-__W3_ATTACH_PANE0_READY__}"
 
-SSH3_ATTACH_MODE="auto"
+SSH3_ATTACH_MODE="${SSH3_ATTACH_MODE:-auto}"
 
-MOSH_PREDICT="always"
-SSH3_PATH="/ssh3-term"
-SSH3_INSECURE=true
-BATCH_MODE=false
-STRICT_HOST_KEY=false
-SHUFFLE_PAIRS=false
-REOPEN_ON_FAILURE=true
+MOSH_PREDICT="${MOSH_PREDICT:-always}"
+SSH3_PATH="${SSH3_PATH:-/ssh3-term}"
+SSH3_INSECURE="${SSH3_INSECURE:-true}"
+BATCH_MODE="${BATCH_MODE:-false}"
+STRICT_HOST_KEY="${STRICT_HOST_KEY:-false}"
+SHUFFLE_PAIRS="${SHUFFLE_PAIRS:-false}"
+REOPEN_ON_FAILURE="${REOPEN_ON_FAILURE:-true}"
 
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
   PYTHON_BIN="python"
 fi
+
+drop_proto_from_list() {
+  local list="$1"
+  local name="$2"
+  printf ' %s ' "$list" | sed "s/ ${name} / /g" | xargs || true
+}
 
 has_proto() {
   local name="$1"
@@ -57,7 +68,21 @@ has_proto() {
 
 drop_proto() {
   local name="$1"
-  PROTOCOLS="$(printf ' %s ' "$PROTOCOLS" | sed "s/ ${name} / /g" | xargs || true)"
+  PROTOCOLS="$(drop_proto_from_list "$PROTOCOLS" "$name")"
+}
+
+is_true() {
+  case "${1:-false}" in
+    true|TRUE|1|yes|YES|y|Y) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+sanitize_token() {
+  local value="$1"
+  value="${value//[^A-Za-z0-9_.-]/_}"
+  value="${value//./_}"
+  printf '%s' "${value:-unknown}"
 }
 
 REAL_SSH="$(command -v ssh || true)"
@@ -88,7 +113,7 @@ SSH_OPTS=()
 if [[ -n "$SOURCE_IP" ]]; then
   SSH_OPTS+=( -b "$SOURCE_IP" )
 fi
-if [[ "${STRICT_HOST_KEY}" == "true" ]]; then
+if is_true "$STRICT_HOST_KEY"; then
   SSH_OPTS+=( -o StrictHostKeyChecking=yes )
 else
   SSH_OPTS+=( -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null )
@@ -96,15 +121,14 @@ fi
 if [[ -n "$IDENTITY_FILE" ]]; then
   SSH_OPTS+=( -i "$IDENTITY_FILE" )
 fi
-if [[ "${BATCH_MODE}" == "true" ]]; then
+if is_true "$BATCH_MODE"; then
   SSH_OPTS+=( -o BatchMode=yes )
 fi
-
-SSH_CTL=("$REAL_SSH" "${SSH_OPTS[@]}" "${USER_NAME}@${HOST}")
 
 TMUX_SETUP_SCRIPT_RESOLVED=""
 ATTACH_CMD=""
 SSH3_ATTACH_ENABLED=0
+SSH_CTL=()
 
 resolve_tmux_setup_script() {
   local requested_q
@@ -115,26 +139,24 @@ resolve_tmux_setup_script() {
 
   TMUX_SETUP_SCRIPT_RESOLVED="$("${SSH_CTL[@]}" "$resolve_cmd" 2>/dev/null | tr -d '\r' | tail -n 1 || true)"
   if [[ -z "$TMUX_SETUP_SCRIPT_RESOLVED" ]]; then
-    echo "ERROR: cannot find w3_tmux_setup.sh on remote." >&2
+    echo "ERROR: cannot find w3_tmux_setup.sh on ${HOST}." >&2
     echo "Checked: $TMUX_SETUP_SCRIPT, ~/w3_tmux_setup.sh, w3_tmux_setup.sh, remote/w3_tmux_setup.sh" >&2
-    exit 1
+    return 1
   fi
 }
 
 setup_remote_tmux() {
-  local setup_q session_q log_q
+  local setup_q log_q
   setup_q="$(printf '%q' "$TMUX_SETUP_SCRIPT_RESOLVED")"
-  session_q="$(printf '%q' "$TMUX_SESSION")"
   log_q="$(printf '%q' "$REMOTE_SETUP_LOG")"
 
-  echo "[setup] run ${TMUX_SETUP_SCRIPT_RESOLVED} on remote (session=${TMUX_SESSION})..."
+  echo "[${HOST}] setup: run ${TMUX_SETUP_SCRIPT_RESOLVED} (session=${TMUX_SESSION})"
 
-  # Launch setup asynchronously to avoid blocking if the remote script performs
-  # interactive operations. Force a safe TERM and override `clear` to no-op
-  # because some environments report "terminal does not support clear".
+  # The Pi-side script ends with `tmux attach`. Running it under nohup lets the
+  # session and background panes be created even though this launcher has no TTY.
   local launch_cmd started
   launch_cmd="set -e; export TERM=xterm; chmod +x ${setup_q}; \
-nohup env TERM=xterm NO_ATTACH=1 bash -lc 'clear(){ :; }; export -f clear; bash ${setup_q} ${session_q}' > ${log_q} 2>&1 < /dev/null & \
+nohup env TERM=xterm bash ${setup_q} > ${log_q} 2>&1 < /dev/null & \
 echo __W3_SETUP_STARTED__"
 
   if command -v timeout >/dev/null 2>&1; then
@@ -144,28 +166,41 @@ echo __W3_SETUP_STARTED__"
   fi
 
   if [[ "$started" != "__W3_SETUP_STARTED__" ]]; then
-    echo "[setup] WARN: setup launcher did not confirm start; continue waiting marker..." >&2
+    echo "[${HOST}] setup: WARN launcher did not confirm start; continue waiting marker..." >&2
   fi
 }
 
 wait_pane_ready() {
-  echo "[setup] waiting pane ${TMUX_SESSION}:${TMUX_PANE} ready marker: ${TMUX_READY_MARKER} (fallback: ${TMUX_READY_MARKER_FALLBACK})"
-  local start_ts now
+  echo "[${HOST}] setup: waiting ${TMUX_SESSION}:${TMUX_PANE} marker ${TMUX_READY_MARKER}"
+  local start_ts now target_q marker_q fallback_q
   start_ts="$(date +%s)"
+  target_q="$(printf '%q' "${TMUX_SESSION}:${TMUX_PANE}")"
+  marker_q="$(printf '%q' "$TMUX_READY_MARKER")"
+  fallback_q="$(printf '%q' "$TMUX_READY_MARKER_FALLBACK")"
+
   while true; do
-    if "${SSH_CTL[@]}" "tmux capture-pane -p -t ${TMUX_SESSION}:${TMUX_PANE} | tail -n 200 | (grep -F '${TMUX_READY_MARKER}' >/dev/null || grep -F '${TMUX_READY_MARKER_FALLBACK}' >/dev/null)" >/dev/null 2>&1; then
-      echo "[setup] pane ready"
+    if "${SSH_CTL[@]}" "tmux capture-pane -p -t ${target_q} | tail -n 200 | (grep -F ${marker_q} >/dev/null || grep -F ${fallback_q} >/dev/null)" >/dev/null 2>&1; then
+      echo "[${HOST}] setup: pane ready"
       return 0
     fi
     now="$(date +%s)"
     if (( now - start_ts >= TMUX_READY_TIMEOUT )); then
-      echo "ERROR: timeout waiting for pane ready marker '${TMUX_READY_MARKER}'" >&2
-      echo "[setup] remote log tail (${REMOTE_SETUP_LOG}):" >&2
+      echo "ERROR: timeout waiting for pane ready marker '${TMUX_READY_MARKER}' on ${HOST}" >&2
+      echo "[${HOST}] setup: remote log tail (${REMOTE_SETUP_LOG}):" >&2
       "${SSH_CTL[@]}" "tail -n 120 ${REMOTE_SETUP_LOG} 2>/dev/null || true" >&2 || true
       return 1
     fi
     sleep "$TMUX_READY_POLL_INTERVAL"
   done
+}
+
+build_attach_cmd() {
+  ATTACH_CMD="bash -lc 'set -e; \
+tmux has-session -t ${TMUX_SESSION} >/dev/null 2>&1; \
+tmux respawn-pane -k -t ${TMUX_SESSION}:${TMUX_PANE} \"bash -lc \\\"stty echo -echoctl 2>/dev/null || true; printf ${ATTACH_BOOT_MARKER}\\\\r\\\\n; exec bash --noprofile --norc\\\"\" >/dev/null 2>&1; \
+tmux select-layout -t ${TMUX_SESSION}:0 tiled >/dev/null 2>&1 || true; \
+tmux select-pane -t ${TMUX_SESSION}:${TMUX_PANE} >/dev/null 2>&1; \
+exec tmux attach -t ${TMUX_SESSION}'"
 }
 
 probe_ssh3_attach_support() {
@@ -177,12 +212,12 @@ probe_ssh3_attach_support() {
   case "$SSH3_ATTACH_MODE" in
     never)
       SSH3_ATTACH_ENABLED=0
-      echo "[setup] ssh3 attach mode: never"
+      echo "[${HOST}] setup: ssh3 attach mode: never"
       return
       ;;
     force)
       SSH3_ATTACH_ENABLED=1
-      echo "[setup] ssh3 attach mode: force"
+      echo "[${HOST}] setup: ssh3 attach mode: force"
       return
       ;;
     auto)
@@ -204,7 +239,7 @@ probe_ssh3_attach_support() {
   if [[ -n "$IDENTITY_FILE" ]]; then
     cmd+=( -privkey "$IDENTITY_FILE" )
   fi
-  if [[ "${SSH3_INSECURE}" == "true" ]]; then
+  if is_true "$SSH3_INSECURE"; then
     cmd+=( -insecure )
   fi
   cmd+=( "$target" "printf '${marker}'")
@@ -218,10 +253,10 @@ probe_ssh3_attach_support() {
 
   if [[ "$probe_out" == *"${marker}"* ]]; then
     SSH3_ATTACH_ENABLED=1
-    echo "[setup] ssh3 supports remote command, will attach pane0 for ssh3."
+    echo "[${HOST}] setup: ssh3 supports remote command, will attach pane 0 for ssh3"
   else
     SSH3_ATTACH_ENABLED=0
-    echo "[setup] ssh3 remote-command probe failed, ssh3 will run without forced tmux attach." >&2
+    echo "[${HOST}] setup: ssh3 remote-command probe failed, ssh3 will run without forced tmux attach" >&2
   fi
 }
 
@@ -248,7 +283,7 @@ i=0
 while (( i < argc )); do
   a="${args[$i]}"
   if [[ "$a" == "--" ]]; then
-    ((i++))
+    ((i+=1))
     break
   fi
   if [[ "$a" == -* ]]; then
@@ -313,77 +348,131 @@ SSH3_WRAPPER
 
 chmod +x "${WRAP_DIR}/ssh" "${WRAP_DIR}/mosh" "${WRAP_DIR}/ssh3"
 
-resolve_tmux_setup_script
-setup_remote_tmux
-wait_pane_ready
-
-ATTACH_CMD="bash -lc 'set -e; \
-tmux has-session -t ${TMUX_SESSION} >/dev/null 2>&1; \
-tmux respawn-pane -k -t ${TMUX_SESSION}:${TMUX_PANE} \"bash -lc \\\"stty echo -echoctl; printf ${ATTACH_BOOT_MARKER}\\\\r\\\\n; exec bash --noprofile --norc\\\"\" >/dev/null 2>&1 || true; \
-tmux select-layout -t ${TMUX_SESSION}:0 tiled >/dev/null 2>&1 || true; \
-tmux select-pane -t ${TMUX_SESSION}:${TMUX_PANE} >/dev/null 2>&1 || true; \
-exec tmux attach -t ${TMUX_SESSION}'"
-probe_ssh3_attach_support
-
 export W3_REAL_SSH="$REAL_SSH"
 export W3_REAL_MOSH="${REAL_MOSH:-$REAL_SSH}"
 export W3_REAL_SSH3="${REAL_SSH3:-$REAL_SSH}"
-export W3_ATTACH_CMD="$ATTACH_CMD"
-export W3_SSH3_ATTACH_ENABLED="$SSH3_ATTACH_ENABLED"
 export PATH="${WRAP_DIR}:${PATH}"
 
-echo "=== W3 5-pane TMUX runner (python file unchanged) ==="
-echo "[setup] setup script resolved: ${TMUX_SETUP_SCRIPT_RESOLVED}"
-echo "[setup] attach command: ${ATTACH_CMD}"
-echo "[setup] protocols: ${PROTOCOLS}"
+read -r -a HOST_ARRAY <<< "$HOSTS"
+HOST_COUNT="${#HOST_ARRAY[@]}"
+FAILED_HOSTS=()
 
-echo "[run] executing benchmark..."
-CMD=(
-  "$PYTHON_BIN" w3_5pane_benchmark.py
-    --host "$HOST"
-    --user "$USER_NAME"
-    --source-ip "$SOURCE_IP"
-    --identity-file "$IDENTITY_FILE"
-    --protocols $PROTOCOLS
-    --workloads $WORKLOADS
-    --trials "$TRIALS"
-    --iterations "$ITERATIONS"
-    --warmup-rounds "$WARMUP_ROUNDS"
-    --timeout "$TIMEOUT"
-    --open-session-retries "$OPEN_SESSION_RETRIES"
-    --open-retry-backoff-ms "$OPEN_RETRY_BACKOFF_MS"
-    --seed "$SEED"
-    --probe-chars "$PROBE_CHARS"
-    --output-dir "$OUTPUT_DIR"
-    --prompt "$PROMPT"
-    --ssh3-path "$SSH3_PATH"
-    --mosh-predict "$MOSH_PREDICT"
-)
+if (( HOST_COUNT == 0 )); then
+  echo "ERROR: HOSTS is empty." >&2
+  exit 1
+fi
 
-$SSH3_INSECURE       && CMD+=(--ssh3-insecure)
-$BATCH_MODE          && CMD+=(--batch-mode)
-$STRICT_HOST_KEY     && CMD+=(--strict-host-key-checking)
-$SHUFFLE_PAIRS       && CMD+=(--shuffle-pairs)
-$REOPEN_ON_FAILURE   && CMD+=(--reopen-on-failure)
+run_for_host() {
+  HOST="$1"
+  SSH_CTL=("$REAL_SSH" "${SSH_OPTS[@]}" "${USER_NAME}@${HOST}")
+  TMUX_SETUP_SCRIPT_RESOLVED=""
+  SSH3_ATTACH_ENABLED=0
+  local host_protocols="$PROTOCOLS"
 
-printf '  %s \\\n' "${CMD[@]}"
+  echo ""
+  echo "=== W3 5-pane tmux benchmark: ${USER_NAME}@${HOST} ==="
+  echo "[${HOST}] protocols requested: ${PROTOCOLS}"
+  echo "[${HOST}] workloads: ${WORKLOADS}"
 
-RUN_LOG="${OUTPUT_DIR}/w3_runner_$(date +%Y%m%d_%H%M%S).log"
-mkdir -p "$OUTPUT_DIR"
-echo "[run] log file: ${RUN_LOG}"
+  resolve_tmux_setup_script || return 1
+  setup_remote_tmux || return 1
+  wait_pane_ready || return 1
+  build_attach_cmd
+  probe_ssh3_attach_support
 
-(
-  "${CMD[@]}"
-) 2>&1 | tee "$RUN_LOG" &
-BENCH_PID=$!
+  if [[ " ${host_protocols} " == *" ssh3 "* && "$SSH3_ATTACH_ENABLED" != "1" ]]; then
+    echo "[${HOST}] setup: removing ssh3 because it cannot be forced into tmux pane 0" >&2
+    host_protocols="$(drop_proto_from_list "$host_protocols" ssh3)"
+  fi
+  if [[ -z "$host_protocols" ]]; then
+    echo "ERROR: no protocols left for ${HOST} after attach checks." >&2
+    return 1
+  fi
 
-while kill -0 "$BENCH_PID" >/dev/null 2>&1; do
-  echo "[run] benchmark is still running... $(date +%H:%M:%S)"
-  sleep 20
+  export W3_ATTACH_CMD="$ATTACH_CMD"
+  export W3_SSH3_ATTACH_ENABLED="$SSH3_ATTACH_ENABLED"
+
+  local host_output_dir="$OUTPUT_DIR"
+  if (( HOST_COUNT > 1 )); then
+    host_output_dir="${OUTPUT_DIR}/$(sanitize_token "$HOST")"
+  fi
+  mkdir -p "$host_output_dir"
+
+  echo "[${HOST}] setup script resolved: ${TMUX_SETUP_SCRIPT_RESOLVED}"
+  echo "[${HOST}] attach command: ${ATTACH_CMD}"
+  echo "[${HOST}] protocols effective: ${host_protocols}"
+  echo "[${HOST}] output dir: ${host_output_dir}"
+  echo "[${HOST}] run: executing benchmark..."
+
+  local -a cmd
+  cmd=(
+    "$PYTHON_BIN" w3_5pane_benchmark.py
+      --host "$HOST"
+      --user "$USER_NAME"
+      --source-ip "$SOURCE_IP"
+      --identity-file "$IDENTITY_FILE"
+      --protocols $host_protocols
+      --workloads $WORKLOADS
+      --trials "$TRIALS"
+      --iterations "$ITERATIONS"
+      --warmup-rounds "$WARMUP_ROUNDS"
+      --timeout "$TIMEOUT"
+      --open-session-retries "$OPEN_SESSION_RETRIES"
+      --open-retry-backoff-ms "$OPEN_RETRY_BACKOFF_MS"
+      --seed "$SEED"
+      --probe-chars "$PROBE_CHARS"
+      --probe-search-window "$PROBE_SEARCH_WINDOW"
+      --output-dir "$host_output_dir"
+      --prompt "$PROMPT"
+      --ssh3-path "$SSH3_PATH"
+      --mosh-predict "$MOSH_PREDICT"
+  )
+
+  is_true "$SSH3_INSECURE"     && cmd+=(--ssh3-insecure)
+  is_true "$BATCH_MODE"        && cmd+=(--batch-mode)
+  is_true "$STRICT_HOST_KEY"   && cmd+=(--strict-host-key-checking)
+  is_true "$SHUFFLE_PAIRS"     && cmd+=(--shuffle-pairs)
+  is_true "$REOPEN_ON_FAILURE" && cmd+=(--reopen-on-failure)
+
+  printf '[%s] command: ' "$HOST"
+  printf '%q ' "${cmd[@]}"
+  printf '\n'
+
+  local run_log="${host_output_dir}/w3_runner_$(date +%Y%m%d_%H%M%S).log"
+  echo "[${HOST}] log file: ${run_log}"
+
+  (
+    "${cmd[@]}"
+  ) 2>&1 | tee "$run_log" &
+  local bench_pid=$!
+
+  while kill -0 "$bench_pid" >/dev/null 2>&1; do
+    echo "[${HOST}] benchmark is still running... $(date +%H:%M:%S)"
+    sleep 20
+  done
+
+  local bench_status=0
+  wait "$bench_pid" || bench_status=$?
+  if (( bench_status != 0 )); then
+    return "$bench_status"
+  fi
+
+  if [[ -f plot_trend.py ]]; then
+    "$PYTHON_BIN" plot_trend.py \
+      --output-dir "$host_output_dir" \
+      --prefix "w3" \
+      --group-fields protocol workload || return 1
+  fi
+}
+
+for host in "${HOST_ARRAY[@]}"; do
+  if ! run_for_host "$host"; then
+    FAILED_HOSTS+=("$host")
+    echo "[${host}] FAILED" >&2
+  fi
 done
 
-wait "$BENCH_PID"
-
-if [[ -f plot_trend.py ]]; then
-  "$PYTHON_BIN" plot_trend.py --output-dir "$OUTPUT_DIR" --prefix "w3" --group-fields protocol workload
+if (( ${#FAILED_HOSTS[@]} > 0 )); then
+  echo "ERROR: benchmark failed for host(s): ${FAILED_HOSTS[*]}" >&2
+  exit 1
 fi
