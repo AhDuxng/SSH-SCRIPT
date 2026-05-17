@@ -122,6 +122,9 @@ class W3Benchmark:
         escaped = "".join(f"\\{ord(ch):03o}" for ch in text)
         return f"printf {shlex.quote(escaped)}"
 
+    def _tmux_attach_mode(self, protocol: Optional[str]) -> bool:
+        return protocol is not None and self._should_attach_after_login(protocol)
+
     def _expect_prompt(
         self,
         child: pexpect.spawn,
@@ -137,7 +140,8 @@ class W3Benchmark:
         # In tmux attach mode, prompt bytes are often hidden by redraw traffic
         # from the other panes. Use a unique marker to confirm command
         # round-trip instead of relying only on prompt matching.
-        if os.environ.get("W3_ATTACH_CMD"):
+        tmux_attach_mode = self._tmux_attach_mode(protocol)
+        if tmux_attach_mode:
             marker = f"__W3_PROMPT_READY__{random.randrange(10_000, 99_999)}__"
             marker_re = self._build_interleaved_text_re(marker)
             last_marker_exc: Optional[pexpect.TIMEOUT] = None
@@ -213,6 +217,7 @@ class W3Benchmark:
         self,
         child: pexpect.spawn,
         probe_char: str,
+        search_window: Optional[int],
         max_polls: int = 4,
     ) -> None:
         # Remove buffered matches for the same probe character before timing.
@@ -221,7 +226,7 @@ class W3Benchmark:
             idx = child.expect_exact(
                 [probe_char, pexpect.TIMEOUT, pexpect.EOF],
                 timeout=0,
-                searchwindowsize=self.probe_search_window,
+                searchwindowsize=search_window,
             )
             if idx == 0:
                 continue
@@ -234,16 +239,22 @@ class W3Benchmark:
         child: pexpect.spawn,
         erase_after_echo: bool = False,
         erase_key: str = "\x7f",
+        protocol: Optional[str] = None,
     ) -> float:
         self._drain_pending_output(child)
+        search_window: Optional[int] = self.probe_search_window
+        if self._tmux_attach_mode(protocol):
+            # With 5-pane redraw traffic, short search windows can miss the
+            # probe echo before pexpect sees it.
+            search_window = None
         probe_char = self._next_probe_char()
-        self._consume_stray_probe_chars(child, probe_char)
+        self._consume_stray_probe_chars(child, probe_char, search_window)
         start_ns = time.perf_counter_ns()
         child.send(probe_char)
         child.expect_exact(
             probe_char,
             timeout=self.args.timeout,
-            searchwindowsize=self.probe_search_window,
+            searchwindowsize=search_window,
         )
         end_ns = time.perf_counter_ns()
         if erase_after_echo:
@@ -293,9 +304,20 @@ class W3Benchmark:
             "W3_ATTACH_BOOT_MARKER",
             "__W3_ATTACH_PANE0_READY__",
         )
+        boot_marker_re = self._build_interleaved_text_re(boot_marker)
         self._drain_pending_output(child)
         child.sendline(attach_cmd)
-        child.expect(re.escape(boot_marker), timeout=self.args.timeout)
+        last_exc: Optional[pexpect.TIMEOUT] = None
+        for _ in range(3):
+            try:
+                child.expect(boot_marker_re, timeout=self.args.timeout)
+                self._drain_pending_output(child, max_reads=16)
+                return
+            except pexpect.TIMEOUT as exc:
+                last_exc = exc
+                child.sendline("")
+        if last_exc is not None:
+            raise last_exc
 
     def _enter_vim_insert_mode(self, child: pexpect.spawn) -> None:
         remote_file = self.args.remote_vim_file
@@ -312,9 +334,14 @@ class W3Benchmark:
         self,
         child: pexpect.spawn,
         erase_after_echo: bool = True,
+        protocol: Optional[str] = None,
     ) -> float:
         # Assumes Vim is already in Insert mode.
-        return self._probe_once(child, erase_after_echo=erase_after_echo)
+        return self._probe_once(
+            child,
+            erase_after_echo=erase_after_echo,
+            protocol=protocol,
+        )
 
     def _session_command(self, protocol: str) -> str:
         target     = self.target
@@ -413,7 +440,11 @@ class W3Benchmark:
 
         for _ in range(warmup):
             try:
-                self._probe_once(child, erase_after_echo=False)
+                self._probe_once(
+                    child,
+                    erase_after_echo=False,
+                    protocol=protocol,
+                )
             except pexpect.TIMEOUT:
                 self._recover_shell_state(child)
                 self._refresh_prompt(child, protocol=protocol)
@@ -434,7 +465,11 @@ class W3Benchmark:
         latencies: List[float] = []
         for i in range(iterations):
             try:
-                lat = self._probe_once(child, erase_after_echo=False)
+                lat = self._probe_once(
+                    child,
+                    erase_after_echo=False,
+                    protocol=protocol,
+                )
             except pexpect.TIMEOUT as exc:
                 if fail_cb:
                     fail_cb(i + 1, exc)
@@ -473,7 +508,11 @@ class W3Benchmark:
 
         for _ in range(warmup):
             try:
-                self._probe_vim_once(child, erase_after_echo=False)
+                self._probe_vim_once(
+                    child,
+                    erase_after_echo=False,
+                    protocol=protocol,
+                )
             except pexpect.TIMEOUT:
                 self._recover_vim_state(child)
                 continue
@@ -481,7 +520,11 @@ class W3Benchmark:
         latencies: List[float] = []
         for i in range(iterations):
             try:
-                lat = self._probe_vim_once(child, erase_after_echo=False)
+                lat = self._probe_vim_once(
+                    child,
+                    erase_after_echo=False,
+                    protocol=protocol,
+                )
             except pexpect.TIMEOUT as exc:
                 if fail_cb:
                     fail_cb(i + 1, exc)
@@ -516,6 +559,7 @@ class W3Benchmark:
                 self._probe_once(
                     child,
                     erase_after_echo=False,
+                    protocol=protocol,
                 )
             except pexpect.TIMEOUT:
                 self._recover_nano_state(child)
@@ -527,6 +571,7 @@ class W3Benchmark:
                 lat = self._probe_once(
                     child,
                     erase_after_echo=False,
+                    protocol=protocol,
                 )
             except pexpect.TIMEOUT as exc:
                 if fail_cb:
