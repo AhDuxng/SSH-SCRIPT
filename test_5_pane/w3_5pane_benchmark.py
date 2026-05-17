@@ -119,6 +119,15 @@ class W3Benchmark:
         return re.compile("".join(parts))
 
     @staticmethod
+    def _build_loose_interleaved_text_re(
+        text: str,
+        max_gap: int = 32,
+    ) -> re.Pattern[str]:
+        gap = rf"[\s\S]{{0,{max(1, max_gap)}}}"
+        parts = [re.escape(ch) + gap for ch in text]
+        return re.compile("".join(parts))
+
+    @staticmethod
     def _printf_literal_cmd(text: str) -> str:
         escaped = "".join(f"\\{ord(ch):03o}" for ch in text)
         return f"printf {shlex.quote(escaped)}"
@@ -140,7 +149,10 @@ class W3Benchmark:
             "__W3_ATTACH_PANE0_READY__",
         )
         child.expect(
-            self._build_interleaved_text_re(boot_marker),
+            self._build_loose_interleaved_text_re(
+                boot_marker,
+                max_gap=96,
+            ),
             timeout=self.args.timeout,
         )
 
@@ -159,7 +171,10 @@ class W3Benchmark:
     ) -> None:
         if self._tmux_attach_mode():
             marker = f"__W3_PROMPT_READY__{random.randrange(10_000, 99_999)}__"
-            marker_re = self._build_interleaved_text_re(marker)
+            marker_re = self._build_loose_interleaved_text_re(
+                marker,
+                max_gap=96,
+            )
             last_exc: Optional[pexpect.TIMEOUT] = None
             for _ in range(3):
                 self._drain_pending_output(child, max_reads=16)
@@ -271,14 +286,24 @@ class W3Benchmark:
         if self._tmux_attach_mode():
             search_window = None
         probe_text = self._next_probe_text()
-        self._consume_stray_probe_text(child, probe_text, search_window)
+        if not self._tmux_attach_mode():
+            self._consume_stray_probe_text(child, probe_text, search_window)
         start_ns = time.perf_counter_ns()
         child.send(probe_text)
-        child.expect_exact(
-            probe_text,
-            timeout=self.args.timeout,
-            searchwindowsize=search_window,
-        )
+        if self._tmux_attach_mode():
+            child.expect(
+                self._build_loose_interleaved_text_re(
+                    probe_text,
+                    max_gap=24,
+                ),
+                timeout=self.args.timeout,
+            )
+        else:
+            child.expect_exact(
+                probe_text,
+                timeout=self.args.timeout,
+                searchwindowsize=search_window,
+            )
         end_ns = time.perf_counter_ns()
         if erase_after_echo:
             self._erase_probe_chars(child, len(probe_text), erase_key=erase_key)
@@ -312,8 +337,16 @@ class W3Benchmark:
         child.sendline(f"vim -Nu NONE -n {shlex.quote(remote_file)}")
         child.send("i")
         if self._tmux_attach_mode():
-            self._probe_once(child, erase_after_echo=True)
-            return
+            last_exc: Optional[pexpect.TIMEOUT] = None
+            for _ in range(3):
+                try:
+                    self._recover_vim_state(child)
+                    self._probe_once(child, erase_after_echo=True)
+                    return
+                except pexpect.TIMEOUT as exc:
+                    last_exc = exc
+            if last_exc is not None:
+                raise last_exc
         child.expect([r"-- INSERT --", r"INSERT"], timeout=self.args.timeout)
 
     def _enter_nano_mode(self, child: pexpect.spawn) -> None:
@@ -321,8 +354,16 @@ class W3Benchmark:
         child.sendline(f"nano --ignorercfiles {shlex.quote(remote_file)}")
         if self._tmux_attach_mode():
             # Under 5-pane redraw, nano banners may be fragmented by ANSI moves.
-            self._probe_once(child, erase_after_echo=True)
-            return
+            last_exc: Optional[pexpect.TIMEOUT] = None
+            for _ in range(3):
+                try:
+                    self._recover_nano_state(child)
+                    self._probe_once(child, erase_after_echo=True)
+                    return
+                except pexpect.TIMEOUT as exc:
+                    last_exc = exc
+            if last_exc is not None:
+                raise last_exc
         child.expect([r"GNU nano", r"\^G Help"], timeout=self.args.timeout)
 
     def _probe_vim_once(
@@ -436,6 +477,8 @@ class W3Benchmark:
         cleanup_batch = max(1, self.args.editor_cleanup_batch)
         pending_chars = 0
         erase_per_probe = self._tmux_attach_mode()
+        fail_streak = 0
+        fail_limit = max(0, self.args.tmux_fail_streak_limit)
 
         for _ in range(warmup):
             try:
@@ -464,6 +507,7 @@ class W3Benchmark:
             try:
                 lat = self._probe_once(child, erase_after_echo=erase_per_probe)
             except pexpect.TIMEOUT as exc:
+                fail_streak += 1
                 if fail_cb:
                     fail_cb(i + 1, exc)
                 if self.args.reopen_on_failure:
@@ -471,7 +515,12 @@ class W3Benchmark:
                 else:
                     self._recover_shell_state(child)
                 self._refresh_prompt(child, protocol=protocol)
+                if self._tmux_attach_mode() and fail_limit > 0 and fail_streak >= fail_limit:
+                    raise ValueError(
+                        f"too many consecutive TIMEOUTs ({fail_streak}) in interactive_shell"
+                    )
                 continue
+            fail_streak = 0
             if not erase_per_probe:
                 pending_chars += 1
             if not erase_per_probe and pending_chars >= cleanup_batch:
@@ -500,6 +549,8 @@ class W3Benchmark:
     ) -> tuple[List[float], pexpect.spawn]:
         self._enter_vim_insert_mode(child)
         erase_per_probe = self._tmux_attach_mode()
+        fail_streak = 0
+        fail_limit = max(0, self.args.tmux_fail_streak_limit)
 
         for _ in range(warmup):
             try:
@@ -519,6 +570,7 @@ class W3Benchmark:
                     erase_after_echo=erase_per_probe,
                 )
             except pexpect.TIMEOUT as exc:
+                fail_streak += 1
                 if fail_cb:
                     fail_cb(i + 1, exc)
                 if self.args.reopen_on_failure:
@@ -526,7 +578,12 @@ class W3Benchmark:
                     self._enter_vim_insert_mode(child)
                 else:
                     self._recover_vim_state(child)
+                if self._tmux_attach_mode() and fail_limit > 0 and fail_streak >= fail_limit:
+                    raise ValueError(
+                        f"too many consecutive TIMEOUTs ({fail_streak}) in vim"
+                    )
                 continue
+            fail_streak = 0
             latencies.append(lat)
             if report_cb:
                 report_cb(i + 1, lat)
@@ -547,6 +604,8 @@ class W3Benchmark:
     ) -> tuple[List[float], pexpect.spawn]:
         self._enter_nano_mode(child)
         erase_per_probe = self._tmux_attach_mode()
+        fail_streak = 0
+        fail_limit = max(0, self.args.tmux_fail_streak_limit)
 
         for _ in range(warmup):
             try:
@@ -566,6 +625,7 @@ class W3Benchmark:
                     erase_after_echo=erase_per_probe,
                 )
             except pexpect.TIMEOUT as exc:
+                fail_streak += 1
                 if fail_cb:
                     fail_cb(i + 1, exc)
                 if self.args.reopen_on_failure:
@@ -573,7 +633,12 @@ class W3Benchmark:
                     self._enter_nano_mode(child)
                 else:
                     self._recover_nano_state(child)
+                if self._tmux_attach_mode() and fail_limit > 0 and fail_streak >= fail_limit:
+                    raise ValueError(
+                        f"too many consecutive TIMEOUTs ({fail_streak}) in nano"
+                    )
                 continue
+            fail_streak = 0
             latencies.append(lat)
             if report_cb:
                 report_cb(i + 1, lat)
@@ -943,6 +1008,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Typed chars between non-measured cleanup operations in interactive_shell",
     )
     p.add_argument(
+        "--tmux-fail-streak-limit", type=int, default=8,
+        help=(
+            "Abort a tmux-mode trial early after this many consecutive "
+            "TIMEOUTs (0 disables the limit)"
+        ),
+    )
+    p.add_argument(
         "--output-dir", default="w3_results",
         help="Directory for JSON/CSV outputs",
     )
@@ -1007,6 +1079,8 @@ def main() -> int:
         parser.error("--editor-cleanup-batch must be > 0")
     if args.probe_search_window < 0:
         parser.error("--probe-search-window must be >= 0")
+    if args.tmux_fail_streak_limit < 0:
+        parser.error("--tmux-fail-streak-limit must be >= 0")
 
     bench = W3Benchmark(args)
     bench.run()

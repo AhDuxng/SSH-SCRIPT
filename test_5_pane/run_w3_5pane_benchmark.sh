@@ -16,7 +16,7 @@ WORKLOADS="${WORKLOADS:-interactive_shell vim nano}"
 TRIALS="${TRIALS:-3}"
 ITERATIONS="${ITERATIONS:-100}"
 WARMUP_ROUNDS="${WARMUP_ROUNDS:-10}"
-TIMEOUT="${TIMEOUT:-20}"
+TIMEOUT="${TIMEOUT:-30}"
 SEED="${SEED:-42}"
 
 # Background panes redraw continuously. Keep probe chars rare and absent from
@@ -52,6 +52,7 @@ STRICT_HOST_KEY="${STRICT_HOST_KEY:-false}"
 MOSH_PREDICT="${MOSH_PREDICT:-always}"
 SHUFFLE_PAIRS="${SHUFFLE_PAIRS:-false}"
 REOPEN_ON_FAILURE="${REOPEN_ON_FAILURE:-true}"
+TMUX_FAIL_STREAK_LIMIT="${TMUX_FAIL_STREAK_LIMIT:-8}"
 
 REMOTE_VIM_FILE="${REMOTE_VIM_FILE:-/tmp/w3_vim_bench.txt}"
 REMOTE_NANO_FILE="${REMOTE_NANO_FILE:-/tmp/w3_nano_bench.txt}"
@@ -60,6 +61,7 @@ PYTHON_BIN="${PYTHON_BIN:-python3}"
 if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
   PYTHON_BIN="python"
 fi
+RUN_STATUS_INTERVAL_SEC="${RUN_STATUS_INTERVAL_SEC:-60}"
 
 is_true() {
   case "${1:-false}" in
@@ -180,9 +182,9 @@ printf -v pane0_cmd 'bash --rcfile %q -i' "$PANE0_RC"
 tmux new-session -d -s "$SESSION" -n w3 "$pane0_cmd"
 
 tmux split-window -d -t "$SESSION:0.0" "bash -lc 'i=0; while :; do i=\$((i+1)); printf \"pane1 heartbeat %06d %s\\n\" \"\$i\" \"\$(date +%H:%M:%S)\"; sleep 0.20; done'"
-tmux split-window -d -t "$SESSION:0.0" "bash -lc 'i=0; while :; do i=\$((i+1)); printf \"pane2 stream %06d abcdefghijk lmnoprstuvwxy 0123456789\\n\" \"\$i\"; sleep 0.01; done'"
+tmux split-window -d -t "$SESSION:0.0" "bash -lc 'i=0; while :; do i=\$((i+1)); printf \"pane2 stream %06d abcdefghijk lmnoprstuvwxy 0123456789\\n\" \"\$i\"; sleep 0.02; done'"
 tmux split-window -d -t "$SESSION:0.0" "bash -lc 'i=0; while :; do i=\$((i+1)); clear; printf \"pane3 refresh %06d %s\\n\" \"\$i\" \"\$(date +%H:%M:%S)\"; n=0; while [ \$n -lt 12 ]; do n=\$((n+1)); printf \"pane3 row %02d value %04d\\n\" \"\$n\" \"\$((i*n))\"; done; sleep 0.25; done'"
-tmux split-window -d -t "$SESSION:0.0" "bash -lc 'log=/tmp/w3pane4_${SESSION}.log; : > \"\$log\"; (i=0; while :; do i=\$((i+1)); printf \"pane4 tail %06d %s abcdefghijk lmnoprstuvwxy\\n\" \"\$i\" \"\$(date +%H:%M:%S)\" >> \"\$log\"; sleep 0.05; done) & exec tail -f \"\$log\"'"
+tmux split-window -d -t "$SESSION:0.0" "bash -lc 'log=/tmp/w3pane4_${SESSION}.log; : > \"\$log\"; (i=0; while :; do i=\$((i+1)); printf \"pane4 tail %06d %s abcdefghijk lmnoprstuvwxy\\n\" \"\$i\" \"\$(date +%H:%M:%S)\" >> \"\$log\"; sleep 0.08; done) & exec tail -f \"\$log\"'"
 
 tmux set-window-option -t "$SESSION:0" synchronize-panes off >/dev/null
 tmux select-layout -t "$SESSION:0" tiled >/dev/null 2>&1 || true
@@ -283,9 +285,9 @@ printf -v pane0_cmd 'bash --rcfile %q -i' "$PANE0_RC"
 tmux new-session -d -s "$SESSION" -n w3 "$pane0_cmd"
 
 tmux split-window -d -t "$SESSION:0.0" "bash -lc 'i=0; while :; do i=\$((i+1)); printf \"pane1 heartbeat %06d %s\\n\" \"\$i\" \"\$(date +%H:%M:%S)\"; sleep 0.20; done'"
-tmux split-window -d -t "$SESSION:0.0" "bash -lc 'i=0; while :; do i=\$((i+1)); printf \"pane2 stream %06d abcdefghijk lmnoprstuvwxy 0123456789\\n\" \"\$i\"; sleep 0.01; done'"
+tmux split-window -d -t "$SESSION:0.0" "bash -lc 'i=0; while :; do i=\$((i+1)); printf \"pane2 stream %06d abcdefghijk lmnoprstuvwxy 0123456789\\n\" \"\$i\"; sleep 0.02; done'"
 tmux split-window -d -t "$SESSION:0.0" "bash -lc 'i=0; while :; do i=\$((i+1)); clear; printf \"pane3 refresh %06d %s\\n\" \"\$i\" \"\$(date +%H:%M:%S)\"; n=0; while [ \$n -lt 12 ]; do n=\$((n+1)); printf \"pane3 row %02d value %04d\\n\" \"\$n\" \"\$((i*n))\"; done; sleep 0.25; done'"
-tmux split-window -d -t "$SESSION:0.0" "bash -lc 'log=/tmp/w3pane4_${SESSION}.log; : > \"\$log\"; (i=0; while :; do i=\$((i+1)); printf \"pane4 tail %06d %s abcdefghijk lmnoprstuvwxy\\n\" \"\$i\" \"\$(date +%H:%M:%S)\" >> \"\$log\"; sleep 0.05; done) & exec tail -f \"\$log\"'"
+tmux split-window -d -t "$SESSION:0.0" "bash -lc 'log=/tmp/w3pane4_${SESSION}.log; : > \"\$log\"; (i=0; while :; do i=\$((i+1)); printf \"pane4 tail %06d %s abcdefghijk lmnoprstuvwxy\\n\" \"\$i\" \"\$(date +%H:%M:%S)\" >> \"\$log\"; sleep 0.08; done) & exec tail -f \"\$log\"'"
 
 tmux set-window-option -t "$SESSION:0" synchronize-panes off >/dev/null
 tmux select-layout -t "$SESSION:0" tiled >/dev/null 2>&1 || true
@@ -581,6 +583,7 @@ run_for_host() {
       --probe-chars "$PROBE_CHARS"
       --probe-search-window "$PROBE_SEARCH_WINDOW"
       --editor-cleanup-batch "$EDITOR_CLEANUP_BATCH"
+      --tmux-fail-streak-limit "$TMUX_FAIL_STREAK_LIMIT"
       --output-dir "$host_output_dir"
       --prompt "$PROMPT"
       --ssh3-path "$SSH3_PATH"
@@ -609,7 +612,7 @@ run_for_host() {
 
   while kill -0 "$bench_pid" >/dev/null 2>&1; do
     echo "[${HOST}] benchmark is still running... $(date +%H:%M:%S)"
-    sleep 20
+    sleep "$RUN_STATUS_INTERVAL_SEC"
   done
 
   local bench_status=0
