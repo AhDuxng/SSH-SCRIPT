@@ -303,10 +303,19 @@ class W3Benchmark:
     ) -> float:
         self._drain_pending_output(child)
         search_window: Optional[int] = self.probe_search_window
+        consume_polls = 4
         if self._tmux_attach_mode():
             search_window = self.tmux_search_window
+            # In 5-pane mode the same single-char probe may be re-rendered many
+            # times; clear more stale matches to avoid near-zero false samples.
+            consume_polls = 128
         probe_text = self._next_probe_text()
-        self._consume_stray_probe_text(child, probe_text, search_window)
+        self._consume_stray_probe_text(
+            child,
+            probe_text,
+            search_window,
+            max_polls=consume_polls,
+        )
         start_ns = time.perf_counter_ns()
         child.send(probe_text)
         if self._tmux_attach_mode():
