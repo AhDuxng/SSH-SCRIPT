@@ -34,6 +34,7 @@ PANE0_INDEX="${PANE0_INDEX:-0}"
 TMUX_SETUP_SCRIPT="${TMUX_SETUP_SCRIPT:-~/w3_tmux_setup.sh}"
 INSTALL_REMOTE_SETUP="${INSTALL_REMOTE_SETUP:-auto}"
 RESET_REMOTE_TMUX="${RESET_REMOTE_TMUX:-true}"
+HEADLESS_FALLBACK_SETUP="${HEADLESS_FALLBACK_SETUP:-true}"
 TMUX_READY_MARKER="${TMUX_READY_MARKER:-__W3_5PANE_PANE0_READY__}"
 TMUX_READY_TIMEOUT="${TMUX_READY_TIMEOUT:-60}"
 TMUX_READY_POLL_INTERVAL="${TMUX_READY_POLL_INTERVAL:-0.5}"
@@ -240,13 +241,63 @@ run_remote_tmux_setup() {
   fi
 }
 
+run_headless_tmux_setup() {
+  local log_q session_q marker_q rc_q reset_q
+  log_q="$(printf '%q' "$REMOTE_SETUP_LOG")"
+  session_q="$(printf '%q' "$TMUX_SESSION")"
+  marker_q="$(printf '%q' "$TMUX_READY_MARKER")"
+  rc_q="$(printf '%q' "$PANE0_RC_PATH")"
+  reset_q="$(printf '%q' "$RESET_REMOTE_TMUX")"
+
+  echo "[${HOST}] setup: fallback headless tmux setup (session=${TMUX_SESSION})"
+  "${SSH_CTL[@]}" "env TERM=xterm-256color W3_TMUX_SESSION=${session_q} W3_READY_MARKER=${marker_q} W3_PANE0_RC=${rc_q} W3_RESET_TMUX=${reset_q} bash -s > ${log_q} 2>&1" <<'REMOTE_HEADLESS_TMUX_SETUP'
+set -euo pipefail
+
+SESSION="${W3_TMUX_SESSION:-w3bench5}"
+READY_MARKER="${W3_READY_MARKER:-__W3_5PANE_PANE0_READY__}"
+PANE0_RC="${W3_PANE0_RC:-/tmp/w3_pane0_rc_${SESSION}}"
+RESET_SESSION="${W3_RESET_TMUX:-true}"
+
+case "$RESET_SESSION" in
+  true|TRUE|1|yes|YES|y|Y)
+    tmux kill-session -t "$SESSION" >/dev/null 2>&1 || true
+    ;;
+esac
+
+command -v tmux >/dev/null 2>&1 || {
+  echo "tmux is required on the remote host" >&2
+  exit 127
+}
+
+cat > "$PANE0_RC" <<PANE0_RC_EOF
+stty echo -echoctl 2>/dev/null || true
+alias exit='tmux detach-client -s ${SESSION} 2>/dev/null || builtin exit'
+printf '%s\n' '${READY_MARKER}'
+PANE0_RC_EOF
+chmod 600 "$PANE0_RC" 2>/dev/null || true
+
+printf -v pane0_cmd 'bash --rcfile %q -i' "$PANE0_RC"
+tmux new-session -d -s "$SESSION" -n w3 "$pane0_cmd"
+
+tmux split-window -t "$SESSION:0" "bash -lc 'i=0; while :; do i=\$((i+1)); printf \"pane1 heartbeat %06d %s\\n\" \"\$i\" \"\$(date +%H:%M:%S)\"; sleep 0.20; done'"
+tmux split-window -t "$SESSION:0" "bash -lc 'i=0; while :; do i=\$((i+1)); printf \"pane2 stream %06d abcdefghijk lmnoprstuvwxy 0123456789\\n\" \"\$i\"; sleep 0.01; done'"
+tmux split-window -t "$SESSION:0" "bash -lc 'i=0; while :; do i=\$((i+1)); clear; printf \"pane3 refresh %06d %s\\n\" \"\$i\" \"\$(date +%H:%M:%S)\"; n=0; while [ \$n -lt 12 ]; do n=\$((n+1)); printf \"pane3 row %02d value %04d\\n\" \"\$n\" \"\$((i*n))\"; done; sleep 0.25; done'"
+tmux split-window -t "$SESSION:0" "bash -lc 'log=/tmp/w3pane4_${SESSION}.log; : > \"\$log\"; (i=0; while :; do i=\$((i+1)); printf \"pane4 tail %06d %s abcdefghijk lmnoprstuvwxy\\n\" \"\$i\" \"\$(date +%H:%M:%S)\" >> \"\$log\"; sleep 0.05; done) & exec tail -f \"\$log\"'"
+
+tmux set-window-option -t "$SESSION:0" synchronize-panes off >/dev/null
+tmux select-layout -t "$SESSION:0" tiled >/dev/null 2>&1 || true
+tmux select-pane -t "$SESSION:0.0" >/dev/null
+REMOTE_HEADLESS_TMUX_SETUP
+}
+
 wait_tmux_ready() {
   local window="${TMUX_SESSION}:${TMUX_WINDOW}"
   local pane0="${window}.${PANE0_INDEX}"
-  local window_q pane0_q marker_q start_ts now pane_count marker_seen
+  local window_q pane0_q marker_q log_q start_ts now pane_count marker_seen
   window_q="$(printf '%q' "$window")"
   pane0_q="$(printf '%q' "$pane0")"
   marker_q="$(printf '%q' "$TMUX_READY_MARKER")"
+  log_q="$(printf '%q' "$REMOTE_SETUP_LOG")"
 
   echo "[${HOST}] setup: waiting for ${pane0} and 5 visible panes"
   start_ts="$(date +%s)"
@@ -262,6 +313,12 @@ wait_tmux_ready() {
       return 0
     fi
     now="$(date +%s)"
+    if (( now - start_ts >= 2 )); then
+      if "${SSH_CTL[@]}" "grep -qi 'not a terminal' ${log_q} 2>/dev/null" >/dev/null 2>&1; then
+        echo "[${HOST}] setup: detected non-interactive tmux failure in ${REMOTE_SETUP_LOG}" >&2
+        return 1
+      fi
+    fi
     if (( now - start_ts >= TMUX_READY_TIMEOUT )); then
       echo "ERROR: timeout waiting for tmux 5-pane session on ${HOST}" >&2
       echo "[${HOST}] setup: remote log tail (${REMOTE_SETUP_LOG}):" >&2
@@ -413,7 +470,15 @@ run_for_host() {
 
   resolve_tmux_setup_script || return 1
   run_remote_tmux_setup || return 1
-  wait_tmux_ready || return 1
+  if ! wait_tmux_ready; then
+    if is_true "$HEADLESS_FALLBACK_SETUP"; then
+      echo "[${HOST}] setup: retry with headless fallback because w3_tmux_setup.sh did not create 5 panes"
+      run_headless_tmux_setup || return 1
+      wait_tmux_ready || return 1
+    else
+      return 1
+    fi
+  fi
   send_token_to_pane0 || return 1
   build_attach_cmd
 
