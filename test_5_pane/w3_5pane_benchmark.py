@@ -123,6 +123,8 @@ class W3Benchmark:
         return f"printf {shlex.quote(escaped)}"
 
     def _tmux_attach_mode(self, protocol: Optional[str]) -> bool:
+        if os.environ.get("W3_ATTACH_CMD"):
+            return True
         return protocol is not None and self._should_attach_after_login(protocol)
 
     def _expect_prompt(

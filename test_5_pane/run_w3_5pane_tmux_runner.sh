@@ -29,7 +29,7 @@ SEED="${SEED:-42}"
 # In a 5-pane tmux view, background panes continuously redraw text.
 # Keep probe chars rare and limit search window to reduce false matches.
 PROBE_CHARS="${PROBE_CHARS:-QZ}"
-PROBE_SEARCH_WINDOW="${PROBE_SEARCH_WINDOW:-1024}"
+PROBE_SEARCH_WINDOW="${PROBE_SEARCH_WINDOW:-0}"
 
 OUTPUT_DIR="${OUTPUT_DIR:-w3_results}"
 PROMPT="${PROMPT:-__W3_PROMPT__# }"
@@ -220,10 +220,11 @@ build_attach_cmd() {
   boot_marker_escaped="$(octal_escape "$ATTACH_BOOT_MARKER")"
   ATTACH_SCRIPT="set -e; \
 tmux has-session -t ${TMUX_SESSION} >/dev/null 2>&1; \
-tmux respawn-pane -k -t ${TMUX_SESSION}:${TMUX_PANE} \"bash -lc \\\"stty echo -echoctl 2>/dev/null || true; printf '${boot_marker_escaped}\\\\r\\\\n'; exec bash --noprofile --norc\\\"\" >/dev/null 2>&1; \
+tmux respawn-pane -k -t ${TMUX_SESSION}:${TMUX_PANE} \"bash -lc \\\"stty echo -echoctl 2>/dev/null || true; for _ in 1 2 3; do printf '${boot_marker_escaped}\\\\r\\\\n'; done; exec bash --noprofile --norc\\\"\" >/dev/null 2>&1; \
 tmux select-layout -t ${TMUX_SESSION}:0 tiled >/dev/null 2>&1 || true; \
+tmux set-window-option -t ${TMUX_SESSION}:0 synchronize-panes off >/dev/null 2>&1 || true; \
 tmux select-pane -t ${TMUX_SESSION}:${TMUX_PANE} >/dev/null 2>&1; \
-exec tmux attach -t ${TMUX_SESSION}"
+exec tmux attach -d -t ${TMUX_SESSION}"
   ATTACH_CMD="bash -lc $(printf '%q' "$ATTACH_SCRIPT")"
 }
 
@@ -348,6 +349,11 @@ run_for_host() {
   echo "=== W3 5-pane tmux benchmark: ${USER_NAME}@${HOST} ==="
   echo "[${HOST}] protocols requested: ${PROTOCOLS}"
   echo "[${HOST}] workloads: ${WORKLOADS}"
+  if [[ "${PROBE_SEARCH_WINDOW}" != "0" ]]; then
+    echo "[${HOST}] setup: force probe_search_window=0 for tmux workload (was ${PROBE_SEARCH_WINDOW})"
+    PROBE_SEARCH_WINDOW="0"
+  fi
+  echo "[${HOST}] probe chars/window: ${PROBE_CHARS} / ${PROBE_SEARCH_WINDOW}"
 
   resolve_tmux_setup_script || return 1
   setup_remote_tmux || return 1
