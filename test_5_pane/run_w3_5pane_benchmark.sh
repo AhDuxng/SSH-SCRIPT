@@ -53,6 +53,8 @@ MOSH_PREDICT="${MOSH_PREDICT:-always}"
 SHUFFLE_PAIRS="${SHUFFLE_PAIRS:-false}"
 REOPEN_ON_FAILURE="${REOPEN_ON_FAILURE:-true}"
 TMUX_FAIL_STREAK_LIMIT="${TMUX_FAIL_STREAK_LIMIT:-8}"
+TMUX_TRIAL_FAIL_LIMIT="${TMUX_TRIAL_FAIL_LIMIT:-35}"
+TMUX_PROBE_MAX_GAP="${TMUX_PROBE_MAX_GAP:-256}"
 
 REMOTE_VIM_FILE="${REMOTE_VIM_FILE:-/tmp/w3_vim_bench.txt}"
 REMOTE_NANO_FILE="${REMOTE_NANO_FILE:-/tmp/w3_nano_bench.txt}"
@@ -61,7 +63,7 @@ PYTHON_BIN="${PYTHON_BIN:-python3}"
 if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
   PYTHON_BIN="python"
 fi
-RUN_STATUS_INTERVAL_SEC="${RUN_STATUS_INTERVAL_SEC:-60}"
+RUN_STATUS_INTERVAL_SEC="${RUN_STATUS_INTERVAL_SEC:-120}"
 
 is_true() {
   case "${1:-false}" in
@@ -584,6 +586,8 @@ run_for_host() {
       --probe-search-window "$PROBE_SEARCH_WINDOW"
       --editor-cleanup-batch "$EDITOR_CLEANUP_BATCH"
       --tmux-fail-streak-limit "$TMUX_FAIL_STREAK_LIMIT"
+      --tmux-trial-fail-limit "$TMUX_TRIAL_FAIL_LIMIT"
+      --tmux-probe-max-gap "$TMUX_PROBE_MAX_GAP"
       --output-dir "$host_output_dir"
       --prompt "$PROMPT"
       --ssh3-path "$SSH3_PATH"

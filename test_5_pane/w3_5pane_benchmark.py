@@ -151,7 +151,7 @@ class W3Benchmark:
         child.expect(
             self._build_loose_interleaved_text_re(
                 boot_marker,
-                max_gap=96,
+                max_gap=256,
             ),
             timeout=self.args.timeout,
         )
@@ -173,7 +173,7 @@ class W3Benchmark:
             marker = f"__W3_PROMPT_READY__{random.randrange(10_000, 99_999)}__"
             marker_re = self._build_loose_interleaved_text_re(
                 marker,
-                max_gap=96,
+                max_gap=256,
             )
             last_exc: Optional[pexpect.TIMEOUT] = None
             for _ in range(3):
@@ -294,7 +294,7 @@ class W3Benchmark:
             child.expect(
                 self._build_loose_interleaved_text_re(
                     probe_text,
-                    max_gap=24,
+                    max_gap=max(8, self.args.tmux_probe_max_gap),
                 ),
                 timeout=self.args.timeout,
             )
@@ -479,6 +479,8 @@ class W3Benchmark:
         erase_per_probe = self._tmux_attach_mode()
         fail_streak = 0
         fail_limit = max(0, self.args.tmux_fail_streak_limit)
+        fail_total = 0
+        fail_trial_limit = max(0, self.args.tmux_trial_fail_limit)
 
         for _ in range(warmup):
             try:
@@ -508,6 +510,7 @@ class W3Benchmark:
                 lat = self._probe_once(child, erase_after_echo=erase_per_probe)
             except pexpect.TIMEOUT as exc:
                 fail_streak += 1
+                fail_total += 1
                 if fail_cb:
                     fail_cb(i + 1, exc)
                 if self.args.reopen_on_failure:
@@ -515,6 +518,14 @@ class W3Benchmark:
                 else:
                     self._recover_shell_state(child)
                 self._refresh_prompt(child, protocol=protocol)
+                if (
+                    self._tmux_attach_mode()
+                    and fail_trial_limit > 0
+                    and fail_total >= fail_trial_limit
+                ):
+                    raise ValueError(
+                        f"too many TIMEOUT failures ({fail_total}) in interactive_shell"
+                    )
                 if self._tmux_attach_mode() and fail_limit > 0 and fail_streak >= fail_limit:
                     raise ValueError(
                         f"too many consecutive TIMEOUTs ({fail_streak}) in interactive_shell"
@@ -551,6 +562,8 @@ class W3Benchmark:
         erase_per_probe = self._tmux_attach_mode()
         fail_streak = 0
         fail_limit = max(0, self.args.tmux_fail_streak_limit)
+        fail_total = 0
+        fail_trial_limit = max(0, self.args.tmux_trial_fail_limit)
 
         for _ in range(warmup):
             try:
@@ -571,6 +584,7 @@ class W3Benchmark:
                 )
             except pexpect.TIMEOUT as exc:
                 fail_streak += 1
+                fail_total += 1
                 if fail_cb:
                     fail_cb(i + 1, exc)
                 if self.args.reopen_on_failure:
@@ -578,6 +592,14 @@ class W3Benchmark:
                     self._enter_vim_insert_mode(child)
                 else:
                     self._recover_vim_state(child)
+                if (
+                    self._tmux_attach_mode()
+                    and fail_trial_limit > 0
+                    and fail_total >= fail_trial_limit
+                ):
+                    raise ValueError(
+                        f"too many TIMEOUT failures ({fail_total}) in vim"
+                    )
                 if self._tmux_attach_mode() and fail_limit > 0 and fail_streak >= fail_limit:
                     raise ValueError(
                         f"too many consecutive TIMEOUTs ({fail_streak}) in vim"
@@ -606,6 +628,8 @@ class W3Benchmark:
         erase_per_probe = self._tmux_attach_mode()
         fail_streak = 0
         fail_limit = max(0, self.args.tmux_fail_streak_limit)
+        fail_total = 0
+        fail_trial_limit = max(0, self.args.tmux_trial_fail_limit)
 
         for _ in range(warmup):
             try:
@@ -626,6 +650,7 @@ class W3Benchmark:
                 )
             except pexpect.TIMEOUT as exc:
                 fail_streak += 1
+                fail_total += 1
                 if fail_cb:
                     fail_cb(i + 1, exc)
                 if self.args.reopen_on_failure:
@@ -633,6 +658,14 @@ class W3Benchmark:
                     self._enter_nano_mode(child)
                 else:
                     self._recover_nano_state(child)
+                if (
+                    self._tmux_attach_mode()
+                    and fail_trial_limit > 0
+                    and fail_total >= fail_trial_limit
+                ):
+                    raise ValueError(
+                        f"too many TIMEOUT failures ({fail_total}) in nano"
+                    )
                 if self._tmux_attach_mode() and fail_limit > 0 and fail_streak >= fail_limit:
                     raise ValueError(
                         f"too many consecutive TIMEOUTs ({fail_streak}) in nano"
@@ -1015,6 +1048,20 @@ def build_arg_parser() -> argparse.ArgumentParser:
         ),
     )
     p.add_argument(
+        "--tmux-trial-fail-limit", type=int, default=35,
+        help=(
+            "Abort a tmux-mode trial early after this many total TIMEOUT "
+            "failures (0 disables the limit)"
+        ),
+    )
+    p.add_argument(
+        "--tmux-probe-max-gap", type=int, default=256,
+        help=(
+            "Max arbitrary bytes allowed between probe token characters in "
+            "tmux-mode matching"
+        ),
+    )
+    p.add_argument(
         "--output-dir", default="w3_results",
         help="Directory for JSON/CSV outputs",
     )
@@ -1081,6 +1128,10 @@ def main() -> int:
         parser.error("--probe-search-window must be >= 0")
     if args.tmux_fail_streak_limit < 0:
         parser.error("--tmux-fail-streak-limit must be >= 0")
+    if args.tmux_trial_fail_limit < 0:
+        parser.error("--tmux-trial-fail-limit must be >= 0")
+    if args.tmux_probe_max_gap <= 0:
+        parser.error("--tmux-probe-max-gap must be > 0")
 
     bench = W3Benchmark(args)
     bench.run()
