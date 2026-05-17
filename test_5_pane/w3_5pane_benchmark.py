@@ -4,7 +4,6 @@ from __future__ import annotations
 import argparse
 import csv
 import math
-import os
 import random
 import re
 import shlex
@@ -112,21 +111,6 @@ class W3Benchmark:
         parts = [re.escape(ch) + _ECHO_GAP for ch in prompt_marker]
         return re.compile("".join(parts) + rf"(?:{_ANSI_SEQ}|\s)*$")
 
-    @staticmethod
-    def _build_interleaved_text_re(text: str) -> re.Pattern[str]:
-        parts = [re.escape(ch) + _ECHO_GAP for ch in text]
-        return re.compile("".join(parts))
-
-    @staticmethod
-    def _printf_literal_cmd(text: str) -> str:
-        escaped = "".join(f"\\{ord(ch):03o}" for ch in text)
-        return f"printf {shlex.quote(escaped)}"
-
-    def _tmux_attach_mode(self, protocol: Optional[str]) -> bool:
-        if os.environ.get("W3_ATTACH_CMD"):
-            return True
-        return protocol is not None and self._should_attach_after_login(protocol)
-
     def _expect_prompt(
         self,
         child: pexpect.spawn,
@@ -136,31 +120,9 @@ class W3Benchmark:
         try:
             child.expect(self.prompt_re, timeout=self.args.timeout)
             return
-        except pexpect.TIMEOUT as first_exc:
-            pass
-
-        # In tmux attach mode, prompt bytes are often hidden by redraw traffic
-        # from the other panes. Use a unique marker to confirm command
-        # round-trip instead of relying only on prompt matching.
-        tmux_attach_mode = self._tmux_attach_mode(protocol)
-        if tmux_attach_mode:
-            marker = f"__W3_PROMPT_READY__{random.randrange(10_000, 99_999)}__"
-            marker_re = self._build_interleaved_text_re(marker)
-            last_marker_exc: Optional[pexpect.TIMEOUT] = None
-            for _ in range(3):
-                self._drain_pending_output(child, max_reads=16)
-                child.sendline("")
-                child.sendline(self._printf_literal_cmd(marker + "\n"))
-                try:
-                    child.expect(marker_re, timeout=self.args.timeout)
-                    return
-                except pexpect.TIMEOUT as exc:
-                    last_marker_exc = exc
+        except pexpect.TIMEOUT:
             if protocol != "mosh":
-                raise last_marker_exc if last_marker_exc is not None else first_exc
-
-        if protocol != "mosh":
-            raise first_exc
+                raise
 
         last_exc: Optional[pexpect.TIMEOUT] = None
         for clear_screen in (False, True):
@@ -219,7 +181,6 @@ class W3Benchmark:
         self,
         child: pexpect.spawn,
         probe_char: str,
-        search_window: Optional[int],
         max_polls: int = 4,
     ) -> None:
         # Remove buffered matches for the same probe character before timing.
@@ -228,7 +189,7 @@ class W3Benchmark:
             idx = child.expect_exact(
                 [probe_char, pexpect.TIMEOUT, pexpect.EOF],
                 timeout=0,
-                searchwindowsize=search_window,
+                searchwindowsize=self.probe_search_window,
             )
             if idx == 0:
                 continue
@@ -241,22 +202,16 @@ class W3Benchmark:
         child: pexpect.spawn,
         erase_after_echo: bool = False,
         erase_key: str = "\x7f",
-        protocol: Optional[str] = None,
     ) -> float:
         self._drain_pending_output(child)
-        search_window: Optional[int] = self.probe_search_window
-        if self._tmux_attach_mode(protocol):
-            # With 5-pane redraw traffic, short search windows can miss the
-            # probe echo before pexpect sees it.
-            search_window = None
         probe_char = self._next_probe_char()
-        self._consume_stray_probe_chars(child, probe_char, search_window)
+        self._consume_stray_probe_chars(child, probe_char)
         start_ns = time.perf_counter_ns()
         child.send(probe_char)
         child.expect_exact(
             probe_char,
             timeout=self.args.timeout,
-            searchwindowsize=search_window,
+            searchwindowsize=self.probe_search_window,
         )
         end_ns = time.perf_counter_ns()
         if erase_after_echo:
@@ -286,41 +241,6 @@ class W3Benchmark:
         reopened_child, _ = self._open_session(protocol)
         return reopened_child
 
-    @staticmethod
-    def _should_attach_after_login(protocol: str) -> bool:
-        protocols = os.environ.get("W3_ATTACH_AFTER_LOGIN_PROTOCOLS", "")
-        return protocol in protocols.split()
-
-    def _attach_tmux_after_login(
-        self,
-        child: pexpect.spawn,
-        protocol: str,
-    ) -> None:
-        attach_cmd = os.environ.get("W3_ATTACH_CMD", "").strip()
-        if not attach_cmd:
-            raise ValueError(
-                f"{protocol} requires tmux attach, but W3_ATTACH_CMD is not set"
-            )
-
-        boot_marker = os.environ.get(
-            "W3_ATTACH_BOOT_MARKER",
-            "__W3_ATTACH_PANE0_READY__",
-        )
-        boot_marker_re = self._build_interleaved_text_re(boot_marker)
-        self._drain_pending_output(child)
-        child.sendline(attach_cmd)
-        last_exc: Optional[pexpect.TIMEOUT] = None
-        for _ in range(3):
-            try:
-                child.expect(boot_marker_re, timeout=self.args.timeout)
-                self._drain_pending_output(child, max_reads=16)
-                return
-            except pexpect.TIMEOUT as exc:
-                last_exc = exc
-                child.sendline("")
-        if last_exc is not None:
-            raise last_exc
-
     def _enter_vim_insert_mode(self, child: pexpect.spawn) -> None:
         remote_file = self.args.remote_vim_file
         child.sendline(f"vim -Nu NONE -n {shlex.quote(remote_file)}")
@@ -336,14 +256,9 @@ class W3Benchmark:
         self,
         child: pexpect.spawn,
         erase_after_echo: bool = True,
-        protocol: Optional[str] = None,
     ) -> float:
         # Assumes Vim is already in Insert mode.
-        return self._probe_once(
-            child,
-            erase_after_echo=erase_after_echo,
-            protocol=protocol,
-        )
+        return self._probe_once(child, erase_after_echo=erase_after_echo)
 
     def _session_command(self, protocol: str) -> str:
         target     = self.target
@@ -396,8 +311,6 @@ class W3Benchmark:
 
         start_ns = time.perf_counter_ns()
         child.expect(_INITIAL_PROMPT_RE, timeout=self.args.timeout)
-        if self._should_attach_after_login(protocol):
-            self._attach_tmux_after_login(child, protocol)
         setup_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
 
         child.sendline(f"export PS1={shlex.quote(self.args.prompt)}")
@@ -406,15 +319,6 @@ class W3Benchmark:
         return child, setup_ms
 
     def _close_session(self, child: pexpect.spawn) -> None:
-        if os.environ.get("W3_ATTACH_CMD"):
-            try:
-                child.sendcontrol("b")
-                child.send("d")
-                child.expect(pexpect.EOF, timeout=max(1, min(3, self.args.timeout)))
-                return
-            except Exception:
-                pass
-
         try:
             child.sendline("exit")
             child.expect(pexpect.EOF)
@@ -442,11 +346,7 @@ class W3Benchmark:
 
         for _ in range(warmup):
             try:
-                self._probe_once(
-                    child,
-                    erase_after_echo=False,
-                    protocol=protocol,
-                )
+                self._probe_once(child, erase_after_echo=False)
             except pexpect.TIMEOUT:
                 self._recover_shell_state(child)
                 self._refresh_prompt(child, protocol=protocol)
@@ -467,11 +367,7 @@ class W3Benchmark:
         latencies: List[float] = []
         for i in range(iterations):
             try:
-                lat = self._probe_once(
-                    child,
-                    erase_after_echo=False,
-                    protocol=protocol,
-                )
+                lat = self._probe_once(child, erase_after_echo=False)
             except pexpect.TIMEOUT as exc:
                 if fail_cb:
                     fail_cb(i + 1, exc)
@@ -510,11 +406,7 @@ class W3Benchmark:
 
         for _ in range(warmup):
             try:
-                self._probe_vim_once(
-                    child,
-                    erase_after_echo=False,
-                    protocol=protocol,
-                )
+                self._probe_vim_once(child, erase_after_echo=False)
             except pexpect.TIMEOUT:
                 self._recover_vim_state(child)
                 continue
@@ -522,11 +414,7 @@ class W3Benchmark:
         latencies: List[float] = []
         for i in range(iterations):
             try:
-                lat = self._probe_vim_once(
-                    child,
-                    erase_after_echo=False,
-                    protocol=protocol,
-                )
+                lat = self._probe_vim_once(child, erase_after_echo=False)
             except pexpect.TIMEOUT as exc:
                 if fail_cb:
                     fail_cb(i + 1, exc)
@@ -561,7 +449,6 @@ class W3Benchmark:
                 self._probe_once(
                     child,
                     erase_after_echo=False,
-                    protocol=protocol,
                 )
             except pexpect.TIMEOUT:
                 self._recover_nano_state(child)
@@ -573,7 +460,6 @@ class W3Benchmark:
                 lat = self._probe_once(
                     child,
                     erase_after_echo=False,
-                    protocol=protocol,
                 )
             except pexpect.TIMEOUT as exc:
                 if fail_cb:
@@ -668,25 +554,7 @@ class W3Benchmark:
         for trial_id in range(1, self.args.trials + 1):
             child: Optional[pexpect.spawn] = None
             try:
-                try:
-                    child, setup_ms = self._open_session(protocol)
-                except (pexpect.TIMEOUT, pexpect.EOF, ValueError) as exc:
-                    self.failures.append(
-                        FailureRecord(
-                            protocol=protocol,
-                            workload=workload,
-                            round_id=trial_id,
-                            sample_id=-1,
-                            error_type=type(exc).__name__,
-                            error_message=str(exc),
-                        )
-                    )
-                    print(
-                        f"[{protocol:>4}/{workload:<18}]"
-                        f" trial {trial_id:>2}/{self.args.trials}: FAIL"
-                        f" (open_session {type(exc).__name__}: {exc})"
-                    )
-                    continue
+                child, setup_ms = self._open_session(protocol)
                 self.session_setups[protocol][workload].append(setup_ms)
                 print(
                     f"[{protocol:>4}/{workload:<18}]"
