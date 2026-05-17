@@ -296,7 +296,8 @@ class W3Benchmark:
         child.send(probe_text)
         if self._tmux_attach_mode():
             # Prefer exact match to avoid regex over-match across unrelated
-            # background-pane redraw bytes; use loose fallback briefly.
+            # background-pane redraw bytes; use bounded loose fallback when
+            # redraw noise splits echoed probe bytes.
             exact_timeout = max(1, min(self.args.timeout, 8))
             try:
                 child.expect_exact(
@@ -305,9 +306,14 @@ class W3Benchmark:
                     searchwindowsize=self.tmux_search_window,
                 )
             except pexpect.TIMEOUT:
-                child.expect_exact(
+                remaining_timeout = max(1, self.args.timeout - exact_timeout)
+                loose_re = self._build_loose_interleaved_text_re(
                     probe_text,
-                    timeout=max(1, self.args.timeout - exact_timeout),
+                    max_gap=self.args.tmux_probe_max_gap,
+                )
+                child.expect(
+                    loose_re,
+                    timeout=remaining_timeout,
                     searchwindowsize=self.tmux_search_window,
                 )
         else:
