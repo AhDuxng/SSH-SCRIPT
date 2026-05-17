@@ -444,7 +444,7 @@ build_attach_cmd() {
   marker_part2_q="$(printf '%q' "$marker_part2")"
   marker_cmd="printf '%s%s\\n' ${marker_part1_q} ${marker_part2_q}"
   marker_cmd_q="$(printf '%q' "$marker_cmd")"
-  simple_script="set -e; export TERM=\${TERM:-xterm-256color}; tmux has-session -t ${session_q} >/dev/null; tmux set-window-option -t ${window_q} synchronize-panes off >/dev/null 2>&1 || true; tmux send-keys -t ${pane0_q} -l ${marker_cmd_q}; tmux send-keys -t ${pane0_q} C-m; exec tmux attach -d -t ${session_q}"
+  simple_script="set -e; export TERM=\${TERM:-xterm-256color}; tmux has-session -t ${session_q} >/dev/null; tmux set-window-option -t ${window_q} synchronize-panes off >/dev/null 2>&1 || true; tmux select-layout -t ${window_q} tiled >/dev/null 2>&1 || true; tmux select-pane -t ${pane0_q} >/dev/null; tmux send-keys -t ${pane0_q} -l ${marker_cmd_q}; tmux send-keys -t ${pane0_q} C-m; exec tmux attach -d -t ${session_q}"
   ATTACH_CMD_MOSH_SIMPLE="bash -lc $(printf '%q' "$simple_script")"
 }
 

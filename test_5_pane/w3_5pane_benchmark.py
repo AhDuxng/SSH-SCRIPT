@@ -189,13 +189,23 @@ class W3Benchmark:
             for _ in range(3):
                 self._drain_pending_output(child, max_reads=16)
                 child.sendline("")
-                child.sendline(self._printf_literal_cmd(marker + "\n"))
+                if protocol == "mosh":
+                    child.sendline(f"printf '%s\\n' {shlex.quote(marker)}")
+                else:
+                    child.sendline(self._printf_literal_cmd(marker + "\n"))
                 try:
-                    child.expect_exact(
-                        marker,
-                        timeout=self.args.timeout,
-                        searchwindowsize=self.tmux_search_window,
-                    )
+                    if protocol == "mosh":
+                        child.expect(
+                            self._build_interleaved_text_re(marker),
+                            timeout=self.args.timeout,
+                            searchwindowsize=self.tmux_search_window,
+                        )
+                    else:
+                        child.expect_exact(
+                            marker,
+                            timeout=self.args.timeout,
+                            searchwindowsize=self.tmux_search_window,
+                        )
                     return
                 except pexpect.TIMEOUT as exc:
                     last_exc = exc
