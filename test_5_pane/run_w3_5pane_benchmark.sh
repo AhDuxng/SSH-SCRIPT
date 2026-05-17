@@ -176,10 +176,10 @@ chmod 600 "$PANE0_RC" 2>/dev/null || true
 printf -v pane0_cmd 'bash --rcfile %q -i' "$PANE0_RC"
 tmux new-session -d -s "$SESSION" -n w3 "$pane0_cmd"
 
-tmux split-window -t "$SESSION:0" "bash -lc 'i=0; while :; do i=\$((i+1)); printf \"pane1 heartbeat %06d %s\\n\" \"\$i\" \"\$(date +%H:%M:%S)\"; sleep 0.20; done'"
-tmux split-window -t "$SESSION:0" "bash -lc 'i=0; while :; do i=\$((i+1)); printf \"pane2 stream %06d abcdefghijk lmnoprstuvwxy 0123456789\\n\" \"\$i\"; sleep 0.01; done'"
-tmux split-window -t "$SESSION:0" "bash -lc 'i=0; while :; do i=\$((i+1)); clear; printf \"pane3 refresh %06d %s\\n\" \"\$i\" \"\$(date +%H:%M:%S)\"; n=0; while [ \$n -lt 12 ]; do n=\$((n+1)); printf \"pane3 row %02d value %04d\\n\" \"\$n\" \"\$((i*n))\"; done; sleep 0.25; done'"
-tmux split-window -t "$SESSION:0" "bash -lc 'log=/tmp/w3pane4_${SESSION}.log; : > \"\$log\"; (i=0; while :; do i=\$((i+1)); printf \"pane4 tail %06d %s abcdefghijk lmnoprstuvwxy\\n\" \"\$i\" \"\$(date +%H:%M:%S)\" >> \"\$log\"; sleep 0.05; done) & exec tail -f \"\$log\"'"
+tmux split-window -d -t "$SESSION:0.0" "bash -lc 'i=0; while :; do i=\$((i+1)); printf \"pane1 heartbeat %06d %s\\n\" \"\$i\" \"\$(date +%H:%M:%S)\"; sleep 0.20; done'"
+tmux split-window -d -t "$SESSION:0.0" "bash -lc 'i=0; while :; do i=\$((i+1)); printf \"pane2 stream %06d abcdefghijk lmnoprstuvwxy 0123456789\\n\" \"\$i\"; sleep 0.01; done'"
+tmux split-window -d -t "$SESSION:0.0" "bash -lc 'i=0; while :; do i=\$((i+1)); clear; printf \"pane3 refresh %06d %s\\n\" \"\$i\" \"\$(date +%H:%M:%S)\"; n=0; while [ \$n -lt 12 ]; do n=\$((n+1)); printf \"pane3 row %02d value %04d\\n\" \"\$n\" \"\$((i*n))\"; done; sleep 0.25; done'"
+tmux split-window -d -t "$SESSION:0.0" "bash -lc 'log=/tmp/w3pane4_${SESSION}.log; : > \"\$log\"; (i=0; while :; do i=\$((i+1)); printf \"pane4 tail %06d %s abcdefghijk lmnoprstuvwxy\\n\" \"\$i\" \"\$(date +%H:%M:%S)\" >> \"\$log\"; sleep 0.05; done) & exec tail -f \"\$log\"'"
 
 tmux set-window-option -t "$SESSION:0" synchronize-panes off >/dev/null
 tmux select-layout -t "$SESSION:0" tiled >/dev/null 2>&1 || true
@@ -279,10 +279,10 @@ chmod 600 "$PANE0_RC" 2>/dev/null || true
 printf -v pane0_cmd 'bash --rcfile %q -i' "$PANE0_RC"
 tmux new-session -d -s "$SESSION" -n w3 "$pane0_cmd"
 
-tmux split-window -t "$SESSION:0" "bash -lc 'i=0; while :; do i=\$((i+1)); printf \"pane1 heartbeat %06d %s\\n\" \"\$i\" \"\$(date +%H:%M:%S)\"; sleep 0.20; done'"
-tmux split-window -t "$SESSION:0" "bash -lc 'i=0; while :; do i=\$((i+1)); printf \"pane2 stream %06d abcdefghijk lmnoprstuvwxy 0123456789\\n\" \"\$i\"; sleep 0.01; done'"
-tmux split-window -t "$SESSION:0" "bash -lc 'i=0; while :; do i=\$((i+1)); clear; printf \"pane3 refresh %06d %s\\n\" \"\$i\" \"\$(date +%H:%M:%S)\"; n=0; while [ \$n -lt 12 ]; do n=\$((n+1)); printf \"pane3 row %02d value %04d\\n\" \"\$n\" \"\$((i*n))\"; done; sleep 0.25; done'"
-tmux split-window -t "$SESSION:0" "bash -lc 'log=/tmp/w3pane4_${SESSION}.log; : > \"\$log\"; (i=0; while :; do i=\$((i+1)); printf \"pane4 tail %06d %s abcdefghijk lmnoprstuvwxy\\n\" \"\$i\" \"\$(date +%H:%M:%S)\" >> \"\$log\"; sleep 0.05; done) & exec tail -f \"\$log\"'"
+tmux split-window -d -t "$SESSION:0.0" "bash -lc 'i=0; while :; do i=\$((i+1)); printf \"pane1 heartbeat %06d %s\\n\" \"\$i\" \"\$(date +%H:%M:%S)\"; sleep 0.20; done'"
+tmux split-window -d -t "$SESSION:0.0" "bash -lc 'i=0; while :; do i=\$((i+1)); printf \"pane2 stream %06d abcdefghijk lmnoprstuvwxy 0123456789\\n\" \"\$i\"; sleep 0.01; done'"
+tmux split-window -d -t "$SESSION:0.0" "bash -lc 'i=0; while :; do i=\$((i+1)); clear; printf \"pane3 refresh %06d %s\\n\" \"\$i\" \"\$(date +%H:%M:%S)\"; n=0; while [ \$n -lt 12 ]; do n=\$((n+1)); printf \"pane3 row %02d value %04d\\n\" \"\$n\" \"\$((i*n))\"; done; sleep 0.25; done'"
+tmux split-window -d -t "$SESSION:0.0" "bash -lc 'log=/tmp/w3pane4_${SESSION}.log; : > \"\$log\"; (i=0; while :; do i=\$((i+1)); printf \"pane4 tail %06d %s abcdefghijk lmnoprstuvwxy\\n\" \"\$i\" \"\$(date +%H:%M:%S)\" >> \"\$log\"; sleep 0.05; done) & exec tail -f \"\$log\"'"
 
 tmux set-window-option -t "$SESSION:0" synchronize-panes off >/dev/null
 tmux select-layout -t "$SESSION:0" tiled >/dev/null 2>&1 || true
@@ -473,7 +473,11 @@ run_for_host() {
   if ! wait_tmux_ready; then
     if is_true "$HEADLESS_FALLBACK_SETUP"; then
       echo "[${HOST}] setup: retry with headless fallback because w3_tmux_setup.sh did not create 5 panes"
-      run_headless_tmux_setup || return 1
+      if ! run_headless_tmux_setup; then
+        echo "ERROR: headless fallback failed on ${HOST}; remote log tail (${REMOTE_SETUP_LOG}):" >&2
+        "${SSH_CTL[@]}" "tail -n 120 $(printf '%q' "$REMOTE_SETUP_LOG") 2>/dev/null || true" >&2 || true
+        return 1
+      fi
       wait_tmux_ready || return 1
     else
       return 1
