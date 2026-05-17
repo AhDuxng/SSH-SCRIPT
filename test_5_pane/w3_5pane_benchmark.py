@@ -159,8 +159,19 @@ class W3Benchmark:
             searchwindowsize=self.tmux_search_window,
         )
 
-    def _attach_tmux_after_login(self, child: pexpect.spawn) -> None:
+    def _attach_tmux_after_login(
+        self,
+        child: pexpect.spawn,
+        protocol: Optional[str] = None,
+    ) -> None:
         attach_cmd = os.environ.get("W3_ATTACH_CMD", "").strip()
+        if protocol == "mosh":
+            # For mosh, prefer a short attach command sent after login.
+            # Long, heavily quoted command lines are more fragile when passed
+            # through predictive local line editing.
+            simple_cmd = os.environ.get("W3_ATTACH_CMD_MOSH_SIMPLE", "").strip()
+            if simple_cmd:
+                attach_cmd = simple_cmd
         if not attach_cmd:
             raise ValueError("W3_ATTACH_CMD is not set for attach-after-login flow")
         self._drain_pending_output(child, max_reads=16)
@@ -189,7 +200,8 @@ class W3Benchmark:
                 except pexpect.TIMEOUT as exc:
                     last_exc = exc
             if last_exc is not None:
-                raise last_exc
+                if protocol != "mosh":
+                    raise last_exc
 
         # TUI redraw (especially over mosh) may split prompt bytes with ANSI updates.
         try:
@@ -413,29 +425,54 @@ class W3Benchmark:
         raise ValueError(f"Unsupported protocol: {protocol}")
 
     def _open_session(self, protocol: str) -> tuple:
-        child = pexpect.spawn(
-            self._session_command(protocol),
-            encoding="utf-8",
-            codec_errors="ignore",
-            timeout=self.args.timeout,
-        )
-        child.delaybeforesend = 0
+        attempts = 1
+        if self._tmux_attach_mode() and protocol == "mosh":
+            attempts = 3
 
-        start_ns = time.perf_counter_ns()
-        if self._tmux_attach_mode():
-            if self._should_attach_after_login(protocol):
-                child.expect(_INITIAL_PROMPT_RE, timeout=self.args.timeout)
-                self._attach_tmux_after_login(child)
-            else:
-                self._expect_tmux_boot_marker(child)
-        else:
-            child.expect(_INITIAL_PROMPT_RE, timeout=self.args.timeout)
-        setup_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
+        last_exc: Optional[Exception] = None
+        for attempt in range(1, attempts + 1):
+            child = pexpect.spawn(
+                self._session_command(protocol),
+                encoding="utf-8",
+                codec_errors="ignore",
+                timeout=self.args.timeout,
+            )
+            child.delaybeforesend = 0
 
-        child.sendline(f"export PS1={shlex.quote(self.args.prompt)}")
-        self._expect_prompt(child, protocol=protocol)
+            try:
+                start_ns = time.perf_counter_ns()
+                if self._tmux_attach_mode():
+                    if self._should_attach_after_login(protocol):
+                        child.expect(_INITIAL_PROMPT_RE, timeout=self.args.timeout)
+                        self._attach_tmux_after_login(child, protocol=protocol)
+                    else:
+                        self._expect_tmux_boot_marker(child)
+                else:
+                    child.expect(_INITIAL_PROMPT_RE, timeout=self.args.timeout)
+                setup_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
 
-        return child, setup_ms
+                child.sendline(f"export PS1={shlex.quote(self.args.prompt)}")
+                self._expect_prompt(child, protocol=protocol)
+                return child, setup_ms
+            except (pexpect.TIMEOUT, pexpect.EOF) as exc:
+                last_exc = exc
+                try:
+                    child.close(force=True)
+                except Exception:
+                    pass
+                if attempt >= attempts:
+                    raise
+                if protocol == "mosh":
+                    print(
+                        f"[mosh/open_session] retry {attempt}/{attempts - 1}"
+                        f" after {type(exc).__name__}",
+                        flush=True,
+                    )
+                time.sleep(0.4)
+
+        if last_exc is not None:
+            raise last_exc
+        raise RuntimeError("failed to open session")
 
     def _close_session(self, child: pexpect.spawn) -> None:
         if self._tmux_attach_mode():

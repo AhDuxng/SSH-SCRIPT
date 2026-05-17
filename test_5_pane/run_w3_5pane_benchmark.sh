@@ -175,6 +175,7 @@ fi
 SETUP_TOKEN="$(sanitize_token "$SETUP_TOKEN")"
 TMUX_SETUP_SCRIPT_RESOLVED=""
 ATTACH_CMD=""
+ATTACH_CMD_MOSH_SIMPLE=""
 ATTACH_AFTER_LOGIN_PROTOCOLS=""
 SSH3_ATTACH_ENABLED=0
 SSH_CTL=()
@@ -429,6 +430,22 @@ build_attach_cmd() {
   local attach_script
   attach_script="set -e; export TERM=\${TERM:-xterm-256color}; tmux has-session -t ${session_q} >/dev/null; printf '%s\n' ${rc_line1_q} ${rc_line2_q} ${rc_line3_q} > ${rc_q}; chmod 600 ${rc_q} 2>/dev/null || true; tmux set-window-option -t ${window_q} synchronize-panes off >/dev/null 2>&1 || true; ${respawn_cmd} tmux select-layout -t ${window_q} tiled >/dev/null 2>&1 || true; tmux select-pane -t ${pane0_q} >/dev/null; exec tmux attach -d -t ${session_q}"
   ATTACH_CMD="bash -lc $(printf '%q' "$attach_script")"
+
+  local simple_script marker_cmd marker_cmd_q
+  local marker_raw marker_split marker_part1 marker_part2 marker_part1_q marker_part2_q
+  marker_raw="$ATTACH_BOOT_MARKER"
+  marker_split=$(( ${#marker_raw} / 2 ))
+  if (( marker_split < 1 )); then
+    marker_split=1
+  fi
+  marker_part1="${marker_raw:0:marker_split}"
+  marker_part2="${marker_raw:marker_split}"
+  marker_part1_q="$(printf '%q' "$marker_part1")"
+  marker_part2_q="$(printf '%q' "$marker_part2")"
+  marker_cmd="printf '%s%s\\n' ${marker_part1_q} ${marker_part2_q}"
+  marker_cmd_q="$(printf '%q' "$marker_cmd")"
+  simple_script="set -e; export TERM=\${TERM:-xterm-256color}; tmux has-session -t ${session_q} >/dev/null; tmux set-window-option -t ${window_q} synchronize-panes off >/dev/null 2>&1 || true; tmux send-keys -t ${pane0_q} -l ${marker_cmd_q}; tmux send-keys -t ${pane0_q} C-m; exec tmux attach -d -t ${session_q}"
+  ATTACH_CMD_MOSH_SIMPLE="bash -lc $(printf '%q' "$simple_script")"
 }
 
 probe_ssh3_attach_support() {
@@ -587,6 +604,7 @@ run_for_host() {
   fi
 
   export W3_ATTACH_CMD="$ATTACH_CMD"
+  export W3_ATTACH_CMD_MOSH_SIMPLE="$ATTACH_CMD_MOSH_SIMPLE"
   export W3_ATTACH_BOOT_MARKER="$ATTACH_BOOT_MARKER"
   export W3_SSH3_ATTACH_ENABLED="$SSH3_ATTACH_ENABLED"
   export W3_ATTACH_AFTER_LOGIN_PROTOCOLS="$ATTACH_AFTER_LOGIN_PROTOCOLS"
