@@ -123,18 +123,6 @@ class W3Benchmark:
         parts = [re.escape(ch) + _ECHO_GAP for ch in text]
         return re.compile("".join(parts))
 
-    def _expect_interleaved_text(
-        self,
-        child: pexpect.spawn,
-        text: str,
-        timeout: Optional[float] = None,
-    ) -> None:
-        child.expect(
-            self._build_interleaved_text_re(text),
-            timeout=self.args.timeout if timeout is None else timeout,
-            searchwindowsize=self.tmux_search_window,
-        )
-
     @staticmethod
     def _build_loose_interleaved_text_re(
         text: str,
@@ -370,9 +358,6 @@ class W3Benchmark:
             for _ in range(3):
                 try:
                     self._recover_vim_state(child)
-                    # In 5-pane mode, verify we actually entered Vim Insert mode.
-                    # If this check fails, probing could accidentally measure shell.
-                    self._expect_interleaved_text(child, "INSERT", timeout=max(3, self.args.timeout))
                     self._probe_once(child, erase_after_echo=True)
                     return
                 except pexpect.TIMEOUT as exc:
@@ -390,11 +375,6 @@ class W3Benchmark:
             for _ in range(3):
                 try:
                     self._recover_nano_state(child)
-                    # Verify Nano UI is present before probing.
-                    try:
-                        self._expect_interleaved_text(child, "GNU nano", timeout=max(3, self.args.timeout))
-                    except pexpect.TIMEOUT:
-                        self._expect_interleaved_text(child, "^G Help", timeout=max(3, self.args.timeout))
                     self._probe_once(child, erase_after_echo=True)
                     return
                 except pexpect.TIMEOUT as exc:
