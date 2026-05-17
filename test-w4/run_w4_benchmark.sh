@@ -13,23 +13,24 @@ set -euo pipefail
 
 SCENARIO="${1:?usage: $0 <scenario-label, e.g. low|medium|high>}"
 
-HOST="100.66.79.93"
-# HOST="10.42.0.206"
+# HOST="100.66.79.93"
+HOST="10.42.0.206"
 USER_NAME="pi"
-SOURCE_IP="100.70.166.91"
-# SOURCE_IP="10.42.0.1"
+# SOURCE_IP="100.70.166.91"
+SOURCE_IP="10.42.0.1"
 IDENTITY_FILE="$HOME/.ssh/id_ed25519"
 
 PROTOCOLS="ssh ssh3 mosh"
 WORKLOADS="large_output"
 
-# Deterministic, fixed-size, CPU-cheap outputs. base64 expands 3B -> 4 chars
-# plus a newline every 76 chars, so the delivered stdout size is ~1.353x the
-# input size. Pick 3 scales: small/medium/large.
+# Pre-generated fixture files containing real filesystem paths from `find /`.
+# Generate once on the server with: ssh pi@HOST 'bash -s' < setup_w4_fixtures.sh
+# Content: real paths (~4:1 gzip ratio vs ~1000:1 for base64-of-zeros).
+# server_exec_time ≈ <5ms (cat from page cache after warmup iterations).
 COMMANDS=(
-  "head -c 524288 /dev/zero | base64"    # ~692 KiB delivered
-  "head -c 2097152 /dev/zero | base64"   # ~2.77 MiB delivered
-  "head -c 8388608 /dev/zero | base64"   # ~11.1 MiB delivered
+  "cat /tmp/w4_paths_small.txt"    # ~512 KiB of real filesystem paths
+  "cat /tmp/w4_paths_medium.txt"   # ~2.5 MiB
+  "cat /tmp/w4_paths_large.txt"    # ~10 MiB
 )
 
 # For high-loss / bandwidth-constrained links, each 11 MiB sample over 10 Mbps

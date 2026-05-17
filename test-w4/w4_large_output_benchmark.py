@@ -32,17 +32,15 @@ MARKER_TAIL_LEN = 12
 _TAIL_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
 # Deterministic, fixed-size, low-CPU large outputs. Each command prints a
-# base64-encoded stream of zero bytes at a predictable size so that:
-#   - wall time is dominated by network delivery, not server I/O
-#   - output_bytes is identical between runs (enables fair throughput stats)
-#   - no external state required on the server (no git repo / docker container)
-# base64 expands 3 bytes -> 4 chars and adds a newline every 76 chars, so the
-# emitted size is ~1.353x the source size; we pick round source sizes and
-# document the expected emitted size in the command label comment in the wrapper.
+# Pre-generated fixture files containing real filesystem paths from `find /`.
+# Generate once on the server with setup_w4_fixtures.sh before running benchmarks.
+# Properties: byte-identical output per trial, page-cached after warmup,
+# realistic ~4:1 gzip ratio (vs ~1000:1 for base64-of-zeros).
+# server_exec_time ≈ <5ms (cat from page cache) — network signal dominates.
 DEFAULT_COMMANDS = [
-    "head -c 524288 /dev/zero | base64",    # src 512 KiB   -> ~692 KiB on stdout
-    "head -c 2097152 /dev/zero | base64",   # src   2 MiB   -> ~2.77 MiB
-    "head -c 8388608 /dev/zero | base64",   # src   8 MiB   -> ~11.1 MiB
+    "cat /tmp/w4_paths_small.txt",    # ~512 KiB of real filesystem paths
+    "cat /tmp/w4_paths_medium.txt",   # ~2.5 MiB
+    "cat /tmp/w4_paths_large.txt",    # ~10 MiB
 ]
 
 _ANSI_SEQ = r"(?:\x1b\[\??[0-9;]*[a-zA-Z])"
@@ -156,10 +154,10 @@ class W4Benchmark:
         return _MARKER_SCAN_STRIP_RE.sub("", text).upper()
 
     @staticmethod
-    def _drain_pending_output(child: pexpect.spawn, max_reads: int = 8) -> None:
+    def _drain_pending_output(child: pexpect.spawn, max_reads: int = 64, drain_timeout: float = 0.1) -> None:
         for _ in range(max_reads):
             try:
-                child.read_nonblocking(size=4096, timeout=0)
+                child.read_nonblocking(size=65536, timeout=drain_timeout)
             except (pexpect.TIMEOUT, pexpect.EOF):
                 break
             except OSError as exc:
@@ -171,7 +169,7 @@ class W4Benchmark:
         child.expect(self.prompt_re, timeout=self.args.timeout)
 
     def _wait_for_marker_line(
-        self, child: pexpect.spawn, marker: str, marker_tail: str
+        self, child: pexpect.spawn, marker: str, marker_tail: str, protocol: str = ""
     ) -> tuple[int, Optional[float]]:
         deadline = time.monotonic() + float(self.args.timeout)
         idle_timeout = float(self.args.command_idle_timeout)
@@ -254,24 +252,33 @@ class W4Benchmark:
             if marker_pos >= 0:
                 total_bytes = truncate_at(marker_pos, output_bytes)
                 return total_bytes, _ns_to_ms(ttfb_perf_ns)
-            if self.prompt_marker:
+            # Prompt-marker fallback: only for Mosh, where the actual marker may
+            # never arrive (SSP discards output and only syncs final screen state).
+            # For SSH/SSH3 the marker always arrives; using prompt as fallback
+            # causes premature return when the prior iteration's prompt leaks
+            # into the buffer before _drain_pending_output clears it.
+            if protocol == "mosh" and self.prompt_marker:
                 prompt_pos = clean_buffer.find(self.prompt_marker)
                 if prompt_pos >= 0:
                     total_bytes = truncate_at(prompt_pos, output_bytes)
                     return total_bytes, _ns_to_ms(ttfb_perf_ns)
 
-            normalized_window = self._normalize_marker_scan(clean_buffer[-8192:])
-            if marker_norm in normalized_window or (
-                marker_tail_norm and marker_tail_norm in normalized_window
-            ):
-                # Marker fragmented by mosh redraw / ANSI insertion. Best-effort
-                # byte count: charge everything outside the 8K fuzzy window to
-                # output, and ignore the window itself (may contain marker text).
-                window_start = max(0, len(clean_buffer) - 8192)
-                total_bytes = output_bytes + len(
-                    clean_buffer[:window_start].encode("utf-8", errors="ignore")
-                )
-                return total_bytes, _ns_to_ms(ttfb_perf_ns)
+            # Fuzzy matching only for Mosh: marker can be fragmented by screen
+            # redraw / ANSI insertion. For SSH/SSH3 the marker arrives intact,
+            # so fuzzy matching would cause premature exit and undercount output_bytes.
+            if protocol == "mosh":
+                normalized_window = self._normalize_marker_scan(clean_buffer[-8192:])
+                if marker_norm in normalized_window or (
+                    marker_tail_norm and marker_tail_norm in normalized_window
+                ):
+                    # Marker fragmented by mosh redraw / ANSI insertion. Best-effort
+                    # byte count: charge everything outside the 8K fuzzy window to
+                    # output, and ignore the window itself (may contain marker text).
+                    window_start = max(0, len(clean_buffer) - 8192)
+                    total_bytes = output_bytes + len(
+                        clean_buffer[:window_start].encode("utf-8", errors="ignore")
+                    )
+                    return total_bytes, _ns_to_ms(ttfb_perf_ns)
 
             # Periodic flush: count completed lines so the buffer doesn't grow unbounded.
             lines = clean_buffer.split("\n")
@@ -350,6 +357,7 @@ class W4Benchmark:
 
         child.sendline(f"export PS1={shlex.quote(self.args.prompt)}")
         self._expect_prompt(child)
+        self._drain_pending_output(child)
 
         return child, setup_ms
 
@@ -366,6 +374,7 @@ class W4Benchmark:
         command: str,
         marker: str,
         marker_tail: str,
+        protocol: str = "",
     ) -> tuple[float, Optional[float], int]:
         self._drain_pending_output(child)
 
@@ -373,7 +382,7 @@ class W4Benchmark:
         start_ns = time.perf_counter_ns()
         child.sendline(wrapped)
         output_bytes, ttfb_ms_relative = self._wait_for_marker_line(
-            child, marker, marker_tail
+            child, marker, marker_tail, protocol
         )
         end_ns = time.perf_counter_ns()
 
@@ -413,7 +422,7 @@ class W4Benchmark:
             marker = f"__W4_DONE_{trial_id}_{sample_id}_{command_id}_{marker_tail}__"
             try:
                 lat, ttfb_ms, output_bytes = self._measure_output_delivery(
-                    child, command, marker, marker_tail,
+                    child, command, marker, marker_tail, protocol,
                 )
                 throughput_kib_s: Optional[float]
                 if lat > 0:
@@ -646,9 +655,9 @@ class W4Benchmark:
                 f"{fmt(row.mean_output_kib):>8} | {fmt(row.mean_throughput_kib_s):>8}"
             )
         print("=" * 170)
-        print("NOTE: For mosh, output_bytes is BYTES RENDERED TO SCREEN (SSP state sync),")
-        print("      which is NOT the same as bytes the command printed on the server.")
-        print("      Compare throughput only between ssh and ssh3; use TTFB/latency for mosh.")
+        print("NOTE: Metric is Time-to-Interactive (sendline -> prompt returns).")
+        print("      For Mosh, output_bytes = screen-sync diff (~0.2 KiB), NOT payload size.")
+        print("      Throughput (KB/s) is valid for SSH and SSH3 only.")
         print("Command map:")
         for command in self.args.commands:
             print(f"  {command_labels[command]:<{command_w}} -> {command}")
@@ -711,11 +720,16 @@ class W4Benchmark:
             "reopen_on_failure": bool(self.args.reopen_on_failure),
             "mosh_predict": self.args.mosh_predict,
             "metric_notes": {
-                "latency_ms": "sendline -> marker visible; includes server exec + delivery",
+                "latency_ms": (
+                    "Time-to-Interactive: sendline(command) -> completion marker visible at client. "
+                    "Includes server exec time (negligible for cat fixtures) + network delivery + RTT. "
+                    "For Mosh: server exec + 1 RTT to sync final screen state (output bytes discarded by SSP)."
+                ),
                 "ttfb_ms": "sendline -> first byte of output visible at client",
                 "output_bytes": (
-                    "bytes seen on client-side PTY. For mosh this is screen-sync bytes, "
-                    "not the number of bytes the command printed on the server."
+                    "bytes seen on client-side PTY. For Mosh this is screen-sync bytes (~0.2 KiB), "
+                    "not the number of bytes the command printed on the server. "
+                    "Do NOT use for throughput comparison involving Mosh."
                 ),
             },
             "summary": [asdict(row) for row in self.summaries()],

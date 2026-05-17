@@ -1,5 +1,5 @@
 # Baseline snapshot for scenario=low
-# Captured at: 2026-05-13T00:31:16Z
+# Captured at: 2026-05-16T18:20:14Z
 # Client -> pi@10.42.0.206 (source 10.42.0.1)
 
 ## uname -a (client)
@@ -9,10 +9,10 @@ Linux cachyos-x8664 6.19.11-1-cachyos #1 SMP PREEMPT_DYNAMIC Wed, 08 Apr 2026 11
 OpenSSH_10.3p1, OpenSSL 3.6.2 7 Apr 2026
 
 ## ssh3 version
-{"level":"info","time":"2026-05-13T07:31:16+07:00","message":"plugin privkey_auth successfully registered"}
-{"level":"info","time":"2026-05-13T07:31:16+07:00","message":"plugin pubkey_auth successfully registered"}
-{"level":"debug","time":"2026-05-13T07:31:16+07:00","message":"Adding plugin-provided CLI arg: \"privkey\""}
-{"level":"debug","time":"2026-05-13T07:31:16+07:00","message":"Adding plugin-provided CLI arg: \"pubkey-for-agent\""}
+{"level":"info","time":"2026-05-17T01:20:14+07:00","message":"plugin privkey_auth successfully registered"}
+{"level":"info","time":"2026-05-17T01:20:14+07:00","message":"plugin pubkey_auth successfully registered"}
+{"level":"debug","time":"2026-05-17T01:20:14+07:00","message":"Adding plugin-provided CLI arg: \"privkey\""}
+{"level":"debug","time":"2026-05-17T01:20:14+07:00","message":"Adding plugin-provided CLI arg: \"pubkey-for-agent\""}
 ssh3 version francoismichel/ssh3 0.1.7
 
 ## mosh version
@@ -23,30 +23,41 @@ License GPLv3+: GNU GPL version 3 or later <http://gnu.org/licenses/gpl.html>.
 ## ping RTT (20 x 200ms)
 
 --- 10.42.0.206 ping statistics ---
-20 packets transmitted, 20 received, 0% packet loss, time 3812ms
-rtt min/avg/max/mdev = 20.171/20.253/20.368/0.055 ms
+20 packets transmitted, 20 received, 0% packet loss, time 3810ms
+rtt min/avg/max/mdev = 20.154/20.225/20.321/0.047 ms
 
 ## tc qdisc (server side, via ssh)
 qdisc noqueue 0: dev lo root refcnt 2 
 qdisc tbf 1: dev eth0 root refcnt 2 rate 100Mbit burst 4Kb lat 400ms 
-qdisc netem 10: dev eth0 parent 1:1 limit 1000 delay 10ms seed 16693662859465151939
+qdisc netem 10: dev eth0 parent 1:1 limit 1000 delay 10ms seed 9289765490075721826
 qdisc fq_codel 0: dev wlan0 root refcnt 2 limit 10240p flows 1024 quantum 1514 target 5ms interval 100ms memory_limit 32Mb ecn drop_batch 64 
 qdisc fq_codel 0: dev tailscale0 root refcnt 2 limit 10240p flows 1024 quantum 1280 target 5ms interval 100ms memory_limit 32Mb ecn drop_batch 64 
+qdisc noqueue 0: dev br-d08f6a289c52 root refcnt 2 
 qdisc noqueue 0: dev br-25028a1640b8 root refcnt 2 
 qdisc noqueue 0: dev br-6198dd5afbcd root refcnt 2 
+qdisc noqueue 0: dev br-7445acb25499 root refcnt 2 
 qdisc noqueue 0: dev docker0 root refcnt 2 
-qdisc noqueue 0: dev veth3a68685 root refcnt 2 
-qdisc noqueue 0: dev veth8e565d2 root refcnt 2 
-qdisc noqueue 0: dev veth65fb821 root refcnt 2 
-qdisc noqueue 0: dev veth389a564 root refcnt 2 
-qdisc noqueue 0: dev veth292783d root refcnt 2 
-qdisc noqueue 0: dev veth99d5bda root refcnt 2 
-qdisc noqueue 0: dev vethd62081d root refcnt 2 
-qdisc noqueue 0: dev veth0a08b81 root refcnt 2 
-qdisc noqueue 0: dev vethd4bc2ed root refcnt 2 
-qdisc noqueue 0: dev vethfeffd51 root refcnt 2 
-qdisc noqueue 0: dev vethed6a929 root refcnt 2 
-qdisc noqueue 0: dev veth28c7ef9 root refcnt 2 
+qdisc noqueue 0: dev veth7d9f345 root refcnt 2 
+qdisc noqueue 0: dev veth433aad7 root refcnt 2 
+qdisc noqueue 0: dev veth2f799fc root refcnt 2 
+qdisc noqueue 0: dev veth22368c4 root refcnt 2 
+qdisc noqueue 0: dev vethb0f62b6 root refcnt 2 
+qdisc noqueue 0: dev vethed690ea root refcnt 2 
+qdisc noqueue 0: dev vetha5fc8ee root refcnt 2 
+qdisc noqueue 0: dev veth361a1e2 root refcnt 2 
+qdisc noqueue 0: dev veth454c671 root refcnt 2 
+qdisc noqueue 0: dev vethe7f9c08 root refcnt 2 
+qdisc noqueue 0: dev vethcf8c37e root refcnt 2 
+qdisc noqueue 0: dev vethbe9c996 root refcnt 2 
+qdisc noqueue 0: dev veth6cb0bad root refcnt 2 
+qdisc noqueue 0: dev vetha913623 root refcnt 2 
+qdisc noqueue 0: dev vethf95a53b root refcnt 2 
+qdisc noqueue 0: dev vethc9adef4 root refcnt 2 
+qdisc noqueue 0: dev veth7afc982 root refcnt 2 
+qdisc noqueue 0: dev veth055869c root refcnt 2 
+qdisc noqueue 0: dev veth5a92d95 root refcnt 2 
+qdisc noqueue 0: dev vetheb593b8 root refcnt 2 
+qdisc noqueue 0: dev veth6084845 root refcnt 2 
 
 ## uptime (client)
- 07:31:20 up 11:37,  1 user,  load average: 0,83, 0,96, 1,01
+ 01:20:18 up 11:26,  1 user,  load average: 1,47, 1,21, 1,09

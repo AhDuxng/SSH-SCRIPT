@@ -62,7 +62,7 @@ ssh_pi_tty() {
 if [[ $# -gt 0 ]]; then
   SCENARIOS=("$@")
 else
-  SCENARIOS=(low medium high)
+  SCENARIOS=(high medium low)
 fi
 
 # --- Helpers -----------------------------------------------------------------
@@ -194,6 +194,34 @@ for scenario in "${SCENARIOS[@]}"; do
   log "--- step 2/3: apply $scenario on both ends"
   apply_both "$scenario"
   sleep_with_dots "$SETTLE_SEC" "post-apply settle"
+
+  # --- preflight: verify tc netem actually shaped the path ---
+  log "--- preflight: ping RTT check"
+  case "$scenario" in
+    low)    expected_rtt_ms=20  ;;
+    medium) expected_rtt_ms=100 ;;
+    high)   expected_rtt_ms=200 ;;
+    *)      expected_rtt_ms=0   ;;
+  esac
+  if [[ $expected_rtt_ms -gt 0 ]]; then
+    avg_rtt="$(ping -c 10 -i 0.2 -W 5 "$HOST" 2>/dev/null \
+      | awk -F'/' '/^rtt/ {print $5}')"
+    if [[ -z "$avg_rtt" ]]; then
+      log "ERROR: ping to $HOST failed — tc may have broken connectivity"
+      exit 3
+    fi
+    verdict="$(awk -v m="$avg_rtt" -v e="$expected_rtt_ms" \
+      'BEGIN { d=(m-e); if (d<0) d=-d; pct=(d*100)/e; printf "%.1f %s", pct, (pct>50?"FAIL":"OK") }')"
+    pct="${verdict%% *}"
+    status="${verdict##* }"
+    log "expected RTT ≈ ${expected_rtt_ms}ms, measured ≈ ${avg_rtt}ms (deviation ${pct}%) [$status]"
+    if [[ "$status" != "OK" ]]; then
+      log "ERROR: RTT off by >50% — tc may not be shaping the path to $HOST."
+      log "       Check CLIENT_IFACE=$CLIENT_IFACE and SERVER_IFACE=$SERVER_IFACE"
+      log "       (must be the iface that traffic to $HOST actually uses)."
+      exit 3
+    fi
+  fi
 
   log "--- step 3/3: run benchmark for $scenario"
   ./run_w4_benchmark.sh "$scenario"

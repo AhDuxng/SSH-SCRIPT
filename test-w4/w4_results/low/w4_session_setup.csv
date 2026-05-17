@@ -1,46 +1,46 @@
 scenario,protocol,command,trial_id,session_setup_ms
-low,ssh,head -c 524288 /dev/zero | base64,1,419.513119
-low,ssh,head -c 524288 /dev/zero | base64,2,435.182352
-low,ssh,head -c 524288 /dev/zero | base64,3,429.458798
-low,ssh,head -c 524288 /dev/zero | base64,4,427.245393
-low,ssh,head -c 524288 /dev/zero | base64,5,412.784678
-low,ssh,head -c 2097152 /dev/zero | base64,1,429.481697
-low,ssh,head -c 2097152 /dev/zero | base64,2,421.587137
-low,ssh,head -c 2097152 /dev/zero | base64,3,425.764719
-low,ssh,head -c 2097152 /dev/zero | base64,4,433.584782
-low,ssh,head -c 2097152 /dev/zero | base64,5,436.134012
-low,ssh,head -c 8388608 /dev/zero | base64,1,439.335299
-low,ssh,head -c 8388608 /dev/zero | base64,2,410.510158
-low,ssh,head -c 8388608 /dev/zero | base64,3,425.768319
-low,ssh,head -c 8388608 /dev/zero | base64,4,448.826926
-low,ssh,head -c 8388608 /dev/zero | base64,5,432.003169
-low,ssh3,head -c 524288 /dev/zero | base64,1,131.191257
-low,ssh3,head -c 524288 /dev/zero | base64,2,117.499996
-low,ssh3,head -c 524288 /dev/zero | base64,3,123.494344
-low,ssh3,head -c 524288 /dev/zero | base64,4,124.219960
-low,ssh3,head -c 524288 /dev/zero | base64,5,119.615340
-low,ssh3,head -c 2097152 /dev/zero | base64,1,134.365007
-low,ssh3,head -c 2097152 /dev/zero | base64,2,124.161711
-low,ssh3,head -c 2097152 /dev/zero | base64,3,123.269373
-low,ssh3,head -c 2097152 /dev/zero | base64,4,156.348550
-low,ssh3,head -c 2097152 /dev/zero | base64,5,122.734542
-low,ssh3,head -c 8388608 /dev/zero | base64,1,129.710933
-low,ssh3,head -c 8388608 /dev/zero | base64,2,128.878114
-low,ssh3,head -c 8388608 /dev/zero | base64,3,124.775129
-low,ssh3,head -c 8388608 /dev/zero | base64,4,124.078021
-low,ssh3,head -c 8388608 /dev/zero | base64,5,137.168311
-low,mosh,head -c 524288 /dev/zero | base64,1,577.663405
-low,mosh,head -c 524288 /dev/zero | base64,2,641.265556
-low,mosh,head -c 524288 /dev/zero | base64,3,547.606354
-low,mosh,head -c 524288 /dev/zero | base64,4,549.743326
-low,mosh,head -c 524288 /dev/zero | base64,5,560.519086
-low,mosh,head -c 2097152 /dev/zero | base64,1,588.707310
-low,mosh,head -c 2097152 /dev/zero | base64,2,631.840447
-low,mosh,head -c 2097152 /dev/zero | base64,3,555.669370
-low,mosh,head -c 2097152 /dev/zero | base64,4,552.465965
-low,mosh,head -c 2097152 /dev/zero | base64,5,553.639609
-low,mosh,head -c 8388608 /dev/zero | base64,1,560.412846
-low,mosh,head -c 8388608 /dev/zero | base64,2,547.517024
-low,mosh,head -c 8388608 /dev/zero | base64,3,620.819456
-low,mosh,head -c 8388608 /dev/zero | base64,4,565.668629
-low,mosh,head -c 8388608 /dev/zero | base64,5,552.375436
+low,ssh,cat /tmp/w4_paths_small.txt,1,429.369565
+low,ssh,cat /tmp/w4_paths_small.txt,2,437.955356
+low,ssh,cat /tmp/w4_paths_small.txt,3,434.063974
+low,ssh,cat /tmp/w4_paths_small.txt,4,442.450573
+low,ssh,cat /tmp/w4_paths_small.txt,5,424.814464
+low,ssh,cat /tmp/w4_paths_medium.txt,1,428.537743
+low,ssh,cat /tmp/w4_paths_medium.txt,2,430.620121
+low,ssh,cat /tmp/w4_paths_medium.txt,3,429.334196
+low,ssh,cat /tmp/w4_paths_medium.txt,4,462.336812
+low,ssh,cat /tmp/w4_paths_medium.txt,5,456.091148
+low,ssh,cat /tmp/w4_paths_large.txt,1,428.976945
+low,ssh,cat /tmp/w4_paths_large.txt,2,446.354539
+low,ssh,cat /tmp/w4_paths_large.txt,3,435.715734
+low,ssh,cat /tmp/w4_paths_large.txt,4,424.524565
+low,ssh,cat /tmp/w4_paths_large.txt,5,456.392593
+low,ssh3,cat /tmp/w4_paths_small.txt,1,119.017489
+low,ssh3,cat /tmp/w4_paths_small.txt,2,114.602464
+low,ssh3,cat /tmp/w4_paths_small.txt,3,120.543618
+low,ssh3,cat /tmp/w4_paths_small.txt,4,119.445093
+low,ssh3,cat /tmp/w4_paths_small.txt,5,120.086690
+low,ssh3,cat /tmp/w4_paths_medium.txt,1,115.800859
+low,ssh3,cat /tmp/w4_paths_medium.txt,2,124.468155
+low,ssh3,cat /tmp/w4_paths_medium.txt,3,115.973770
+low,ssh3,cat /tmp/w4_paths_medium.txt,4,113.471915
+low,ssh3,cat /tmp/w4_paths_medium.txt,5,117.649649
+low,ssh3,cat /tmp/w4_paths_large.txt,1,121.591418
+low,ssh3,cat /tmp/w4_paths_large.txt,2,121.255870
+low,ssh3,cat /tmp/w4_paths_large.txt,3,113.606269
+low,ssh3,cat /tmp/w4_paths_large.txt,4,129.675514
+low,ssh3,cat /tmp/w4_paths_large.txt,5,115.762784
+low,mosh,cat /tmp/w4_paths_small.txt,1,680.713849
+low,mosh,cat /tmp/w4_paths_small.txt,2,615.804955
+low,mosh,cat /tmp/w4_paths_small.txt,3,532.884824
+low,mosh,cat /tmp/w4_paths_small.txt,4,554.843383
+low,mosh,cat /tmp/w4_paths_small.txt,5,598.606591
+low,mosh,cat /tmp/w4_paths_medium.txt,1,605.605439
+low,mosh,cat /tmp/w4_paths_medium.txt,2,604.140868
+low,mosh,cat /tmp/w4_paths_medium.txt,3,552.748982
+low,mosh,cat /tmp/w4_paths_medium.txt,4,595.816475
+low,mosh,cat /tmp/w4_paths_medium.txt,5,593.254232
+low,mosh,cat /tmp/w4_paths_large.txt,1,563.089453
+low,mosh,cat /tmp/w4_paths_large.txt,2,656.150507
+low,mosh,cat /tmp/w4_paths_large.txt,3,527.510702
+low,mosh,cat /tmp/w4_paths_large.txt,4,541.390084
+low,mosh,cat /tmp/w4_paths_large.txt,5,542.974198
