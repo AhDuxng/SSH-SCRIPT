@@ -148,12 +148,10 @@ class W3Benchmark:
             "W3_ATTACH_BOOT_MARKER",
             "__W3_ATTACH_PANE0_READY__",
         )
-        child.expect(
-            self._build_loose_interleaved_text_re(
-                boot_marker,
-                max_gap=256,
-            ),
+        child.expect_exact(
+            boot_marker,
             timeout=self.args.timeout,
+            searchwindowsize=self.args.tmux_search_window,
         )
 
     def _attach_tmux_after_login(self, child: pexpect.spawn) -> None:
@@ -171,17 +169,17 @@ class W3Benchmark:
     ) -> None:
         if self._tmux_attach_mode():
             marker = f"__W3_PROMPT_READY__{random.randrange(10_000, 99_999)}__"
-            marker_re = self._build_loose_interleaved_text_re(
-                marker,
-                max_gap=256,
-            )
             last_exc: Optional[pexpect.TIMEOUT] = None
             for _ in range(3):
                 self._drain_pending_output(child, max_reads=16)
                 child.sendline("")
                 child.sendline(self._printf_literal_cmd(marker + "\n"))
                 try:
-                    child.expect(marker_re, timeout=self.args.timeout)
+                    child.expect_exact(
+                        marker,
+                        timeout=self.args.timeout,
+                        searchwindowsize=self.args.tmux_search_window,
+                    )
                     return
                 except pexpect.TIMEOUT as exc:
                     last_exc = exc
@@ -298,16 +296,13 @@ class W3Benchmark:
                 child.expect_exact(
                     probe_text,
                     timeout=exact_timeout,
-                    searchwindowsize=None,
+                    searchwindowsize=self.args.tmux_search_window,
                 )
             except pexpect.TIMEOUT:
-                fallback_timeout = max(1, min(2, self.args.timeout - exact_timeout))
-                child.expect(
-                    self._build_loose_interleaved_text_re(
-                        probe_text,
-                        max_gap=max(8, self.args.tmux_probe_max_gap),
-                    ),
-                    timeout=fallback_timeout,
+                child.expect_exact(
+                    probe_text,
+                    timeout=max(1, self.args.timeout - exact_timeout),
+                    searchwindowsize=self.args.tmux_search_window,
                 )
         else:
             child.expect_exact(
@@ -767,6 +762,12 @@ class W3Benchmark:
         for trial_id in range(1, self.args.trials + 1):
             child: Optional[pexpect.spawn] = None
             try:
+                print(
+                    f"[{protocol:>4}/{workload:<18}]"
+                    f" trial {trial_id:>2}/{self.args.trials}"
+                    f" opening session...",
+                    flush=True,
+                )
                 child, setup_ms = self._open_session(protocol)
                 self.session_setups[protocol][workload].append(setup_ms)
                 print(
@@ -1073,6 +1074,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
         ),
     )
     p.add_argument(
+        "--tmux-search-window", type=int, default=8192,
+        help=(
+            "searchwindowsize for tmux-mode expect/expect_exact matches; "
+            "larger values are more tolerant but slower"
+        ),
+    )
+    p.add_argument(
         "--output-dir", default="w3_results",
         help="Directory for JSON/CSV outputs",
     )
@@ -1143,6 +1151,8 @@ def main() -> int:
         parser.error("--tmux-trial-fail-limit must be >= 0")
     if args.tmux_probe_max_gap <= 0:
         parser.error("--tmux-probe-max-gap must be > 0")
+    if args.tmux_search_window <= 0:
+        parser.error("--tmux-search-window must be > 0")
 
     bench = W3Benchmark(args)
     bench.run()
