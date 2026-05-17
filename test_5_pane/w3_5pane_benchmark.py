@@ -391,7 +391,10 @@ class W3Benchmark:
             return shlex.join(ssh_common)
 
         if protocol == "mosh":
-            ssh_cmd    = shlex.join(ssh_common[:-1])
+            # mosh bootstrap SSH only needs auth/transport options; forcing -tt
+            # here can make startup less predictable on some hosts.
+            mosh_ssh_common = [arg for arg in ssh_common[:-1] if arg != "-tt"]
+            ssh_cmd    = shlex.join(mosh_ssh_common)
             mosh_parts = ["mosh", f"--ssh={ssh_cmd}"]
             if self.args.mosh_predict and self.args.mosh_predict != "adaptive":
                 mosh_parts += ["--predict", self.args.mosh_predict]
