@@ -55,7 +55,7 @@ REOPEN_ON_FAILURE="${REOPEN_ON_FAILURE:-true}"
 TMUX_FAIL_STREAK_LIMIT="${TMUX_FAIL_STREAK_LIMIT:-8}"
 TMUX_TRIAL_FAIL_LIMIT="${TMUX_TRIAL_FAIL_LIMIT:-35}"
 TMUX_PROBE_MAX_GAP="${TMUX_PROBE_MAX_GAP:-256}"
-TMUX_SEARCH_WINDOW="${TMUX_SEARCH_WINDOW:-8192}"
+TMUX_SEARCH_WINDOW="${TMUX_SEARCH_WINDOW:-32768}"
 
 REMOTE_VIM_FILE="${REMOTE_VIM_FILE:-/tmp/w3_vim_bench.txt}"
 REMOTE_NANO_FILE="${REMOTE_NANO_FILE:-/tmp/w3_nano_bench.txt}"
@@ -65,6 +65,8 @@ if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
   PYTHON_BIN="python"
 fi
 RUN_STATUS_INTERVAL_SEC="${RUN_STATUS_INTERVAL_SEC:-120}"
+RUN_WITH_HEARTBEAT="${RUN_WITH_HEARTBEAT:-false}"
+KILL_STALE_BENCHMARKS="${KILL_STALE_BENCHMARKS:-true}"
 
 is_true() {
   case "${1:-false}" in
@@ -101,6 +103,33 @@ has_proto() {
 drop_proto() {
   local name="$1"
   PROTOCOLS="$(drop_proto_from_list "$PROTOCOLS" "$name")"
+}
+
+stop_stale_local_benchmarks() {
+  local host="$1"
+  if ! command -v pgrep >/dev/null 2>&1; then
+    return 0
+  fi
+  local pattern="w3_5pane_benchmark.py --host ${host}"
+  local -a stale_pids
+  mapfile -t stale_pids < <(pgrep -f "$pattern" || true)
+  if (( ${#stale_pids[@]} == 0 )); then
+    return 0
+  fi
+
+  echo "[${host}] precheck: found running benchmark PID(s): ${stale_pids[*]}"
+  if ! is_true "$KILL_STALE_BENCHMARKS"; then
+    echo "ERROR: stale benchmark process detected. Stop it first or set KILL_STALE_BENCHMARKS=true." >&2
+    return 1
+  fi
+
+  kill "${stale_pids[@]}" >/dev/null 2>&1 || true
+  sleep 1
+  mapfile -t stale_pids < <(pgrep -f "$pattern" || true)
+  if (( ${#stale_pids[@]} > 0 )); then
+    kill -9 "${stale_pids[@]}" >/dev/null 2>&1 || true
+  fi
+  echo "[${host}] precheck: stale benchmark process stopped"
 }
 
 REAL_SSH="$(command -v ssh || true)"
@@ -528,6 +557,8 @@ run_for_host() {
   echo "[${HOST}] tmux: session=${TMUX_SESSION}, pane0=${TMUX_WINDOW}.${PANE0_INDEX}"
   echo "[${HOST}] probe chars/window: ${PROBE_CHARS}/${PROBE_SEARCH_WINDOW}"
 
+  stop_stale_local_benchmarks "$HOST" || return 1
+
   resolve_tmux_setup_script || return 1
   run_remote_tmux_setup || return 1
   if ! wait_tmux_ready; then
@@ -611,18 +642,23 @@ run_for_host() {
   local run_log="${host_output_dir}/w3_5pane_runner_$(date +%Y%m%d_%H%M%S).log"
   echo "[${HOST}] log file: ${run_log}"
 
-  (
-    "${cmd[@]}"
-  ) 2>&1 | tee "$run_log" &
-  local bench_pid=$!
-
-  while kill -0 "$bench_pid" >/dev/null 2>&1; do
-    echo "[${HOST}] benchmark is still running... $(date +%H:%M:%S)"
-    sleep "$RUN_STATUS_INTERVAL_SEC"
-  done
-
   local bench_status=0
-  wait "$bench_pid" || bench_status=$?
+  if is_true "$RUN_WITH_HEARTBEAT"; then
+    (
+      "${cmd[@]}"
+    ) 2>&1 | tee "$run_log" &
+    local bench_pid=$!
+    while kill -0 "$bench_pid" >/dev/null 2>&1; do
+      echo "[${HOST}] benchmark is still running... $(date +%H:%M:%S)"
+      sleep "$RUN_STATUS_INTERVAL_SEC"
+    done
+    wait "$bench_pid" || bench_status=$?
+  else
+    set +e
+    "${cmd[@]}" 2>&1 | tee "$run_log"
+    bench_status=${PIPESTATUS[0]}
+    set -e
+  fi
   if (( bench_status != 0 )); then
     return "$bench_status"
   fi

@@ -91,11 +91,17 @@ class W3Benchmark:
             raise ValueError("--probe-chars must contain alphanumeric characters")
         if args.probe_search_window < 0:
             raise ValueError("--probe-search-window must be >= 0")
+        if args.tmux_search_window < 0:
+            raise ValueError("--tmux-search-window must be >= 0")
         self.prompt_re = self._build_prompt_re(self.prompt_marker)
         self.probe_chars = probe_chars
         self.probe_search_window: Optional[int] = (
             None if args.probe_search_window == 0
             else max(8, args.probe_search_window)
+        )
+        self.tmux_search_window: Optional[int] = (
+            None if args.tmux_search_window == 0
+            else max(1024, args.tmux_search_window)
         )
         self.prev_probe_char: Optional[str] = None
         self.tmux_probe_counter: int = 0
@@ -151,7 +157,7 @@ class W3Benchmark:
         child.expect_exact(
             boot_marker,
             timeout=self.args.timeout,
-            searchwindowsize=self.args.tmux_search_window,
+            searchwindowsize=self.tmux_search_window,
         )
 
     def _attach_tmux_after_login(self, child: pexpect.spawn) -> None:
@@ -178,7 +184,7 @@ class W3Benchmark:
                     child.expect_exact(
                         marker,
                         timeout=self.args.timeout,
-                        searchwindowsize=self.args.tmux_search_window,
+                        searchwindowsize=self.tmux_search_window,
                     )
                     return
                 except pexpect.TIMEOUT as exc:
@@ -296,13 +302,13 @@ class W3Benchmark:
                 child.expect_exact(
                     probe_text,
                     timeout=exact_timeout,
-                    searchwindowsize=self.args.tmux_search_window,
+                    searchwindowsize=self.tmux_search_window,
                 )
             except pexpect.TIMEOUT:
                 child.expect_exact(
                     probe_text,
                     timeout=max(1, self.args.timeout - exact_timeout),
-                    searchwindowsize=self.args.tmux_search_window,
+                    searchwindowsize=self.tmux_search_window,
                 )
         else:
             child.expect_exact(
@@ -1074,9 +1080,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
         ),
     )
     p.add_argument(
-        "--tmux-search-window", type=int, default=8192,
+        "--tmux-search-window", type=int, default=32768,
         help=(
-            "searchwindowsize for tmux-mode expect/expect_exact matches; "
+            "searchwindowsize for tmux-mode expect/expect_exact matches "
+            "(0 = full buffer search); "
             "larger values are more tolerant but slower"
         ),
     )
@@ -1151,8 +1158,8 @@ def main() -> int:
         parser.error("--tmux-trial-fail-limit must be >= 0")
     if args.tmux_probe_max_gap <= 0:
         parser.error("--tmux-probe-max-gap must be > 0")
-    if args.tmux_search_window <= 0:
-        parser.error("--tmux-search-window must be > 0")
+    if args.tmux_search_window < 0:
+        parser.error("--tmux-search-window must be >= 0")
 
     bench = W3Benchmark(args)
     bench.run()
