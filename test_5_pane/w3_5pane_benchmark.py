@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import csv
 import math
+import os
 import random
 import re
 import shlex
@@ -111,11 +112,51 @@ class W3Benchmark:
         parts = [re.escape(ch) + _ECHO_GAP for ch in prompt_marker]
         return re.compile("".join(parts) + rf"(?:{_ANSI_SEQ}|\s)*$")
 
+    @staticmethod
+    def _build_interleaved_text_re(text: str) -> re.Pattern[str]:
+        parts = [re.escape(ch) + _ECHO_GAP for ch in text]
+        return re.compile("".join(parts))
+
+    @staticmethod
+    def _printf_literal_cmd(text: str) -> str:
+        escaped = "".join(f"\\{ord(ch):03o}" for ch in text)
+        return f"printf {shlex.quote(escaped)}"
+
+    @staticmethod
+    def _tmux_attach_mode() -> bool:
+        return bool(os.environ.get("W3_ATTACH_CMD"))
+
+    def _expect_tmux_boot_marker(self, child: pexpect.spawn) -> None:
+        boot_marker = os.environ.get(
+            "W3_ATTACH_BOOT_MARKER",
+            "__W3_ATTACH_PANE0_READY__",
+        )
+        child.expect(
+            self._build_interleaved_text_re(boot_marker),
+            timeout=self.args.timeout,
+        )
+
     def _expect_prompt(
         self,
         child: pexpect.spawn,
         protocol: Optional[str] = None,
     ) -> None:
+        if self._tmux_attach_mode():
+            marker = f"__W3_PROMPT_READY__{random.randrange(10_000, 99_999)}__"
+            marker_re = self._build_interleaved_text_re(marker)
+            last_exc: Optional[pexpect.TIMEOUT] = None
+            for _ in range(3):
+                self._drain_pending_output(child, max_reads=16)
+                child.sendline("")
+                child.sendline(self._printf_literal_cmd(marker + "\n"))
+                try:
+                    child.expect(marker_re, timeout=self.args.timeout)
+                    return
+                except pexpect.TIMEOUT as exc:
+                    last_exc = exc
+            if last_exc is not None:
+                raise last_exc
+
         # TUI redraw (especially over mosh) may split prompt bytes with ANSI updates.
         try:
             child.expect(self.prompt_re, timeout=self.args.timeout)
@@ -181,6 +222,7 @@ class W3Benchmark:
         self,
         child: pexpect.spawn,
         probe_char: str,
+        search_window: Optional[int],
         max_polls: int = 4,
     ) -> None:
         # Remove buffered matches for the same probe character before timing.
@@ -189,7 +231,7 @@ class W3Benchmark:
             idx = child.expect_exact(
                 [probe_char, pexpect.TIMEOUT, pexpect.EOF],
                 timeout=0,
-                searchwindowsize=self.probe_search_window,
+                searchwindowsize=search_window,
             )
             if idx == 0:
                 continue
@@ -204,14 +246,17 @@ class W3Benchmark:
         erase_key: str = "\x7f",
     ) -> float:
         self._drain_pending_output(child)
+        search_window: Optional[int] = self.probe_search_window
+        if self._tmux_attach_mode():
+            search_window = None
         probe_char = self._next_probe_char()
-        self._consume_stray_probe_chars(child, probe_char)
+        self._consume_stray_probe_chars(child, probe_char, search_window)
         start_ns = time.perf_counter_ns()
         child.send(probe_char)
         child.expect_exact(
             probe_char,
             timeout=self.args.timeout,
-            searchwindowsize=self.probe_search_window,
+            searchwindowsize=search_window,
         )
         end_ns = time.perf_counter_ns()
         if erase_after_echo:
@@ -310,7 +355,10 @@ class W3Benchmark:
         child.delaybeforesend = 0
 
         start_ns = time.perf_counter_ns()
-        child.expect(_INITIAL_PROMPT_RE, timeout=self.args.timeout)
+        if self._tmux_attach_mode():
+            self._expect_tmux_boot_marker(child)
+        else:
+            child.expect(_INITIAL_PROMPT_RE, timeout=self.args.timeout)
         setup_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
 
         child.sendline(f"export PS1={shlex.quote(self.args.prompt)}")
@@ -319,6 +367,18 @@ class W3Benchmark:
         return child, setup_ms
 
     def _close_session(self, child: pexpect.spawn) -> None:
+        if self._tmux_attach_mode():
+            try:
+                child.sendcontrol("b")
+                child.send("d")
+                child.expect(
+                    pexpect.EOF,
+                    timeout=max(1, min(3, self.args.timeout)),
+                )
+                return
+            except Exception:
+                pass
+
         try:
             child.sendline("exit")
             child.expect(pexpect.EOF)

@@ -487,6 +487,7 @@ run_for_host() {
   build_attach_cmd
 
   export W3_ATTACH_CMD="$ATTACH_CMD"
+  export W3_ATTACH_BOOT_MARKER="$ATTACH_BOOT_MARKER"
 
   local host_output_dir="$OUTPUT_DIR"
   if (( HOST_COUNT > 1 )); then
