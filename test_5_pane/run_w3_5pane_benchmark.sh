@@ -46,6 +46,7 @@ PANE0_RC_PATH="${PANE0_RC_PATH:-/tmp/w3_pane0_rc_${TMUX_SESSION//[^A-Za-z0-9_.-]
 
 SSH3_PATH="${SSH3_PATH:-/ssh3-term}"
 SSH3_INSECURE="${SSH3_INSECURE:-true}"
+SSH3_ATTACH_MODE="${SSH3_ATTACH_MODE:-auto}"
 BATCH_MODE="${BATCH_MODE:-false}"
 STRICT_HOST_KEY="${STRICT_HOST_KEY:-false}"
 MOSH_PREDICT="${MOSH_PREDICT:-always}"
@@ -140,6 +141,8 @@ fi
 SETUP_TOKEN="$(sanitize_token "$SETUP_TOKEN")"
 TMUX_SETUP_SCRIPT_RESOLVED=""
 ATTACH_CMD=""
+ATTACH_AFTER_LOGIN_PROTOCOLS=""
+SSH3_ATTACH_ENABLED=0
 SSH_CTL=()
 
 install_default_tmux_setup() {
@@ -394,6 +397,54 @@ build_attach_cmd() {
   ATTACH_CMD="bash -lc $(printf '%q' "$attach_script")"
 }
 
+probe_ssh3_attach_support() {
+  SSH3_ATTACH_ENABLED=0
+  if ! has_proto ssh3; then
+    return
+  fi
+
+  case "$SSH3_ATTACH_MODE" in
+    never|NEVER)
+      SSH3_ATTACH_ENABLED=0
+      return
+      ;;
+    force|FORCE)
+      SSH3_ATTACH_ENABLED=1
+      return
+      ;;
+    auto|AUTO)
+      ;;
+    *)
+      echo "[${HOST}] setup: unknown SSH3_ATTACH_MODE='${SSH3_ATTACH_MODE}', fallback to auto" >&2
+      ;;
+  esac
+
+  local marker="__W3_SSH3_CMD_PROBE__"
+  local target="${USER_NAME}@${HOST}${SSH3_PATH}"
+  local -a probe_cmd
+  probe_cmd=("$REAL_SSH3")
+  if [[ -n "$IDENTITY_FILE" ]]; then
+    probe_cmd+=( -privkey "$IDENTITY_FILE" )
+  fi
+  if is_true "$SSH3_INSECURE"; then
+    probe_cmd+=( -insecure )
+  fi
+  probe_cmd+=( "$target" "printf ${marker}" )
+
+  local probe_out=""
+  if command -v timeout >/dev/null 2>&1; then
+    probe_out="$(timeout --kill-after=2s 10s "${probe_cmd[@]}" 2>/dev/null | tr -d '\r' || true)"
+  else
+    probe_out="$("${probe_cmd[@]}" 2>/dev/null | tr -d '\r' || true)"
+  fi
+
+  if [[ "$probe_out" == *"$marker"* ]]; then
+    SSH3_ATTACH_ENABLED=1
+  else
+    SSH3_ATTACH_ENABLED=0
+  fi
+}
+
 WRAP_DIR="$(mktemp -d)"
 cleanup() {
   rm -rf "$WRAP_DIR"
@@ -437,7 +488,11 @@ cat >"${WRAP_DIR}/ssh3" <<'SSH3_WRAPPER'
 set -euo pipefail
 REAL_SSH3="${W3_REAL_SSH3:?W3_REAL_SSH3 is not set}"
 ATTACH_CMD="${W3_ATTACH_CMD:?W3_ATTACH_CMD is not set}"
-exec "$REAL_SSH3" "$@" "$ATTACH_CMD"
+ATTACH_ENABLED="${W3_SSH3_ATTACH_ENABLED:-0}"
+if [[ "$ATTACH_ENABLED" == "1" ]]; then
+  exec "$REAL_SSH3" "$@" "$ATTACH_CMD"
+fi
+exec "$REAL_SSH3" "$@"
 SSH3_WRAPPER
 
 chmod +x "${WRAP_DIR}/ssh" "${WRAP_DIR}/mosh" "${WRAP_DIR}/ssh3"
@@ -485,9 +540,17 @@ run_for_host() {
   fi
   send_token_to_pane0 || return 1
   build_attach_cmd
+  probe_ssh3_attach_support
+
+  ATTACH_AFTER_LOGIN_PROTOCOLS=""
+  if [[ " $PROTOCOLS " == *" ssh3 "* && "$SSH3_ATTACH_ENABLED" != "1" ]]; then
+    ATTACH_AFTER_LOGIN_PROTOCOLS="ssh3"
+  fi
 
   export W3_ATTACH_CMD="$ATTACH_CMD"
   export W3_ATTACH_BOOT_MARKER="$ATTACH_BOOT_MARKER"
+  export W3_SSH3_ATTACH_ENABLED="$SSH3_ATTACH_ENABLED"
+  export W3_ATTACH_AFTER_LOGIN_PROTOCOLS="$ATTACH_AFTER_LOGIN_PROTOCOLS"
 
   local host_output_dir="$OUTPUT_DIR"
   if (( HOST_COUNT > 1 )); then
@@ -497,6 +560,8 @@ run_for_host() {
 
   echo "[${HOST}] setup script: ${TMUX_SETUP_SCRIPT_RESOLVED}"
   echo "[${HOST}] attach command: ${ATTACH_CMD}"
+  echo "[${HOST}] ssh3 attach mode: ${SSH3_ATTACH_MODE} (remote-command=$SSH3_ATTACH_ENABLED)"
+  echo "[${HOST}] attach after login protocols: ${ATTACH_AFTER_LOGIN_PROTOCOLS:-none}"
   echo "[${HOST}] output dir: ${host_output_dir}"
 
   local -a cmd

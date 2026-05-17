@@ -98,6 +98,7 @@ class W3Benchmark:
             else max(8, args.probe_search_window)
         )
         self.prev_probe_char: Optional[str] = None
+        self.tmux_probe_counter: int = 0
         self.records:  List[SampleRecord]  = []
         self.failures: List[FailureRecord] = []
         self.results: Dict[str, Dict[str, List[float]]] = {
@@ -126,6 +127,13 @@ class W3Benchmark:
     def _tmux_attach_mode() -> bool:
         return bool(os.environ.get("W3_ATTACH_CMD"))
 
+    @staticmethod
+    def _should_attach_after_login(protocol: Optional[str]) -> bool:
+        if protocol is None:
+            return False
+        protocols = os.environ.get("W3_ATTACH_AFTER_LOGIN_PROTOCOLS", "")
+        return protocol in protocols.split()
+
     def _expect_tmux_boot_marker(self, child: pexpect.spawn) -> None:
         boot_marker = os.environ.get(
             "W3_ATTACH_BOOT_MARKER",
@@ -135,6 +143,14 @@ class W3Benchmark:
             self._build_interleaved_text_re(boot_marker),
             timeout=self.args.timeout,
         )
+
+    def _attach_tmux_after_login(self, child: pexpect.spawn) -> None:
+        attach_cmd = os.environ.get("W3_ATTACH_CMD", "").strip()
+        if not attach_cmd:
+            raise ValueError("W3_ATTACH_CMD is not set for attach-after-login flow")
+        self._drain_pending_output(child, max_reads=16)
+        child.sendline(attach_cmd)
+        self._expect_tmux_boot_marker(child)
 
     def _expect_prompt(
         self,
@@ -205,7 +221,12 @@ class W3Benchmark:
             except (pexpect.TIMEOUT, pexpect.EOF):
                 break
 
-    def _next_probe_char(self) -> str:
+    def _next_probe_text(self) -> str:
+        if self._tmux_attach_mode():
+            self.tmux_probe_counter += 1
+            suffix = random.choice("ABCDEFGHJKLMNPQRSTUVWXYZ23456789")
+            return f"W3P{self.tmux_probe_counter:08d}{suffix}"
+
         if len(self.probe_chars) == 1:
             probe_char = self.probe_chars[0]
             self.prev_probe_char = probe_char
@@ -218,18 +239,18 @@ class W3Benchmark:
         self.prev_probe_char = probe_char
         return probe_char
 
-    def _consume_stray_probe_chars(
+    def _consume_stray_probe_text(
         self,
         child: pexpect.spawn,
-        probe_char: str,
+        probe_text: str,
         search_window: Optional[int],
         max_polls: int = 4,
     ) -> None:
-        # Remove buffered matches for the same probe character before timing.
+        # Remove buffered matches for the same probe text before timing.
         # This avoids matching stale screen output from a previous step.
         for _ in range(max_polls):
             idx = child.expect_exact(
-                [probe_char, pexpect.TIMEOUT, pexpect.EOF],
+                [probe_text, pexpect.TIMEOUT, pexpect.EOF],
                 timeout=0,
                 searchwindowsize=search_window,
             )
@@ -249,18 +270,18 @@ class W3Benchmark:
         search_window: Optional[int] = self.probe_search_window
         if self._tmux_attach_mode():
             search_window = None
-        probe_char = self._next_probe_char()
-        self._consume_stray_probe_chars(child, probe_char, search_window)
+        probe_text = self._next_probe_text()
+        self._consume_stray_probe_text(child, probe_text, search_window)
         start_ns = time.perf_counter_ns()
-        child.send(probe_char)
+        child.send(probe_text)
         child.expect_exact(
-            probe_char,
+            probe_text,
             timeout=self.args.timeout,
             searchwindowsize=search_window,
         )
         end_ns = time.perf_counter_ns()
         if erase_after_echo:
-            self._erase_probe_chars(child, 1, erase_key=erase_key)
+            self._erase_probe_chars(child, len(probe_text), erase_key=erase_key)
         return (end_ns - start_ns) / 1_000_000.0
 
     @staticmethod
@@ -290,11 +311,18 @@ class W3Benchmark:
         remote_file = self.args.remote_vim_file
         child.sendline(f"vim -Nu NONE -n {shlex.quote(remote_file)}")
         child.send("i")
+        if self._tmux_attach_mode():
+            self._probe_once(child, erase_after_echo=True)
+            return
         child.expect([r"-- INSERT --", r"INSERT"], timeout=self.args.timeout)
 
     def _enter_nano_mode(self, child: pexpect.spawn) -> None:
         remote_file = self.args.remote_nano_file
         child.sendline(f"nano --ignorercfiles {shlex.quote(remote_file)}")
+        if self._tmux_attach_mode():
+            # Under 5-pane redraw, nano banners may be fragmented by ANSI moves.
+            self._probe_once(child, erase_after_echo=True)
+            return
         child.expect([r"GNU nano", r"\^G Help"], timeout=self.args.timeout)
 
     def _probe_vim_once(
@@ -356,7 +384,11 @@ class W3Benchmark:
 
         start_ns = time.perf_counter_ns()
         if self._tmux_attach_mode():
-            self._expect_tmux_boot_marker(child)
+            if self._should_attach_after_login(protocol):
+                child.expect(_INITIAL_PROMPT_RE, timeout=self.args.timeout)
+                self._attach_tmux_after_login(child)
+            else:
+                self._expect_tmux_boot_marker(child)
         else:
             child.expect(_INITIAL_PROMPT_RE, timeout=self.args.timeout)
         setup_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
@@ -403,13 +435,16 @@ class W3Benchmark:
         self._refresh_prompt(child, protocol=protocol)
         cleanup_batch = max(1, self.args.editor_cleanup_batch)
         pending_chars = 0
+        erase_per_probe = self._tmux_attach_mode()
 
         for _ in range(warmup):
             try:
-                self._probe_once(child, erase_after_echo=False)
+                self._probe_once(child, erase_after_echo=erase_per_probe)
             except pexpect.TIMEOUT:
                 self._recover_shell_state(child)
                 self._refresh_prompt(child, protocol=protocol)
+                continue
+            if erase_per_probe:
                 continue
             pending_chars += 1
             if pending_chars >= cleanup_batch:
@@ -418,7 +453,7 @@ class W3Benchmark:
                 self._drain_pending_output(child)
 
         # Keep warmup side effects outside measured rounds.
-        if pending_chars > 0:
+        if not erase_per_probe and pending_chars > 0:
             self._erase_probe_chars(child, pending_chars)
             pending_chars = 0
             self._drain_pending_output(child)
@@ -427,7 +462,7 @@ class W3Benchmark:
         latencies: List[float] = []
         for i in range(iterations):
             try:
-                lat = self._probe_once(child, erase_after_echo=False)
+                lat = self._probe_once(child, erase_after_echo=erase_per_probe)
             except pexpect.TIMEOUT as exc:
                 if fail_cb:
                     fail_cb(i + 1, exc)
@@ -437,8 +472,9 @@ class W3Benchmark:
                     self._recover_shell_state(child)
                 self._refresh_prompt(child, protocol=protocol)
                 continue
-            pending_chars += 1
-            if pending_chars >= cleanup_batch:
+            if not erase_per_probe:
+                pending_chars += 1
+            if not erase_per_probe and pending_chars >= cleanup_batch:
                 self._erase_probe_chars(child, pending_chars)
                 pending_chars = 0
                 self._drain_pending_output(child)
@@ -446,7 +482,7 @@ class W3Benchmark:
             if report_cb:
                 report_cb(i + 1, lat)
 
-        if pending_chars > 0:
+        if not erase_per_probe and pending_chars > 0:
             self._erase_probe_chars(child, pending_chars)
             self._drain_pending_output(child)
 
@@ -463,10 +499,14 @@ class W3Benchmark:
         fail_cb: Optional[Callable[[int, Exception], None]] = None,
     ) -> tuple[List[float], pexpect.spawn]:
         self._enter_vim_insert_mode(child)
+        erase_per_probe = self._tmux_attach_mode()
 
         for _ in range(warmup):
             try:
-                self._probe_vim_once(child, erase_after_echo=False)
+                self._probe_vim_once(
+                    child,
+                    erase_after_echo=erase_per_probe,
+                )
             except pexpect.TIMEOUT:
                 self._recover_vim_state(child)
                 continue
@@ -474,7 +514,10 @@ class W3Benchmark:
         latencies: List[float] = []
         for i in range(iterations):
             try:
-                lat = self._probe_vim_once(child, erase_after_echo=False)
+                lat = self._probe_vim_once(
+                    child,
+                    erase_after_echo=erase_per_probe,
+                )
             except pexpect.TIMEOUT as exc:
                 if fail_cb:
                     fail_cb(i + 1, exc)
@@ -503,12 +546,13 @@ class W3Benchmark:
         fail_cb: Optional[Callable[[int, Exception], None]] = None,
     ) -> tuple[List[float], pexpect.spawn]:
         self._enter_nano_mode(child)
+        erase_per_probe = self._tmux_attach_mode()
 
         for _ in range(warmup):
             try:
                 self._probe_once(
                     child,
-                    erase_after_echo=False,
+                    erase_after_echo=erase_per_probe,
                 )
             except pexpect.TIMEOUT:
                 self._recover_nano_state(child)
@@ -519,7 +563,7 @@ class W3Benchmark:
             try:
                 lat = self._probe_once(
                     child,
-                    erase_after_echo=False,
+                    erase_after_echo=erase_per_probe,
                 )
             except pexpect.TIMEOUT as exc:
                 if fail_cb:
