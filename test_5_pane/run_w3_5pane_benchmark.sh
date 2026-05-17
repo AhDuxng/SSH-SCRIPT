@@ -498,7 +498,6 @@ cat >"${WRAP_DIR}/mosh" <<'MOSH_WRAPPER'
 set -euo pipefail
 REAL_MOSH="${W3_REAL_MOSH:?W3_REAL_MOSH is not set}"
 REAL_SSH="${W3_REAL_SSH:?W3_REAL_SSH is not set}"
-ATTACH_CMD="${W3_ATTACH_CMD:?W3_ATTACH_CMD is not set}"
 
 real_ssh_q="$(printf '%q' "$REAL_SSH")"
 rewritten=()
@@ -514,7 +513,7 @@ for arg in "$@"; do
   esac
 done
 
-exec "$REAL_MOSH" "${rewritten[@]}" "$ATTACH_CMD"
+exec "$REAL_MOSH" "${rewritten[@]}"
 MOSH_WRAPPER
 
 cat >"${WRAP_DIR}/ssh3" <<'SSH3_WRAPPER'
@@ -581,6 +580,10 @@ run_for_host() {
   ATTACH_AFTER_LOGIN_PROTOCOLS=""
   if [[ " $PROTOCOLS " == *" ssh3 "* && "$SSH3_ATTACH_ENABLED" != "1" ]]; then
     ATTACH_AFTER_LOGIN_PROTOCOLS="ssh3"
+  fi
+  if [[ " $PROTOCOLS " == *" mosh "* ]]; then
+    ATTACH_AFTER_LOGIN_PROTOCOLS="${ATTACH_AFTER_LOGIN_PROTOCOLS} mosh"
+    ATTACH_AFTER_LOGIN_PROTOCOLS="$(xargs <<<"${ATTACH_AFTER_LOGIN_PROTOCOLS}")"
   fi
 
   export W3_ATTACH_CMD="$ATTACH_CMD"
