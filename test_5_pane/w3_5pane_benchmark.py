@@ -240,7 +240,7 @@ class W3Benchmark:
         if self._tmux_attach_mode():
             self.tmux_probe_counter += 1
             suffix = random.choice("ABCDEFGHJKLMNPQRSTUVWXYZ23456789")
-            return f"W3P{self.tmux_probe_counter:08d}{suffix}"
+            return f"~W3P{self.tmux_probe_counter:08d}{suffix}~"
 
         if len(self.probe_chars) == 1:
             probe_char = self.probe_chars[0]
@@ -291,13 +291,24 @@ class W3Benchmark:
         start_ns = time.perf_counter_ns()
         child.send(probe_text)
         if self._tmux_attach_mode():
-            child.expect(
-                self._build_loose_interleaved_text_re(
+            # Prefer exact match to avoid regex over-match across unrelated
+            # background-pane redraw bytes; use loose fallback briefly.
+            exact_timeout = max(1, min(self.args.timeout, 8))
+            try:
+                child.expect_exact(
                     probe_text,
-                    max_gap=max(8, self.args.tmux_probe_max_gap),
-                ),
-                timeout=self.args.timeout,
-            )
+                    timeout=exact_timeout,
+                    searchwindowsize=None,
+                )
+            except pexpect.TIMEOUT:
+                fallback_timeout = max(1, min(2, self.args.timeout - exact_timeout))
+                child.expect(
+                    self._build_loose_interleaved_text_re(
+                        probe_text,
+                        max_gap=max(8, self.args.tmux_probe_max_gap),
+                    ),
+                    timeout=fallback_timeout,
+                )
         else:
             child.expect_exact(
                 probe_text,
