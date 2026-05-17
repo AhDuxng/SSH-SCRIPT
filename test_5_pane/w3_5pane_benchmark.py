@@ -104,7 +104,6 @@ class W3Benchmark:
             else max(1024, args.tmux_search_window)
         )
         self.prev_probe_char: Optional[str] = None
-        self.tmux_probe_counter: int = 0
         self.records:  List[SampleRecord]  = []
         self.failures: List[FailureRecord] = []
         self.results: Dict[str, Dict[str, List[float]]] = {
@@ -241,11 +240,6 @@ class W3Benchmark:
                 break
 
     def _next_probe_text(self) -> str:
-        if self._tmux_attach_mode():
-            self.tmux_probe_counter += 1
-            suffix = random.choice("ABCDEFGHJKLMNPQRSTUVWXYZ23456789")
-            return f"~W3P{self.tmux_probe_counter:08d}{suffix}~"
-
         if len(self.probe_chars) == 1:
             probe_char = self.probe_chars[0]
             self.prev_probe_char = probe_char
@@ -288,34 +282,17 @@ class W3Benchmark:
         self._drain_pending_output(child)
         search_window: Optional[int] = self.probe_search_window
         if self._tmux_attach_mode():
-            search_window = None
+            search_window = self.tmux_search_window
         probe_text = self._next_probe_text()
-        if not self._tmux_attach_mode():
-            self._consume_stray_probe_text(child, probe_text, search_window)
+        self._consume_stray_probe_text(child, probe_text, search_window)
         start_ns = time.perf_counter_ns()
         child.send(probe_text)
         if self._tmux_attach_mode():
-            # Prefer exact match to avoid regex over-match across unrelated
-            # background-pane redraw bytes; use bounded loose fallback when
-            # redraw noise splits echoed probe bytes.
-            exact_timeout = max(1, min(self.args.timeout, 8))
-            try:
-                child.expect_exact(
-                    probe_text,
-                    timeout=exact_timeout,
-                    searchwindowsize=self.tmux_search_window,
-                )
-            except pexpect.TIMEOUT:
-                remaining_timeout = max(1, self.args.timeout - exact_timeout)
-                loose_re = self._build_loose_interleaved_text_re(
-                    probe_text,
-                    max_gap=self.args.tmux_probe_max_gap,
-                )
-                child.expect(
-                    loose_re,
-                    timeout=remaining_timeout,
-                    searchwindowsize=self.tmux_search_window,
-                )
+            child.expect_exact(
+                probe_text,
+                timeout=self.args.timeout,
+                searchwindowsize=self.tmux_search_window,
+            )
         else:
             child.expect_exact(
                 probe_text,
