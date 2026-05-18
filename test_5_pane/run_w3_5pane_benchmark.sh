@@ -371,14 +371,39 @@ send_token_to_pane0() {
   local window="${TMUX_SESSION}:${TMUX_WINDOW}"
   local pane0="${window}.${PANE0_INDEX}"
   local window_q pane0_q token_q token_cmd token_cmd_q
+  local rc_q rc_line1_q rc_line2_q pane_shell_cmd pane_shell_cmd_q
   window_q="$(printf '%q' "$window")"
   pane0_q="$(printf '%q' "$pane0")"
   token_q="$(printf '%q' "$SETUP_TOKEN")"
   token_cmd="printf '%s\n' ${token_q}"
   token_cmd_q="$(printf '%q' "$token_cmd")"
+  rc_q="$(printf '%q' "$PANE0_RC_PATH")"
+  rc_line1_q="$(printf '%q' "stty echo -echoctl 2>/dev/null || true")"
+  rc_line2_q="$(printf '%q' "alias exit='tmux detach-client -s ${TMUX_SESSION} 2>/dev/null || builtin exit'")"
+  pane_shell_cmd="exec bash --rcfile ${rc_q} -i"
+  pane_shell_cmd_q="$(printf '%q' "$pane_shell_cmd")"
 
   echo "[${HOST}] setup: send token only to ${pane0}: ${SETUP_TOKEN}"
-  "${SSH_CTL[@]}" "set -e; tmux set-window-option -t ${window_q} synchronize-panes off >/dev/null; tmux select-pane -t ${pane0_q} >/dev/null; tmux send-keys -t ${pane0_q} -l ${token_cmd_q}; tmux send-keys -t ${pane0_q} C-m" >/dev/null
+  # Normalize pane0 to an interactive shell before token injection so this
+  # step does not depend on remote setup script internals.
+  "${SSH_CTL[@]}" "set -e; tmux set-window-option -t ${window_q} synchronize-panes off >/dev/null; printf '%s\n' ${rc_line1_q} ${rc_line2_q} > ${rc_q}; chmod 600 ${rc_q} 2>/dev/null || true; tmux respawn-pane -k -t ${pane0_q} ${pane_shell_cmd_q} >/dev/null 2>&1; tmux select-pane -t ${pane0_q} >/dev/null" >/dev/null
+
+  local pane_cmd start_ready_ts now_ready_ts
+  start_ready_ts="$(date +%s)"
+  while true; do
+    pane_cmd="$("${SSH_CTL[@]}" "tmux display-message -p -t ${pane0_q} '#{pane_current_command}' 2>/dev/null" 2>/dev/null | tr -d '\r' || true)"
+    if [[ "$pane_cmd" == "bash" || "$pane_cmd" == "sh" || "$pane_cmd" == "zsh" ]]; then
+      break
+    fi
+    now_ready_ts="$(date +%s)"
+    if (( now_ready_ts - start_ready_ts >= TMUX_READY_TIMEOUT )); then
+      echo "ERROR: pane0 did not become an interactive shell before token send." >&2
+      return 1
+    fi
+    sleep "$TMUX_READY_POLL_INTERVAL"
+  done
+
+  "${SSH_CTL[@]}" "tmux send-keys -t ${pane0_q} -l ${token_cmd_q}; tmux send-keys -t ${pane0_q} C-m" >/dev/null
 
   local start_ts now
   start_ts="$(date +%s)"
@@ -389,6 +414,10 @@ send_token_to_pane0() {
     now="$(date +%s)"
     if (( now - start_ts >= TMUX_READY_TIMEOUT )); then
       echo "ERROR: token did not appear in ${pane0}." >&2
+      echo "[${HOST}] setup: pane0 command when token timed out:" >&2
+      "${SSH_CTL[@]}" "tmux display-message -p -t ${pane0_q} '#{pane_current_command}' 2>/dev/null || true" >&2 || true
+      echo "[${HOST}] setup: pane0 tail when token timed out:" >&2
+      "${SSH_CTL[@]}" "tmux capture-pane -p -J -S -80 -t ${pane0_q} 2>/dev/null | tail -n 40 || true" >&2 || true
       return 1
     fi
     sleep "$TMUX_READY_POLL_INTERVAL"
