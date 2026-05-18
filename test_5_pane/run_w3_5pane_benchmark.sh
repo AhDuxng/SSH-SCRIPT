@@ -16,7 +16,7 @@ WORKLOADS="${WORKLOADS:-interactive_shell vim nano}"
 TRIALS="${TRIALS:-3}"
 ITERATIONS="${ITERATIONS:-100}"
 WARMUP_ROUNDS="${WARMUP_ROUNDS:-10}"
-TIMEOUT="${TIMEOUT:-30}"
+TIMEOUT="${TIMEOUT:-20}"
 SEED="${SEED:-42}"
 
 # Background panes redraw continuously. Keep probe chars rare and absent from

@@ -39,7 +39,6 @@ _GAPPED_PING_EPOCH_US = (
 )
 _INITIAL_PROMPT_RE = re.compile(
     r"[#$>](?:" + _ANSI_SEQ + r"|\s)*\s*$",
-    re.MULTILINE,
 )
 
 @dataclass
@@ -116,8 +115,40 @@ class W2Benchmark:
     def _build_gapped_literal(token: str) -> str:
         return "".join(re.escape(ch) + _ECHO_GAP for ch in token)
 
-    def _expect_prompt(self, child: pexpect.spawn) -> None:
-        child.expect(self.prompt_re, timeout=self.args.timeout)
+    def _expect_prompt(
+        self,
+        child: pexpect.spawn,
+        protocol: Optional[str] = None,
+    ) -> None:
+        # Match the session readiness behavior used by test/w3_interactive_benchmark.py.
+        try:
+            child.expect(self.prompt_re, timeout=self.args.timeout)
+            return
+        except pexpect.TIMEOUT:
+            if protocol != "mosh":
+                raise
+
+        last_exc: Optional[pexpect.TIMEOUT] = None
+        for clear_screen in (False, True):
+            self._drain_pending_output(child)
+            if clear_screen:
+                child.sendcontrol("l")
+            child.sendline("")
+            try:
+                child.expect(self.prompt_re, timeout=self.args.timeout)
+                return
+            except pexpect.TIMEOUT as exc:
+                last_exc = exc
+        if last_exc is not None:
+            raise last_exc
+
+    @staticmethod
+    def _drain_pending_output(child: pexpect.spawn, max_reads: int = 8) -> None:
+        for _ in range(max_reads):
+            try:
+                child.read_nonblocking(size=4096, timeout=0)
+            except (pexpect.TIMEOUT, pexpect.EOF):
+                break
 
     def _session_command(self, protocol: str) -> str:
         target = self.target
@@ -138,8 +169,7 @@ class W2Benchmark:
             return shlex.join(ssh_common)
 
         if protocol == "mosh":
-            mosh_ssh = [arg for arg in ssh_common[:-1] if arg != "-tt"]
-            ssh_cmd = shlex.join(mosh_ssh)
+            ssh_cmd = shlex.join(ssh_common[:-1])
             mosh_parts = ["mosh", f"--ssh={ssh_cmd}"]
             if self.args.mosh_predict and self.args.mosh_predict != "adaptive":
                 mosh_parts += ["--predict", self.args.mosh_predict]
@@ -157,45 +187,22 @@ class W2Benchmark:
 
         raise ValueError(f"Unsupported protocol: {protocol}")
 
-    def _open_session(self, protocol: str, max_retries: int = 3) -> tuple[pexpect.spawn, float]:
-        last_exc: Exception | None = None
-        base_timeout = self.args.timeout
-        if protocol == "mosh":
-            base_timeout = max(base_timeout, 30)
+    def _open_session(self, protocol: str) -> tuple[pexpect.spawn, float]:
+        child = pexpect.spawn(
+            self._session_command(protocol),
+            encoding="utf-8",
+            codec_errors="ignore",
+            timeout=self.args.timeout,
+        )
+        child.delaybeforesend = 0
 
-        for attempt in range(1, max_retries + 1):
-            child: pexpect.spawn | None = None
-            try:
-                child = pexpect.spawn(
-                    self._session_command(protocol),
-                    encoding="utf-8",
-                    codec_errors="ignore",
-                    timeout=base_timeout,
-                )
+        start_ns = time.perf_counter_ns()
+        child.expect(_INITIAL_PROMPT_RE, timeout=self.args.timeout)
+        setup_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
 
-                connect_timeout = base_timeout * attempt
-
-                start_ns = time.perf_counter_ns()
-                child.expect(_INITIAL_PROMPT_RE, timeout=connect_timeout)
-                setup_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
-
-                child.sendline(f"export PS1={shlex.quote(self.args.prompt)}")
-                self._expect_prompt(child)
-                return child, setup_ms
-
-            except (pexpect.TIMEOUT, pexpect.EOF) as exc:
-                last_exc = exc
-                print(
-                    f"  [WARN] _open_session({protocol}) attempt {attempt}/{max_retries} failed: {type(exc).__name__}",
-                    flush=True,
-                )
-                if child is not None:
-                    self._close_session(child, protocol)
-                time.sleep(2 * attempt)
-
-        if last_exc is None:
-            raise RuntimeError(f"_open_session({protocol}) failed without a captured exception")
-        raise last_exc
+        child.sendline(f"export PS1={shlex.quote(self.args.prompt)}")
+        self._expect_prompt(child, protocol=protocol)
+        return child, setup_ms
 
     def _close_session(self, child: pexpect.spawn, protocol: str = "") -> None:
         """Close the pexpect session, forcefully killing any running processes first."""
@@ -899,7 +906,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--ssh3-insecure", action="store_true", help="Pass -insecure to ssh3")
     p.add_argument("--batch-mode", action="store_true", help="Enable BatchMode for SSHv2 / Mosh bootstrap SSH")
     p.add_argument("--strict-host-key-checking", action="store_true", help="Keep strict host key checking enabled")
-    p.add_argument("--mosh-predict", default="adaptive", choices=["adaptive", "always", "never"], help="Mosh prediction mode")
+    p.add_argument("--mosh-predict", default="always", choices=["adaptive", "always", "never"], help="Mosh prediction mode")
     p.add_argument("--shuffle-pairs", action="store_true", help="Shuffle protocol/workload execution order")
     p.add_argument("--reopen-on-failure", action="store_true", help="Reopen session after failure")
     p.add_argument("--log-pexpect", action="store_true", help="Deprecated compatibility flag (no-op): pexpect logs are disabled")

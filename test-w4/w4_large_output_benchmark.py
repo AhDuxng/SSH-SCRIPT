@@ -44,7 +44,6 @@ _ANSI_SEQ = r"(?:\x1b\[\??[0-9;]*[a-zA-Z])"
 _ECHO_GAP = rf"(?:{_ANSI_SEQ}|[\r\n\b])*"
 _INITIAL_PROMPT_RE = re.compile(
     r"[#$>](?:" + _ANSI_SEQ + r"|\s)*\s*$",
-    re.MULTILINE,
 )
 _ANSI_STRIP_RE = re.compile(_ANSI_SEQ)
 _MARKER_SCAN_STRIP_RE = re.compile(r"[^A-Za-z0-9_]+")
@@ -170,8 +169,32 @@ class W4Benchmark:
         )
         return True
 
-    def _expect_prompt(self, child: pexpect.spawn) -> None:
-        child.expect(self.prompt_re, timeout=self.args.timeout)
+    def _expect_prompt(
+        self,
+        child: pexpect.spawn,
+        protocol: Optional[str] = None,
+    ) -> None:
+        # Match the session readiness behavior used by test/w3_interactive_benchmark.py.
+        try:
+            child.expect(self.prompt_re, timeout=self.args.timeout)
+            return
+        except pexpect.TIMEOUT:
+            if protocol != "mosh":
+                raise
+
+        last_exc: Optional[pexpect.TIMEOUT] = None
+        for clear_screen in (False, True):
+            self._drain_pending_output(child)
+            if clear_screen:
+                child.sendcontrol("l")
+            child.sendline("")
+            try:
+                child.expect(self.prompt_re, timeout=self.args.timeout)
+                return
+            except pexpect.TIMEOUT as exc:
+                last_exc = exc
+        if last_exc is not None:
+            raise last_exc
 
     def _wait_for_marker_line(self, child: pexpect.spawn, marker: str, marker_tail: str) -> int:
         sample_timeout = float(self.args.sample_timeout)
@@ -345,25 +368,20 @@ class W4Benchmark:
         raise ValueError(f"Unsupported protocol: {protocol}")
 
     def _open_session(self, protocol: str) -> tuple[pexpect.spawn, float]:
-        search_window = (
-            self.args.search_window_size if self.args.search_window_size > 0 else None
-        )
         child = pexpect.spawn(
             self._session_command(protocol),
             encoding="utf-8",
             codec_errors="ignore",
             timeout=self.args.timeout,
-            maxread=self.args.maxread,
-            searchwindowsize=search_window,
-            echo=False,
         )
+        child.delaybeforesend = 0
 
         start_ns = time.perf_counter_ns()
         child.expect(_INITIAL_PROMPT_RE, timeout=self.args.timeout)
         setup_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
 
         child.sendline(f"export PS1={shlex.quote(self.args.prompt)}")
-        self._expect_prompt(child)
+        self._expect_prompt(child, protocol=protocol)
 
         return child, setup_ms
 
@@ -392,7 +410,7 @@ class W4Benchmark:
     ) -> tuple[float, int]:
         self._drain_pending_output(child)
 
-        wrapped = f"{{ {command}; }} 2>&1; printf '%s\\n' {shlex.quote(marker)}"
+        wrapped = self._wrap_measured_command(command, marker)
         start_ns = time.perf_counter_ns()
         child.sendline(wrapped)
         output_bytes = self._wait_for_marker_line(child, marker, marker_tail)
@@ -400,6 +418,17 @@ class W4Benchmark:
 
         latency_ms = (end_ns - start_ns) / 1_000_000.0
         return latency_ms, output_bytes
+
+    def _wrap_measured_command(self, command: str, marker: str) -> str:
+        marker_arg = shlex.quote(marker)
+        if self.args.max_output_lines == 0:
+            return f"{{ {command}; }} 2>&1; printf '%s\\n' {marker_arg}"
+
+        line_limit = int(self.args.max_output_lines)
+        return (
+            f"{{ {command}; }} 2>&1 | head -n {line_limit}; "
+            f"printf '%s\\n' {marker_arg}"
+        )
 
     def _recover_after_timeout(self, child: pexpect.spawn) -> bool:
         try:
@@ -771,9 +800,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--commands", nargs="+", default=DEFAULT_COMMANDS, help="Large-output commands executed in each sample")
     p.add_argument("--trials", type=int, default=3, help="Independent sessions per protocol/workload pair")
     p.add_argument("--iterations", type=int, default=1, help="Recorded command samples per trial")
-    p.add_argument("--timeout", type=int, default=60, help="pexpect timeout in seconds for session setup/recovery")
+    p.add_argument("--timeout", type=int, default=20, help="pexpect timeout in seconds for session setup/recovery")
     p.add_argument("--sample-timeout", type=float, default=300.0, help="Maximum seconds to wait for one command sample marker")
     p.add_argument("--command-idle-timeout", type=float, default=30.0, help="Fail command only if no output is observed for this many seconds (0 = disable idle timeout)")
+    p.add_argument("--max-output-lines", type=int, default=1000, help="Maximum output lines to read from each command sample (0 = unlimited)")
     p.add_argument("--maxread", type=int, default=65535, help="pexpect maxread bytes")
     p.add_argument("--search-window-size", type=int, default=8192, help="pexpect search window size (0 = unlimited)")
     p.add_argument("--seed", type=int, default=42, help="Random seed")
@@ -783,7 +813,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--ssh3-insecure", action="store_true", help="Pass -insecure to ssh3")
     p.add_argument("--batch-mode", action="store_true", help="Enable BatchMode for SSHv2 / Mosh bootstrap SSH")
     p.add_argument("--strict-host-key-checking", action="store_true", help="Keep strict host key checking enabled")
-    p.add_argument("--mosh-predict", default="adaptive", choices=["adaptive", "always", "never"], help="Mosh prediction mode")
+    p.add_argument("--mosh-predict", default="always", choices=["adaptive", "always", "never"], help="Mosh prediction mode")
     p.add_argument("--shuffle-pairs", action="store_true", help="Shuffle protocol/workload execution order")
     p.add_argument("--reopen-on-failure", action="store_true", help="Reopen session after failure")
     p.add_argument("--log-pexpect", action="store_true", help="Deprecated compatibility flag (no-op): pexpect logs are disabled")
@@ -804,6 +834,8 @@ def main() -> int:
         parser.error("--sample-timeout must be > 0")
     if args.command_idle_timeout < 0:
         parser.error("--command-idle-timeout must be >= 0")
+    if args.max_output_lines < 0:
+        parser.error("--max-output-lines must be >= 0")
     if args.maxread <= 0:
         parser.error("--maxread must be > 0")
     if args.search_window_size < 0:

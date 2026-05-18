@@ -30,7 +30,7 @@ SSH3_INSECURE=true
 
 BATCH_MODE=false
 STRICT_HOST_KEY=false
-MOSH_PREDICT="never"
+MOSH_PREDICT="always"
 
 CMD=(
   python w1_command_loop_benchmark.py

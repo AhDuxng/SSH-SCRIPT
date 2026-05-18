@@ -19,6 +19,7 @@ TRIALS=3
 TIMEOUT=60
 SAMPLE_TIMEOUT=300
 COMMAND_IDLE_TIMEOUT=30
+MAX_OUTPUT_LINES=100
 MAXREAD=65535
 SEARCH_WINDOW_SIZE=8192
 SEED=42
@@ -50,6 +51,7 @@ CMD=(
   --timeout "$TIMEOUT"
   --sample-timeout "$SAMPLE_TIMEOUT"
   --command-idle-timeout "$COMMAND_IDLE_TIMEOUT"
+  --max-output-lines "$MAX_OUTPUT_LINES"
   --maxread "$MAXREAD"
   --search-window-size "$SEARCH_WINDOW_SIZE"
   --seed "$SEED"

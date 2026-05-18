@@ -38,7 +38,6 @@ _ANSI_SEQ = r"(?:\x1b\[\??[0-9;]*[a-zA-Z])"
 _ECHO_GAP = rf"(?:{_ANSI_SEQ}|[\r\n\b])*"
 _INITIAL_PROMPT_RE = re.compile(
     r"[#$>](?:" + _ANSI_SEQ + r"|\s)*\s*$",
-    re.MULTILINE,
 )
 
 
@@ -104,8 +103,32 @@ class W1Benchmark:
             p: {c: [] for c in args.commands} for p in args.protocols
         }
 
-    def _expect_prompt(self, child: pexpect.spawn) -> None:
-        child.expect(self.prompt_re, timeout=self.args.timeout)
+    def _expect_prompt(
+        self,
+        child: pexpect.spawn,
+        protocol: Optional[str] = None,
+    ) -> None:
+        # Match the session readiness behavior used by test/w3_interactive_benchmark.py.
+        try:
+            child.expect(self.prompt_re, timeout=self.args.timeout)
+            return
+        except pexpect.TIMEOUT:
+            if protocol != "mosh":
+                raise
+
+        last_exc: Optional[pexpect.TIMEOUT] = None
+        for clear_screen in (False, True):
+            self._drain_pending_output(child)
+            if clear_screen:
+                child.sendcontrol("l")
+            child.sendline("")
+            try:
+                child.expect(self.prompt_re, timeout=self.args.timeout)
+                return
+            except pexpect.TIMEOUT as exc:
+                last_exc = exc
+        if last_exc is not None:
+            raise last_exc
 
     @staticmethod
     def _build_prompt_re(prompt_marker: str) -> re.Pattern[str]:
@@ -185,13 +208,14 @@ class W1Benchmark:
             codec_errors="ignore",
             timeout=self.args.timeout,
         )
+        child.delaybeforesend = 0
 
         start_ns = time.perf_counter_ns()
         child.expect(_INITIAL_PROMPT_RE, timeout=self.args.timeout)
         setup_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
 
         child.sendline(f"export PS1={shlex.quote(self.args.prompt)}")
-        self._expect_prompt(child)
+        self._expect_prompt(child, protocol=protocol)
         return child, setup_ms
 
     def _close_session(self, child: pexpect.spawn) -> None:
@@ -516,7 +540,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--ssh3-insecure", action="store_true", help="Pass -insecure to ssh3")
     p.add_argument("--batch-mode", action="store_true", help="Enable BatchMode for SSHv2 / Mosh bootstrap SSH")
     p.add_argument("--strict-host-key-checking", action="store_true", help="Keep strict host key checking enabled")
-    p.add_argument("--mosh-predict", default="adaptive", choices=["adaptive", "always", "never"], help="Mosh prediction mode")
+    p.add_argument("--mosh-predict", default="always", choices=["adaptive", "always", "never"], help="Mosh prediction mode")
     p.add_argument("--shuffle-pairs", action="store_true", help="Shuffle protocol/workload execution order")
     p.add_argument("--reopen-on-failure", action="store_true", help="Reopen session after failure")
     p.add_argument("--log-pexpect", action="store_true", help="Deprecated compatibility flag (no-op): pexpect logs are disabled")
