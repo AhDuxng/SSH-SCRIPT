@@ -558,12 +558,14 @@ class W3Benchmark:
                 if self._tmux_attach_mode():
                     if self._should_attach_after_login(protocol):
                         child.expect(_INITIAL_PROMPT_RE, timeout=self.args.timeout)
+                        setup_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
                         self._attach_tmux_after_login(child, protocol=protocol)
                     else:
                         self._expect_tmux_boot_marker(child, protocol=protocol)
+                        setup_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
                 else:
                     child.expect(_INITIAL_PROMPT_RE, timeout=self.args.timeout)
-                setup_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
+                    setup_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
 
                 child.sendline(f"export PS1={shlex.quote(self.args.prompt)}")
                 self._expect_prompt(child, protocol=protocol)
@@ -1057,7 +1059,7 @@ class W3Benchmark:
         print("\n" + "-" * ss_width)
         print(
             "SESSION SETUP LATENCY (ms)  "
-            "[spawn -> first shell prompt, PS1 export excluded]"
+            "[spawn -> first login prompt, tmux attach/PS1 excluded]"
         )
         print(
             f"{'Protocol':<8} | {'Workload':<18} | {'N':>3} |"

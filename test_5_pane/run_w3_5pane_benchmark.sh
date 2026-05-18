@@ -507,6 +507,10 @@ cat >"${WRAP_DIR}/ssh" <<'SSH_WRAPPER'
 set -euo pipefail
 REAL_SSH="${W3_REAL_SSH:?W3_REAL_SSH is not set}"
 ATTACH_CMD="${W3_ATTACH_CMD:?W3_ATTACH_CMD is not set}"
+ATTACH_AFTER_LOGIN="${W3_ATTACH_SSH_AFTER_LOGIN:-0}"
+if [[ "$ATTACH_AFTER_LOGIN" == "1" ]]; then
+  exec "$REAL_SSH" "$@"
+fi
 exec "$REAL_SSH" "$@" "$ATTACH_CMD"
 SSH_WRAPPER
 
@@ -539,6 +543,10 @@ set -euo pipefail
 REAL_SSH3="${W3_REAL_SSH3:?W3_REAL_SSH3 is not set}"
 ATTACH_CMD="${W3_ATTACH_CMD:?W3_ATTACH_CMD is not set}"
 ATTACH_ENABLED="${W3_SSH3_ATTACH_ENABLED:-0}"
+ATTACH_AFTER_LOGIN="${W3_ATTACH_SSH3_AFTER_LOGIN:-0}"
+if [[ "$ATTACH_AFTER_LOGIN" == "1" ]]; then
+  exec "$REAL_SSH3" "$@"
+fi
 if [[ "$ATTACH_ENABLED" == "1" ]]; then
   exec "$REAL_SSH3" "$@" "$ATTACH_CMD"
 fi
@@ -595,18 +603,23 @@ run_for_host() {
   probe_ssh3_attach_support
 
   ATTACH_AFTER_LOGIN_PROTOCOLS=""
-  if [[ " $PROTOCOLS " == *" ssh3 "* && "$SSH3_ATTACH_ENABLED" != "1" ]]; then
-    ATTACH_AFTER_LOGIN_PROTOCOLS="ssh3"
+  if [[ " $PROTOCOLS " == *" ssh "* ]]; then
+    ATTACH_AFTER_LOGIN_PROTOCOLS="${ATTACH_AFTER_LOGIN_PROTOCOLS} ssh"
+  fi
+  if [[ " $PROTOCOLS " == *" ssh3 "* ]]; then
+    ATTACH_AFTER_LOGIN_PROTOCOLS="${ATTACH_AFTER_LOGIN_PROTOCOLS} ssh3"
   fi
   if [[ " $PROTOCOLS " == *" mosh "* ]]; then
     ATTACH_AFTER_LOGIN_PROTOCOLS="${ATTACH_AFTER_LOGIN_PROTOCOLS} mosh"
-    ATTACH_AFTER_LOGIN_PROTOCOLS="$(xargs <<<"${ATTACH_AFTER_LOGIN_PROTOCOLS}")"
   fi
+  ATTACH_AFTER_LOGIN_PROTOCOLS="$(xargs <<<"${ATTACH_AFTER_LOGIN_PROTOCOLS}")"
 
   export W3_ATTACH_CMD="$ATTACH_CMD"
   export W3_ATTACH_CMD_MOSH_SIMPLE="$ATTACH_CMD_MOSH_SIMPLE"
   export W3_ATTACH_BOOT_MARKER="$ATTACH_BOOT_MARKER"
   export W3_SSH3_ATTACH_ENABLED="$SSH3_ATTACH_ENABLED"
+  export W3_ATTACH_SSH_AFTER_LOGIN="1"
+  export W3_ATTACH_SSH3_AFTER_LOGIN="1"
   export W3_ATTACH_AFTER_LOGIN_PROTOCOLS="$ATTACH_AFTER_LOGIN_PROTOCOLS"
 
   local host_output_dir="$OUTPUT_DIR"
