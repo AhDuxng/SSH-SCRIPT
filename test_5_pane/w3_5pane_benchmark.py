@@ -148,11 +148,25 @@ class W3Benchmark:
         protocols = os.environ.get("W3_ATTACH_AFTER_LOGIN_PROTOCOLS", "")
         return protocol in protocols.split()
 
-    def _expect_tmux_boot_marker(self, child: pexpect.spawn) -> None:
+    def _expect_tmux_boot_marker(
+        self,
+        child: pexpect.spawn,
+        protocol: Optional[str] = None,
+    ) -> None:
         boot_marker = os.environ.get(
             "W3_ATTACH_BOOT_MARKER",
             "__W3_ATTACH_PANE0_READY__",
         )
+        if protocol == "mosh":
+            child.expect(
+                self._build_loose_interleaved_text_re(
+                    boot_marker,
+                    max_gap=self.args.tmux_probe_max_gap,
+                ),
+                timeout=max(self.args.timeout, 45),
+                searchwindowsize=self.tmux_search_window,
+            )
+            return
         child.expect_exact(
             boot_marker,
             timeout=self.args.timeout,
@@ -176,7 +190,7 @@ class W3Benchmark:
             raise ValueError("W3_ATTACH_CMD is not set for attach-after-login flow")
         self._drain_pending_output(child, max_reads=16)
         child.sendline(attach_cmd)
-        self._expect_tmux_boot_marker(child)
+        self._expect_tmux_boot_marker(child, protocol=protocol)
 
     def _expect_prompt(
         self,
@@ -186,7 +200,8 @@ class W3Benchmark:
         if self._tmux_attach_mode():
             marker = f"__W3_PROMPT_READY__{random.randrange(10_000, 99_999)}__"
             last_exc: Optional[pexpect.TIMEOUT] = None
-            for _ in range(3):
+            attempts = 5 if protocol == "mosh" else 3
+            for _ in range(attempts):
                 self._drain_pending_output(child, max_reads=16)
                 child.sendline("")
                 if protocol == "mosh":
@@ -196,8 +211,11 @@ class W3Benchmark:
                 try:
                     if protocol == "mosh":
                         child.expect(
-                            self._build_interleaved_text_re(marker),
-                            timeout=self.args.timeout,
+                            self._build_loose_interleaved_text_re(
+                                marker,
+                                max_gap=self.args.tmux_probe_max_gap,
+                            ),
+                            timeout=max(self.args.timeout, 45),
                             searchwindowsize=self.tmux_search_window,
                         )
                     else:
@@ -210,8 +228,20 @@ class W3Benchmark:
                 except pexpect.TIMEOUT as exc:
                     last_exc = exc
             if last_exc is not None:
-                if protocol != "mosh":
+                if protocol == "mosh":
+                    # Under heavy 5-pane redraw on fast links, marker text can
+                    # be delayed or fragmented beyond strict matching. Try a
+                    # non-recorded probe as a soft readiness check before giving
+                    # up the whole trial.
+                    for _ in range(2):
+                        try:
+                            self._probe_once(child, erase_after_echo=True)
+                            return
+                        except pexpect.TIMEOUT:
+                            self._drain_pending_output(child, max_reads=16)
+                            child.sendline("")
                     raise last_exc
+                raise last_exc
 
         # TUI redraw (especially over mosh) may split prompt bytes with ANSI updates.
         try:
@@ -363,14 +393,28 @@ class W3Benchmark:
         child.sendline(f"vim -Nu NONE -n {shlex.quote(remote_file)}")
         child.send("i")
         if self._tmux_attach_mode():
+            insert_patterns = [
+                self._build_loose_interleaved_text_re(
+                    "-- INSERT --",
+                    max_gap=self.args.tmux_probe_max_gap,
+                ),
+                self._build_loose_interleaved_text_re(
+                    "INSERT",
+                    max_gap=self.args.tmux_probe_max_gap,
+                ),
+            ]
             last_exc: Optional[pexpect.TIMEOUT] = None
-            for _ in range(3):
+            for _ in range(4):
                 try:
-                    self._recover_vim_state(child)
-                    self._probe_once(child, erase_after_echo=True)
+                    child.expect(
+                        insert_patterns,
+                        timeout=max(self.args.timeout, 45),
+                        searchwindowsize=self.tmux_search_window,
+                    )
                     return
                 except pexpect.TIMEOUT as exc:
                     last_exc = exc
+                    self._recover_vim_state(child)
             if last_exc is not None:
                 raise last_exc
         child.expect([r"-- INSERT --", r"INSERT"], timeout=self.args.timeout)
@@ -379,15 +423,33 @@ class W3Benchmark:
         remote_file = self.args.remote_nano_file
         child.sendline(f"nano --ignorercfiles {shlex.quote(remote_file)}")
         if self._tmux_attach_mode():
-            # Under 5-pane redraw, nano banners may be fragmented by ANSI moves.
+            # Under 5-pane redraw, nano banners may be fragmented/interleaved.
+            banner_patterns = [
+                self._build_loose_interleaved_text_re(
+                    "GNU nano",
+                    max_gap=self.args.tmux_probe_max_gap,
+                ),
+                self._build_loose_interleaved_text_re(
+                    "^G Help",
+                    max_gap=self.args.tmux_probe_max_gap,
+                ),
+                self._build_loose_interleaved_text_re(
+                    "Get Help",
+                    max_gap=self.args.tmux_probe_max_gap,
+                ),
+            ]
             last_exc: Optional[pexpect.TIMEOUT] = None
-            for _ in range(3):
+            for _ in range(4):
                 try:
-                    self._recover_nano_state(child)
-                    self._probe_once(child, erase_after_echo=True)
+                    child.expect(
+                        banner_patterns,
+                        timeout=max(self.args.timeout, 45),
+                        searchwindowsize=self.tmux_search_window,
+                    )
                     return
                 except pexpect.TIMEOUT as exc:
                     last_exc = exc
+                    self._recover_nano_state(child)
             if last_exc is not None:
                 raise last_exc
         child.expect([r"GNU nano", r"\^G Help"], timeout=self.args.timeout)
@@ -465,7 +527,7 @@ class W3Benchmark:
                         child.expect(_INITIAL_PROMPT_RE, timeout=self.args.timeout)
                         self._attach_tmux_after_login(child, protocol=protocol)
                     else:
-                        self._expect_tmux_boot_marker(child)
+                        self._expect_tmux_boot_marker(child, protocol=protocol)
                 else:
                     child.expect(_INITIAL_PROMPT_RE, timeout=self.args.timeout)
                 setup_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
