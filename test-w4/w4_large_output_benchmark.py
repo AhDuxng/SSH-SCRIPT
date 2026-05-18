@@ -24,14 +24,21 @@ except ImportError as exc:
     ) from exc
 
 DEFAULT_PROTOCOLS = ["ssh", "ssh3", "mosh"]
-DEFAULT_WORKLOADS = ["large_output"]
+DEFAULT_WORKLOADS = ["per_command"]
 DEFAULT_PROMPT = "W4PROMPT#"
 DEFAULT_SSH3_PATH = "/ssh3-term"
 MARKER_TAIL_LEN = 12
 _TAIL_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 DEFAULT_COMMANDS = [
-    "seq 1 1000",
+    "find /",
+    "git status",
+    "docker logs $(docker ps -q | head -n 1)",
 ]
+COMMAND_WORKLOAD_LABELS = {
+    "find /": "find /",
+    "git status": "git status",
+    "docker logs $(docker ps -q | head -n 1)": "docker logs",
+}
 
 _ANSI_SEQ = r"(?:\x1b\[\??[0-9;]*[a-zA-Z])"
 _ECHO_GAP = rf"(?:{_ANSI_SEQ}|[\r\n\b])*"
@@ -506,9 +513,8 @@ class W4Benchmark:
     def run(self) -> None:
         random.seed(self.args.seed)
         sequence = [
-            (p, w, c, command_id)
+            (p, self._workload_for_command(c), c, command_id)
             for p in self.args.protocols
-            for w in self.args.workloads
             for command_id, c in enumerate(self.args.commands, start=1)
         ]
         if self.args.shuffle_pairs:
@@ -579,9 +585,8 @@ class W4Benchmark:
 
     def summaries(self) -> List[SummaryRow]:
         return [
-            self._summary_row(p, w, c)
+            self._summary_row(p, self._workload_for_command(c), c)
             for p in self.args.protocols
-            for w in self.args.workloads
             for c in self.args.commands
         ]
 
@@ -610,6 +615,10 @@ class W4Benchmark:
         right = 6
         left = width - 3 - right
         return f"{command[:left]}...{command[-right:]}"
+
+    @staticmethod
+    def _workload_for_command(command: str) -> str:
+        return COMMAND_WORKLOAD_LABELS.get(command, command)
 
     def print_report(self) -> None:
         def fmt(v: Optional[float]) -> str:
@@ -748,7 +757,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--source-ip", default="192.168.8.100", help="Client source IP for SSH / Mosh where supported")
     p.add_argument("--identity-file", default=str(Path.home() / ".ssh" / "id_rsa"), help="SSH private key path")
     p.add_argument("--protocols", nargs="+", default=DEFAULT_PROTOCOLS, choices=DEFAULT_PROTOCOLS)
-    p.add_argument("--workloads", nargs="+", default=DEFAULT_WORKLOADS, choices=DEFAULT_WORKLOADS)
+    p.add_argument(
+        "--workloads",
+        nargs="+",
+        default=DEFAULT_WORKLOADS,
+        choices=DEFAULT_WORKLOADS,
+        help="Deprecated compatibility flag; W4 records one workload label per command",
+    )
     p.add_argument("--commands", nargs="+", default=DEFAULT_COMMANDS, help="Large-output commands executed in each sample")
     p.add_argument("--trials", type=int, default=10, help="Independent sessions per protocol/workload pair")
     p.add_argument("--iterations", type=int, default=20, help="Recorded command samples per trial")

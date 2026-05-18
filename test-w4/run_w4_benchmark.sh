@@ -7,13 +7,14 @@ SOURCE_IP="192.168.8.100"
 IDENTITY_FILE="$HOME/.ssh/id_rsa"
 
 PROTOCOLS="ssh ssh3 mosh"
-WORKLOADS="large_output"
 
 COMMANDS=(
-  "seq 1 1000"
+  "find /"
+  "git status"
+  "docker logs \$(docker ps -q | head -n 1)"
 )
 
-ITERATIONS=30
+ITERATIONS=100
 TRIALS=3
 TIMEOUT=60
 SAMPLE_TIMEOUT=30
@@ -31,7 +32,7 @@ SSH3_INSECURE=true
 
 BATCH_MODE=false
 STRICT_HOST_KEY=false
-MOSH_PREDICT="never"
+MOSH_PREDICT="always"
 
 SHUFFLE_PAIRS=false
 REOPEN_ON_FAILURE=true
@@ -43,7 +44,6 @@ CMD=(
   --source-ip "$SOURCE_IP"
   --identity-file "$IDENTITY_FILE"
   --protocols $PROTOCOLS
-  --workloads $WORKLOADS
   --commands "${COMMANDS[@]}"
   --iterations "$ITERATIONS"
   --trials "$TRIALS"
@@ -76,4 +76,4 @@ echo ""
 python plot_trend.py \
   --output-dir "$OUTPUT_DIR" \
   --prefix "w4" \
-  --group-fields protocol workload command
+  --group-fields protocol workload
