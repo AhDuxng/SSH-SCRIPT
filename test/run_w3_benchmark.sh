@@ -6,12 +6,12 @@ USER_NAME="trungnt"
 SOURCE_IP="192.168.8.100"
 IDENTITY_FILE="$HOME/.ssh/id_rsa" 
 
-PROTOCOLS="mosh"                          
+PROTOCOLS="ssh ssh3 mosh"                          
 WORKLOADS="interactive_shell vim nano"   
 
 ITERATIONS=100         
 WARMUP_ROUNDS=10       
-TRIALS=1           
+TRIALS=3           
 TIMEOUT=20           
 SEED=42                
 
