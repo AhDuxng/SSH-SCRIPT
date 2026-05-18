@@ -19,6 +19,9 @@ OUTPUT_DIR="w3_results"
 LOG_PEXPECT=false    
 
 PROMPT="__W3_PROMPT__# "
+PROBE_MODE="${PROBE_MODE:-1}"
+PROBE_CHARS="${PROBE_CHARS:-abcdegijkopvwxz}"
+PROBE_STRING_CHARS="${PROBE_STRING_CHARS:-abcdegijkopvwxz}"
 
 SSH3_PATH="/ssh3-term"
 SSH3_INSECURE=true     
@@ -33,6 +36,14 @@ REMOTE_NANO_FILE="/tmp/w3_nano_bench.txt"
 SHUFFLE_PAIRS=false       
 REOPEN_ON_FAILURE=true    
 
+case "${PROBE_MODE}" in
+    1|2|char|string) ;;
+    *)
+        echo "ERROR: PROBE_MODE must be one of: 1, 2, char, string" >&2
+        exit 1
+        ;;
+esac
+
 CMD=(
     python w3_interactive_benchmark.py
     --host            "$HOST"
@@ -46,6 +57,9 @@ CMD=(
     --trials          "$TRIALS"
     --timeout         "$TIMEOUT"
     --seed            "$SEED"
+    --probe-mode      "$PROBE_MODE"
+    --probe-chars     "$PROBE_CHARS"
+    --probe-string-chars "$PROBE_STRING_CHARS"
     --output-dir      "$OUTPUT_DIR"
     --prompt          "$PROMPT"
     --ssh3-path       "$SSH3_PATH"

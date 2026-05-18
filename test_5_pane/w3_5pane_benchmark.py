@@ -87,37 +87,14 @@ class W3Benchmark:
             ch for ch in dict.fromkeys(args.probe_chars)
             if ch.isalnum() and ch.isprintable()
         )
-        if not args.probe_string_chars:
-            raise ValueError("--probe-string-chars must contain at least one character")
-        probe_string_chars = "".join(
-            ch for ch in dict.fromkeys(args.probe_string_chars)
-            if ch.isalnum() and ch.isprintable()
-        )
         if not probe_chars:
             raise ValueError("--probe-chars must contain alphanumeric characters")
-        if not probe_string_chars:
-            raise ValueError(
-                "--probe-string-chars must contain alphanumeric characters"
-            )
         if args.probe_search_window < 0:
             raise ValueError("--probe-search-window must be >= 0")
         if args.tmux_search_window < 0:
             raise ValueError("--tmux-search-window must be >= 0")
-        probe_mode = str(args.probe_mode).strip().lower()
-        if probe_mode in ("1", "char"):
-            self.probe_mode = "char"
-        elif probe_mode in ("2", "string"):
-            self.probe_mode = "string"
-        else:
-            raise ValueError("--probe-mode must be one of: 1, 2, char, string")
-        if self.probe_mode == "string" and len(probe_string_chars) < 2:
-            raise ValueError(
-                "--probe-string-chars must contain at least 2 unique characters "
-                "when --probe-mode=2"
-            )
         self.prompt_re = self._build_prompt_re(self.prompt_marker)
         self.probe_chars = probe_chars
-        self.probe_string_chars = probe_string_chars
         self.probe_search_window: Optional[int] = (
             None if args.probe_search_window == 0
             else max(8, args.probe_search_window)
@@ -126,8 +103,7 @@ class W3Benchmark:
             None if args.tmux_search_window == 0
             else max(1024, args.tmux_search_window)
         )
-        self.prev_probe_text: Optional[str] = None
-        self.last_probe_text_len: int = 1
+        self.prev_probe_char: Optional[str] = None
         self.records:  List[SampleRecord]  = []
         self.failures: List[FailureRecord] = []
         self.results: Dict[str, Dict[str, List[float]]] = {
@@ -353,25 +329,17 @@ class W3Benchmark:
                 break
 
     def _next_probe_text(self) -> str:
-        if self.probe_mode == "char":
-            if len(self.probe_chars) == 1:
-                probe_char = self.probe_chars[0]
-                self.prev_probe_text = probe_char
-                return probe_char
-
-            probe_char = random.choice(self.probe_chars)
-            if self.prev_probe_text is not None and probe_char == self.prev_probe_text:
-                choices = self.probe_chars.replace(self.prev_probe_text, "")
-                probe_char = random.choice(choices)
-            self.prev_probe_text = probe_char
+        if len(self.probe_chars) == 1:
+            probe_char = self.probe_chars[0]
+            self.prev_probe_char = probe_char
             return probe_char
 
-        alphabet = self.probe_string_chars
-        text = "".join(random.sample(alphabet, k=len(alphabet)))
-        if self.prev_probe_text is not None and text == self.prev_probe_text:
-            text = "".join(random.sample(alphabet, k=len(alphabet)))
-        self.prev_probe_text = text
-        return text
+        probe_char = random.choice(self.probe_chars)
+        if self.prev_probe_char is not None and probe_char == self.prev_probe_char:
+            choices = self.probe_chars.replace(self.prev_probe_char, "")
+            probe_char = random.choice(choices)
+        self.prev_probe_char = probe_char
+        return probe_char
 
     def _consume_stray_probe_text(
         self,
@@ -411,7 +379,6 @@ class W3Benchmark:
             # times; clear more stale matches to avoid near-zero false samples.
             consume_polls = 128
         probe_text = self._next_probe_text()
-        self.last_probe_text_len = max(1, len(probe_text))
         self._consume_stray_probe_text(
             child,
             probe_text,
@@ -680,7 +647,7 @@ class W3Benchmark:
                 continue
             if erase_per_probe:
                 continue
-            pending_chars += self.last_probe_text_len
+            pending_chars += 1
             if pending_chars >= cleanup_batch:
                 self._erase_probe_chars(child, pending_chars)
                 pending_chars = 0
@@ -722,7 +689,7 @@ class W3Benchmark:
                 continue
             fail_streak = 0
             if not erase_per_probe:
-                pending_chars += self.last_probe_text_len
+                pending_chars += 1
             if not erase_per_probe and pending_chars >= cleanup_batch:
                 self._erase_probe_chars(child, pending_chars)
                 pending_chars = 0
@@ -1226,20 +1193,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Random seed",
     )
     p.add_argument(
-        "--probe-mode", default="1",
-        choices=["1", "2", "char", "string"],
-        help=(
-            "Probe payload mode: 1/char = single character (current behavior), "
-            "2/string = shuffled string from --probe-string-chars"
-        ),
-    )
-    p.add_argument(
         "--probe-chars", default=PROBE_CHAR_ALPHABET,
-        help="Alphanumeric character pool for probe mode 1 (single character)",
-    )
-    p.add_argument(
-        "--probe-string-chars", default=PROBE_CHAR_ALPHABET,
-        help="Alphanumeric source alphabet for probe mode 2 (shuffle each probe)",
+        help="Alphanumeric character pool for random single-character probes",
     )
     p.add_argument(
         "--probe-search-window", type=int, default=0,

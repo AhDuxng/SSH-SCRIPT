@@ -21,9 +21,7 @@ SEED="${SEED:-42}"
 
 # Background panes redraw continuously. Keep probe chars rare and absent from
 # the default background text to avoid matching the wrong pane.
-PROBE_MODE="${PROBE_MODE:-1}"
 PROBE_CHARS="${PROBE_CHARS:-QZ}"
-PROBE_STRING_CHARS="${PROBE_STRING_CHARS:-abcdegijkopvwxz}"
 PROBE_SEARCH_WINDOW="${PROBE_SEARCH_WINDOW:-0}"
 EDITOR_CLEANUP_BATCH="${EDITOR_CLEANUP_BATCH:-32}"
 
@@ -101,15 +99,6 @@ has_proto() {
   local name="$1"
   [[ " $PROTOCOLS " == *" $name "* ]]
 }
-
-case "${PROBE_MODE}" in
-  1|2|char|string)
-    ;;
-  *)
-    echo "ERROR: PROBE_MODE must be one of: 1, 2, char, string" >&2
-    exit 1
-    ;;
-esac
 
 drop_proto() {
   local name="$1"
@@ -619,10 +608,7 @@ run_for_host() {
   echo "[${HOST}] protocols: ${PROTOCOLS}"
   echo "[${HOST}] workloads: ${WORKLOADS}"
   echo "[${HOST}] tmux: session=${TMUX_SESSION}, pane0=${TMUX_WINDOW}.${PANE0_INDEX}"
-  echo "[${HOST}] probe mode/chars/window: ${PROBE_MODE}/${PROBE_CHARS}/${PROBE_SEARCH_WINDOW}"
-  if [[ "$PROBE_MODE" == "2" || "$PROBE_MODE" == "string" ]]; then
-    echo "[${HOST}] probe string alphabet: ${PROBE_STRING_CHARS}"
-  fi
+  echo "[${HOST}] probe chars/window: ${PROBE_CHARS}/${PROBE_SEARCH_WINDOW}"
 
   stop_stale_local_benchmarks "$HOST" || return 1
 
@@ -691,9 +677,7 @@ run_for_host() {
       --warmup-rounds "$WARMUP_ROUNDS"
       --timeout "$TIMEOUT"
       --seed "$SEED"
-      --probe-mode "$PROBE_MODE"
       --probe-chars "$PROBE_CHARS"
-      --probe-string-chars "$PROBE_STRING_CHARS"
       --probe-search-window "$PROBE_SEARCH_WINDOW"
       --editor-cleanup-batch "$EDITOR_CLEANUP_BATCH"
       --tmux-fail-streak-limit "$TMUX_FAIL_STREAK_LIMIT"
