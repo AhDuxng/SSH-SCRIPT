@@ -1,15 +1,14 @@
-#!/usr/bin/env bash
+﻿#!/usr/bin/env bash
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-HOST="${HOST:-192.168.8.102}"
+HOST="${HOST:-100.66.79.93}"
 HOSTS="${HOSTS:-$HOST}"
-USER_NAME="${USER_NAME:-trungnt}"
-SOURCE_IP="${SOURCE_IP:-192.168.8.100}"
-IDENTITY_FILE="${IDENTITY_FILE:-$HOME/.ssh/id_rsa}"
-
+USER_NAME="${USER_NAME:-pi}"
+SOURCE_IP="${SOURCE_IP:-100.70.166.91}"
+IDENTITY_FILE="${IDENTITY_FILE:-$HOME/.ssh/id_ed25519}"
 PROTOCOLS="${PROTOCOLS:-ssh ssh3 mosh}"
 WORKLOADS="${WORKLOADS:-interactive_shell vim nano}"
 
@@ -44,7 +43,7 @@ ATTACH_BOOT_MARKER="${ATTACH_BOOT_MARKER:-__W3_ATTACH_PANE0_READY__}"
 RESPAWN_PANE0_ON_ATTACH="${RESPAWN_PANE0_ON_ATTACH:-true}"
 PANE0_RC_PATH="${PANE0_RC_PATH:-/tmp/w3_pane0_rc_${TMUX_SESSION//[^A-Za-z0-9_.-]/_}}"
 
-SSH3_PATH="${SSH3_PATH:-/ssh3-term}"
+SSH3_PATH="${SSH3_PATH:-:4433/ssh3-term}"
 SSH3_INSECURE="${SSH3_INSECURE:-true}"
 SSH3_ATTACH_MODE="${SSH3_ATTACH_MODE:-auto}"
 BATCH_MODE="${BATCH_MODE:-false}"
