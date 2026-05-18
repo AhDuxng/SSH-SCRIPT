@@ -22,6 +22,13 @@ except ImportError as exc:
         "Missing dependency: pexpect. Install with: pip install pexpect"
     ) from exc
 
+try:
+    import pyte
+except ImportError as exc:
+    raise SystemExit(
+        "Missing dependency: pyte. Install with: pip install pyte"
+    ) from exc
+
 DEFAULT_PROTOCOLS = ["ssh", "ssh3", "mosh"]
 DEFAULT_WORKLOADS = ["top", "tail", "ping"]
 DEFAULT_PROMPT = "__W2_PROMPT__#"
@@ -301,9 +308,10 @@ class W2Benchmark:
 
         for probe_idx in range(1, probes + 1):
             try:
+                probe_timeout = min(self.args.timeout, 10)
                 t0 = time.time_ns()
                 child.sendline("echo \"W2_CLOCK_TS:$(date +%s%N)\"")
-                child.expect(marker_re, timeout=self.args.timeout)
+                child.expect(marker_re, timeout=probe_timeout)
                 t1 = time.time_ns()
                 mid_local_ns = (t0 + t1) // 2
                 remote_ns = self._parse_epoch_to_ns(child.match.group(1), mid_local_ns)
@@ -406,78 +414,69 @@ class W2Benchmark:
         child: pexpect.spawn,
         iterations: int,
         report_cb: Callable[[int, float], None],
-        re_estimate_cb: Optional[Callable[[], None]] = None,
-        re_estimate_interval: int = 30,
+        protocol: str = "ssh",
     ) -> None:
         interval = self.args.top_interval
-        marker_re = re.compile(
-            self._build_gapped_literal("W2_CUI_FRAME:") + _GAPPED_EPOCH_NS
-        )
-        # ANSI full-screen renderer: clears screen, homes cursor, prints a
-        # static 20-line dashboard with the timestamp on line 1. Each frame
-        # differs only in the timestamp → Mosh SSP transmits minimal diff.
-        # CPU cost: ~0 (printf + sleep, no fork to top/ps).
+        marker_re = re.compile(r"W2_CUI_\d+:(\d{10,19})")
         CUI_LOOP = (
-            r"""printf '\033[?25l'; """
             f"SEQ=0; while true; do "
-            r"""printf '\033[2J\033[H'; """
             f"SEQ=$((SEQ+1)); "
-            f"echo \"W2_CUI_FRAME:$(date +%s%N)\"; "
-            r"""printf '─%.0s' $(seq 1 60); echo; """
-            r"""echo " System Monitor  [CUI Benchmark]       Frame: '$SEQ; """
-            r"""printf '─%.0s' $(seq 1 60); echo; """
-            r"""echo " CPU [████████████████░░░░]  78.3%%"; """
-            r"""echo " MEM [██████████████░░░░░░]  67.1%%  1.34G/2.00G"; """
-            r"""echo " SWP [██░░░░░░░░░░░░░░░░░░]   9.8%%  0.10G/1.00G"; """
-            r"""printf '─%.0s' $(seq 1 60); echo; """
-            r"""echo "  PID USER      PR  NI    VIRT    RES  %CPU %MEM  TIME+"; """
-            r"""echo " 1024 root      20   0  162524  12340   4.2  0.6  0:12.34"; """
-            r"""echo " 1138 www-data  20   0   98204   8712   3.1  0.4  0:08.91"; """
-            r"""echo " 2201 postgres  20   0  245680  34120   2.8  1.7  0:45.67"; """
-            r"""echo " 3345 node      20   0  712340  56780   2.1  2.8  1:23.45"; """
-            r"""echo " 4410 redis     20   0   52340   9870   1.5  0.5  0:34.12"; """
-            r"""echo " 5523 nginx     20   0   34560   4320   0.9  0.2  0:05.67"; """
-            r"""printf '─%.0s' $(seq 1 60); echo; """
-            r"""echo " Load avg: 1.23 0.98 0.87   Tasks: 142 total"; """
-            r"""echo " Uptime: 3d 14:22:01         Users: 2"; """
-            r"""printf '─%.0s' $(seq 1 60); echo; """
-            r"""echo ""; echo ""; echo ""; """
+            r"printf '\033[2J\033[H"
+            r"=== System Monitor [Frame %d] ===\n"
+            r" CPU [####............]  78%%\n"
+            r" MEM [##########......]  67%%\n"
+            r" SWP [##.................] 10%%\n"
+            r"---\n"
+            r" PID  USER      %%CPU  COMMAND\n"
+            r"1024  root       4.2  systemd\n"
+            r"1138  www-data   3.1  nginx\n"
+            r"2201  postgres   2.8  postgres\n"
+            r"3345  node       2.1  node\n"
+            r"4410  redis      1.5  redis-server\n"
+            r"---\n"
+            r"W2_CUI_%d:%s\n"
+            "' "
+            f"\"$SEQ\" \"$SEQ\" \"$(date +%s%N)\"; "
             f"sleep {interval}; "
             f"done"
         )
         expect_timeout = max(self.args.timeout, int(interval * 3) + 5)
         dropped = 0
 
-        def start_loop() -> None:
-            child.sendline(CUI_LOOP)
-            for _ in range(3):
-                child.expect(marker_re, timeout=expect_timeout)
-
         def stop_loop() -> None:
             for _ in range(3):
                 child.sendcontrol("c")
                 time.sleep(0.5)
             try:
-                child.sendline(r"printf '\033[?25h'")
                 self._expect_prompt(child)
             except pexpect.TIMEOUT:
                 child.sendcontrol("c")
                 time.sleep(1)
                 self._expect_prompt(child)
 
-        start_loop()
+        if protocol == "mosh":
+            self._measure_top_pyte(child, iterations, report_cb, marker_re, CUI_LOOP, expect_timeout, stop_loop)
+        else:
+            self._measure_top_regex(child, iterations, report_cb, marker_re, CUI_LOOP, expect_timeout, stop_loop)
+
+    def _measure_top_regex(
+        self,
+        child: pexpect.spawn,
+        iterations: int,
+        report_cb: Callable[[int, float], None],
+        marker_re: re.Pattern,
+        cui_loop: str,
+        expect_timeout: float,
+        stop_loop: Callable[[], None],
+    ) -> None:
+        dropped = 0
+
+        child.sendline(cui_loop)
+        for _ in range(3):
+            child.expect(marker_re, timeout=expect_timeout)
 
         sample_id = 0
         while sample_id < iterations:
-            if (
-                re_estimate_cb is not None
-                and sample_id > 0
-                and sample_id % re_estimate_interval == 0
-            ):
-                stop_loop()
-                re_estimate_cb()
-                start_loop()
-
             child.expect(marker_re, timeout=expect_timeout)
             recv_ns = time.time_ns()
             raw_token = child.match.group(1)
@@ -500,6 +499,82 @@ class W2Benchmark:
                 continue
             sample_id += 1
             report_cb(sample_id, lat)
+
+        stop_loop()
+
+    def _measure_top_pyte(
+        self,
+        child: pexpect.spawn,
+        iterations: int,
+        report_cb: Callable[[int, float], None],
+        marker_re: re.Pattern,
+        cui_loop: str,
+        expect_timeout: float,
+        stop_loop: Callable[[], None],
+    ) -> None:
+        """Mosh SSP sends per-cell diffs — raw PTY regex fails after frame 1.
+        Use pyte virtual terminal to reconstruct screen state."""
+        dropped = 0
+        screen = pyte.Screen(120, 40)
+        stream = pyte.Stream(screen)
+
+        child.sendline(cui_loop)
+
+        last_epoch: Optional[str] = None
+        sample_id = 0
+        warmup_frames = 3
+        warmup_seen = 0
+        deadline = time.time() + expect_timeout
+
+        while sample_id < iterations:
+            if time.time() > deadline:
+                raise pexpect.TIMEOUT(f"top/pyte: no new frame within {expect_timeout}s")
+
+            try:
+                data = child.read_nonblocking(size=4096, timeout=1.0)
+            except pexpect.TIMEOUT:
+                continue
+            except pexpect.EOF:
+                raise
+
+            if data:
+                stream.feed(data)
+
+            for row in range(screen.lines):
+                line = screen.display[row].rstrip()
+                m = marker_re.search(line)
+                if m:
+                    raw_token = m.group(1)
+                    if raw_token == last_epoch:
+                        break
+                    recv_ns = time.time_ns()
+                    last_epoch = raw_token
+                    deadline = time.time() + expect_timeout
+
+                    if warmup_seen < warmup_frames:
+                        warmup_seen += 1
+                        break
+
+                    try:
+                        remote_event_ns = self._parse_epoch_to_ns(raw_token, recv_ns)
+                    except ValueError as exc:
+                        dropped = self._warn_and_count_invalid("top", dropped, str(exc), raw_token)
+                        break
+                    lat = self._event_latency_ms(remote_event_ns, recv_ns)
+                    if not self._latency_is_valid(lat):
+                        dropped = self._warn_and_count_invalid(
+                            "top",
+                            dropped,
+                            (
+                                f"latency {lat:.2f} ms outside "
+                                f"[{self.args.min_valid_latency_ms:.2f}, {self.args.max_valid_latency_ms:.2f}]"
+                            ),
+                            raw_token,
+                        )
+                        break
+                    sample_id += 1
+                    report_cb(sample_id, lat)
+                    break
 
         stop_loop()
 
@@ -646,11 +721,7 @@ class W2Benchmark:
             )
 
         if workload == "top":
-            def re_estimate_cb() -> None:
-                self.current_clock_offset_ns = self._estimate_clock_offset_ns(
-                    child, protocol, workload, trial_id
-                )
-            self._measure_top(child, self.args.iterations, report_cb, re_estimate_cb=re_estimate_cb)
+            self._measure_top(child, self.args.iterations, report_cb, protocol)
         elif workload == "tail":
             self._measure_tail(child, self.args.iterations, report_cb)
         elif workload == "ping":

@@ -11,7 +11,7 @@
 #
 # Usage:
 #   ./set_network.sh <iface> {low|medium|high|clear|show}
-#
+#zz
 # Scenarios (OWD = one-way delay, RTT = 2 × OWD):
 #   low    : BW=100Mbps, OWD=10ms,  jitter=0ms,  loss=0%   → RTT ≈ 20ms
 #   medium : BW=40Mbps,  OWD=50ms,  jitter=4ms,  loss=1.5% → RTT ≈ 100ms ± 8ms
