@@ -165,6 +165,12 @@ class W3Benchmark:
             return self.args.tmux_probe_max_gap
         return min(self.args.tmux_probe_max_gap, 48)
 
+    def _tmux_boot_marker_max_gap(self, protocol: Optional[str]) -> int:
+        if protocol != "mosh":
+            return self.args.tmux_probe_max_gap
+        # Boot marker is matched once per open-session; prefer tolerance.
+        return self.args.tmux_probe_max_gap
+
     def _expect_tmux_boot_marker(
         self,
         child: pexpect.spawn,
@@ -186,7 +192,7 @@ class W3Benchmark:
                 child.expect(
                     self._build_loose_interleaved_text_re(
                         boot_marker,
-                        max_gap=self._tmux_marker_max_gap(protocol),
+                        max_gap=self._tmux_boot_marker_max_gap(protocol),
                     ),
                     timeout=max(3, min(self.args.timeout, 10)),
                     searchwindowsize=marker_window,
