@@ -10,7 +10,7 @@ PROTOCOLS="ssh ssh3 mosh"
 WORKLOADS="large_output"
 
 COMMANDS=(
-  "seq 1 100"
+  "seq 1 1000"
 )
 
 ITERATIONS=30

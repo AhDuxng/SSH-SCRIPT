@@ -30,7 +30,7 @@ DEFAULT_SSH3_PATH = "/ssh3-term"
 MARKER_TAIL_LEN = 12
 _TAIL_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 DEFAULT_COMMANDS = [
-    "seq 1 100",
+    "seq 1 1000",
 ]
 
 _ANSI_SEQ = r"(?:\x1b\[\??[0-9;]*[a-zA-Z])"
