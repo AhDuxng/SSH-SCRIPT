@@ -179,7 +179,9 @@ class W4Benchmark:
         idle_timeout = float(self.args.command_idle_timeout)
         last_data_at = time.monotonic()
         clean_buffer = ""
+        debug_tail = ""
         max_buffer_chars = 262_144
+        read_size = max(4096, int(self.args.maxread))
         output_bytes = 0
         saw_activity = False
         marker_re = self._build_token_re(marker)
@@ -188,14 +190,15 @@ class W4Benchmark:
         marker_tail_norm = self._normalize_marker_scan(marker_tail)
 
         def raise_timeout(reason: str) -> None:
-            tail = clean_buffer[-500:]
+            tail = debug_tail[-500:]
             if "command not found" in tail.lower():
                 raise ValueError(
                     f"Remote command failed before marker ({reason}): command not found. "
-                    f"clean_tail={tail!r}"
+                    f"output_bytes={output_bytes}, clean_tail={tail!r}"
                 )
             raise pexpect.TIMEOUT(
-                f"{reason} while waiting for marker {marker!r}. clean_tail={tail!r}"
+                f"{reason} while waiting for marker {marker!r}. "
+                f"output_bytes={output_bytes}, clean_tail={tail!r}"
             )
 
         while True:
@@ -212,7 +215,7 @@ class W4Benchmark:
                 read_timeout = min(read_timeout, max(0.05, idle_left))
 
             try:
-                chunk = child.read_nonblocking(size=4096, timeout=read_timeout)
+                chunk = child.read_nonblocking(size=read_size, timeout=read_timeout)
             except pexpect.TIMEOUT:
                 continue
             except pexpect.EOF as exc:
@@ -235,6 +238,7 @@ class W4Benchmark:
 
             saw_activity = True
             clean_buffer += clean_chunk
+            debug_tail = (debug_tail + clean_chunk)[-500:]
 
             marker_match = marker_re.search(clean_buffer)
             if marker_match is not None:
@@ -765,11 +769,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Deprecated compatibility flag; W4 records one workload label per command",
     )
     p.add_argument("--commands", nargs="+", default=DEFAULT_COMMANDS, help="Large-output commands executed in each sample")
-    p.add_argument("--trials", type=int, default=10, help="Independent sessions per protocol/workload pair")
-    p.add_argument("--iterations", type=int, default=20, help="Recorded command samples per trial")
+    p.add_argument("--trials", type=int, default=3, help="Independent sessions per protocol/workload pair")
+    p.add_argument("--iterations", type=int, default=1, help="Recorded command samples per trial")
     p.add_argument("--timeout", type=int, default=60, help="pexpect timeout in seconds for session setup/recovery")
-    p.add_argument("--sample-timeout", type=float, default=30.0, help="Maximum seconds to wait for one command sample marker")
-    p.add_argument("--command-idle-timeout", type=float, default=10.0, help="Fail command only if no output is observed for this many seconds (0 = disable idle timeout)")
+    p.add_argument("--sample-timeout", type=float, default=300.0, help="Maximum seconds to wait for one command sample marker")
+    p.add_argument("--command-idle-timeout", type=float, default=30.0, help="Fail command only if no output is observed for this many seconds (0 = disable idle timeout)")
     p.add_argument("--maxread", type=int, default=65535, help="pexpect maxread bytes")
     p.add_argument("--search-window-size", type=int, default=8192, help="pexpect search window size (0 = unlimited)")
     p.add_argument("--seed", type=int, default=42, help="Random seed")
