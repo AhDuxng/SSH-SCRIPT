@@ -148,6 +148,23 @@ class W3Benchmark:
         protocols = os.environ.get("W3_ATTACH_AFTER_LOGIN_PROTOCOLS", "")
         return protocol in protocols.split()
 
+    def _tmux_marker_search_window(
+        self,
+        protocol: Optional[str],
+    ) -> Optional[int]:
+        # In mosh+tmux mode, very large search windows can make marker scans
+        # expensive under heavy background redraw. Cap window for marker sync.
+        if protocol != "mosh":
+            return self.tmux_search_window
+        if self.tmux_search_window is None:
+            return 8192
+        return min(self.tmux_search_window, 8192)
+
+    def _tmux_marker_max_gap(self, protocol: Optional[str]) -> int:
+        if protocol != "mosh":
+            return self.args.tmux_probe_max_gap
+        return min(self.args.tmux_probe_max_gap, 48)
+
     def _expect_tmux_boot_marker(
         self,
         child: pexpect.spawn,
@@ -158,14 +175,22 @@ class W3Benchmark:
             "__W3_ATTACH_PANE0_READY__",
         )
         if protocol == "mosh":
-            child.expect(
-                self._build_loose_interleaved_text_re(
+            marker_window = self._tmux_marker_search_window(protocol)
+            try:
+                child.expect_exact(
                     boot_marker,
-                    max_gap=self.args.tmux_probe_max_gap,
-                ),
-                timeout=max(self.args.timeout, 45),
-                searchwindowsize=self.tmux_search_window,
-            )
+                    timeout=self.args.timeout,
+                    searchwindowsize=marker_window,
+                )
+            except pexpect.TIMEOUT:
+                child.expect(
+                    self._build_loose_interleaved_text_re(
+                        boot_marker,
+                        max_gap=self._tmux_marker_max_gap(protocol),
+                    ),
+                    timeout=max(3, min(self.args.timeout, 10)),
+                    searchwindowsize=marker_window,
+                )
             return
         child.expect_exact(
             boot_marker,
@@ -200,42 +225,48 @@ class W3Benchmark:
         if self._tmux_attach_mode():
             marker = f"__W3_PROMPT_READY__{random.randrange(10_000, 99_999)}__"
             last_exc: Optional[pexpect.TIMEOUT] = None
-            attempts = 5 if protocol == "mosh" else 3
+            attempts = 3
+            marker_window = self._tmux_marker_search_window(protocol)
             for _ in range(attempts):
                 self._drain_pending_output(child, max_reads=16)
                 child.sendline("")
-                if protocol == "mosh":
-                    child.sendline(f"printf '%s\\n' {shlex.quote(marker)}")
-                else:
-                    child.sendline(self._printf_literal_cmd(marker + "\n"))
+                child.sendline(self._printf_literal_cmd(marker + "\n"))
                 try:
                     if protocol == "mosh":
-                        child.expect(
-                            self._build_loose_interleaved_text_re(
+                        try:
+                            child.expect_exact(
                                 marker,
-                                max_gap=self.args.tmux_probe_max_gap,
-                            ),
-                            timeout=max(self.args.timeout, 45),
-                            searchwindowsize=self.tmux_search_window,
-                        )
+                                timeout=max(4, min(self.args.timeout, 10)),
+                                searchwindowsize=marker_window,
+                            )
+                        except pexpect.TIMEOUT:
+                            child.expect(
+                                self._build_loose_interleaved_text_re(
+                                    marker,
+                                    max_gap=self._tmux_marker_max_gap(protocol),
+                                ),
+                                timeout=max(3, min(self.args.timeout, 8)),
+                                searchwindowsize=marker_window,
+                            )
                     else:
                         child.expect_exact(
                             marker,
                             timeout=self.args.timeout,
-                            searchwindowsize=self.tmux_search_window,
+                            searchwindowsize=marker_window,
                         )
                     return
                 except pexpect.TIMEOUT as exc:
                     last_exc = exc
             if last_exc is not None:
                 if protocol == "mosh":
-                    # Under heavy 5-pane redraw on fast links, marker text can
-                    # be delayed or fragmented beyond strict matching. Try a
-                    # non-recorded probe as a soft readiness check before giving
-                    # up the whole trial.
-                    for _ in range(2):
+                    # Final lightweight readiness probe before failing.
+                    for _ in range(1):
                         try:
-                            self._probe_once(child, erase_after_echo=True)
+                            self._probe_once(
+                                child,
+                                erase_after_echo=True,
+                                expect_timeout=max(2, min(self.args.timeout, 4)),
+                            )
                             return
                         except pexpect.TIMEOUT:
                             self._drain_pending_output(child, max_reads=16)
@@ -330,10 +361,12 @@ class W3Benchmark:
         child: pexpect.spawn,
         erase_after_echo: bool = False,
         erase_key: str = "\x7f",
+        expect_timeout: Optional[float] = None,
     ) -> float:
         self._drain_pending_output(child)
         search_window: Optional[int] = self.probe_search_window
         consume_polls = 4
+        timeout = self.args.timeout if expect_timeout is None else expect_timeout
         if self._tmux_attach_mode():
             search_window = self.tmux_search_window
             # In 5-pane mode the same single-char probe may be re-rendered many
@@ -351,13 +384,13 @@ class W3Benchmark:
         if self._tmux_attach_mode():
             child.expect_exact(
                 probe_text,
-                timeout=self.args.timeout,
+                timeout=timeout,
                 searchwindowsize=self.tmux_search_window,
             )
         else:
             child.expect_exact(
                 probe_text,
-                timeout=self.args.timeout,
+                timeout=timeout,
                 searchwindowsize=search_window,
             )
         end_ns = time.perf_counter_ns()
