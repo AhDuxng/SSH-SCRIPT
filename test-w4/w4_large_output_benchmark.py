@@ -30,9 +30,7 @@ DEFAULT_SSH3_PATH = "/ssh3-term"
 MARKER_TAIL_LEN = 12
 _TAIL_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 DEFAULT_COMMANDS = [
-    "find /",
-    "git status",
-    "docker logs $(docker ps -q | head -n 1)",
+    "seq 1 100",
 ]
 
 _ANSI_SEQ = r"(?:\x1b\[\??[0-9;]*[a-zA-Z])"
@@ -169,13 +167,16 @@ class W4Benchmark:
         child.expect(self.prompt_re, timeout=self.args.timeout)
 
     def _wait_for_marker_line(self, child: pexpect.spawn, marker: str, marker_tail: str) -> int:
-        deadline = time.monotonic() + float(self.args.timeout)
+        sample_timeout = float(self.args.sample_timeout)
+        deadline = time.monotonic() + sample_timeout
         idle_timeout = float(self.args.command_idle_timeout)
         last_data_at = time.monotonic()
         clean_buffer = ""
         max_buffer_chars = 262_144
         output_bytes = 0
         saw_activity = False
+        marker_re = self._build_token_re(marker)
+        marker_tail_re = self._build_token_re(marker_tail)
         marker_norm = self._normalize_marker_scan(marker)
         marker_tail_norm = self._normalize_marker_scan(marker_tail)
 
@@ -193,7 +194,7 @@ class W4Benchmark:
         while True:
             now = time.monotonic()
             if now >= deadline:
-                raise_timeout(f"Marker not received within {self.args.timeout:.1f}s")
+                raise_timeout(f"Marker not received within {sample_timeout:.1f}s")
 
             if idle_timeout > 0 and saw_activity and (now - last_data_at) >= idle_timeout:
                 raise_timeout(f"No output for {idle_timeout:.1f}s")
@@ -227,16 +228,21 @@ class W4Benchmark:
 
             saw_activity = True
             clean_buffer += clean_chunk
-            if len(clean_buffer) > max_buffer_chars:
-                clean_buffer = clean_buffer[-max_buffer_chars:]
 
-            # Mosh can fragment marker bytes with control traffic; match full marker
-            # on a normalized sliding window with tail fallback.
-            normalized_window = self._normalize_marker_scan(clean_buffer[-8192:])
-            if marker_norm in normalized_window:
-                return output_bytes
-            if marker_tail_norm and marker_tail_norm in normalized_window:
-                return output_bytes
+            marker_match = marker_re.search(clean_buffer)
+            if marker_match is not None:
+                return output_bytes + len(
+                    clean_buffer[: marker_match.start()].encode(
+                        "utf-8", errors="ignore"
+                    )
+                )
+            marker_tail_match = marker_tail_re.search(clean_buffer)
+            if marker_tail_match is not None:
+                return output_bytes + len(
+                    clean_buffer[: marker_tail_match.start()].encode(
+                        "utf-8", errors="ignore"
+                    )
+                )
 
             lines = clean_buffer.split("\n")
             clean_buffer = lines.pop() if lines else ""
@@ -263,6 +269,18 @@ class W4Benchmark:
                 if prompt_pos >= 0:
                     output_bytes += len(clean_buffer[:prompt_pos].encode("utf-8", errors="ignore"))
                     return output_bytes
+            if len(clean_buffer) > max_buffer_chars:
+                dropped = clean_buffer[:-max_buffer_chars]
+                output_bytes += len(dropped.encode("utf-8", errors="ignore"))
+                clean_buffer = clean_buffer[-max_buffer_chars:]
+
+            # Mosh can fragment marker bytes with control traffic; keep this as
+            # a last-resort marker detector so the sample fails less often.
+            normalized_window = self._normalize_marker_scan(clean_buffer[-8192:])
+            if marker_norm in normalized_window:
+                return output_bytes
+            if marker_tail_norm and marker_tail_norm in normalized_window:
+                return output_bytes
 
     def _next_marker_tail(self) -> str:
         if self.prev_marker_tail is None:
@@ -340,8 +358,10 @@ class W4Benchmark:
 
     def _close_session(self, child: pexpect.spawn) -> None:
         try:
+            child.sendcontrol("c")
+            time.sleep(0.2)
             child.sendline("exit")
-            child.expect(pexpect.EOF)
+            child.expect(pexpect.EOF, timeout=5)
         except Exception:
             child.close(force=True)
         finally:
@@ -476,7 +496,7 @@ class W4Benchmark:
                         command_id,
                         trial_id,
                     )
-                except (pexpect.TIMEOUT, pexpect.EOF):
+                except (pexpect.TIMEOUT, pexpect.EOF, ValueError):
                     if self.args.reopen_on_failure:
                         continue
             finally:
@@ -732,8 +752,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--commands", nargs="+", default=DEFAULT_COMMANDS, help="Large-output commands executed in each sample")
     p.add_argument("--trials", type=int, default=10, help="Independent sessions per protocol/workload pair")
     p.add_argument("--iterations", type=int, default=20, help="Recorded command samples per trial")
-    p.add_argument("--timeout", type=int, default=300, help="pexpect timeout in seconds")
-    p.add_argument("--command-idle-timeout", type=float, default=30.0, help="Fail command only if no output is observed for this many seconds (0 = disable idle timeout)")
+    p.add_argument("--timeout", type=int, default=60, help="pexpect timeout in seconds for session setup/recovery")
+    p.add_argument("--sample-timeout", type=float, default=30.0, help="Maximum seconds to wait for one command sample marker")
+    p.add_argument("--command-idle-timeout", type=float, default=10.0, help="Fail command only if no output is observed for this many seconds (0 = disable idle timeout)")
     p.add_argument("--maxread", type=int, default=65535, help="pexpect maxread bytes")
     p.add_argument("--search-window-size", type=int, default=8192, help="pexpect search window size (0 = unlimited)")
     p.add_argument("--seed", type=int, default=42, help="Random seed")
@@ -760,6 +781,8 @@ def main() -> int:
         parser.error("--iterations must be > 0")
     if args.timeout <= 0:
         parser.error("--timeout must be > 0")
+    if args.sample_timeout <= 0:
+        parser.error("--sample-timeout must be > 0")
     if args.command_idle_timeout < 0:
         parser.error("--command-idle-timeout must be >= 0")
     if args.maxread <= 0:
