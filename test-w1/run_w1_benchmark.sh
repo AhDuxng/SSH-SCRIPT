@@ -17,11 +17,11 @@ set -euo pipefail
 
 SCENARIO="${1:?usage: $0 <scenario-label, e.g. low|medium|high>}"
 
-# HOST="100.66.79.93"
-HOST="10.42.0.206"
+HOST="100.66.79.93"
+# HOST="10.42.0.206"
 USER_NAME="pi"
-# SOURCE_IP="100.70.166.91"
-SOURCE_IP="10.42.0.1"
+SOURCE_IP="100.70.166.91"
+# SOURCE_IP="10.42.0.1"
 IDENTITY_FILE="$HOME/.ssh/id_ed25519"
 
 PROTOCOLS="ssh ssh3 mosh"

@@ -27,8 +27,6 @@ DEFAULT_PROTOCOLS = ["ssh", "ssh3", "mosh"]
 DEFAULT_WORKLOADS = ["command_loop"]
 DEFAULT_PROMPT = "__W1_PROMPT__#"
 DEFAULT_SSH3_PATH = "/ssh3-term"
-MARKER_TAIL_LEN = 12
-_TAIL_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 DEFAULT_COMMANDS = [
     "ls",
     "df -h",
@@ -104,7 +102,6 @@ class W1Benchmark:
             raise ValueError("Prompt must contain at least one non-space character")
         # Prompt bytes can be split by ANSI redraw sequences (esp. over mosh).
         self.prompt_re = self._build_prompt_re(self.prompt_marker)
-        self.prev_marker_tail: Optional[str] = None
 
         self.records: List[SampleRecord] = []
         self.failures: List[FailureRecord] = []
@@ -124,33 +121,12 @@ class W1Benchmark:
         return re.compile("".join(parts) + rf"(?:{_ANSI_SEQ}|\s)*")
 
     @staticmethod
-    def _build_token_re(token: str) -> re.Pattern[str]:
-        parts = [re.escape(ch) + _ECHO_GAP for ch in token]
-        return re.compile("".join(parts))
-
-    @staticmethod
     def _drain_pending_output(child: pexpect.spawn, max_reads: int = 8) -> None:
         for _ in range(max_reads):
             try:
                 child.read_nonblocking(size=4096, timeout=0)
             except (pexpect.TIMEOUT, pexpect.EOF):
                 break
-
-    def _next_marker_tail(self) -> str:
-        # Mosh can send screen deltas only. Ensure each position changes so
-        # this tail is fully emitted and matchable in the pty stream.
-        if self.prev_marker_tail is None:
-            tail = "".join(random.choice(_TAIL_ALPHABET) for _ in range(MARKER_TAIL_LEN))
-            self.prev_marker_tail = tail
-            return tail
-
-        chars: List[str] = []
-        for i, prev_ch in enumerate(self.prev_marker_tail):
-            candidates = [c for c in _TAIL_ALPHABET if c != prev_ch]
-            chars.append(random.choice(candidates))
-        tail = "".join(chars)
-        self.prev_marker_tail = tail
-        return tail
 
     def _session_command(self, protocol: str) -> str:
         target = self.target
@@ -222,16 +198,11 @@ class W1Benchmark:
         self,
         child: pexpect.spawn,
         command: str,
-        marker: str,
-        marker_tail: str,
     ) -> float:
-        marker_re = self._build_token_re(marker)
-        marker_tail_re = self._build_token_re(marker_tail)
-        wrapped = f"{{ {command}; }}; echo {marker}"
         self._drain_pending_output(child)
         start_ns = time.perf_counter_ns()
-        child.sendline(wrapped)
-        child.expect([marker_re, marker_tail_re], timeout=self.args.timeout)
+        child.sendline(command)
+        self._expect_prompt(child)
         end_ns = time.perf_counter_ns()
         return (end_ns - start_ns) / 1_000_000.0
 
@@ -322,15 +293,8 @@ class W1Benchmark:
                     # Chạy các samples còn lại của trial
                     while sample_id <= self.args.iterations:
                         is_warmup = sample_id <= self.warmup
-                        marker_tail = self._next_marker_tail()
-                        marker = f"__W1_DONE_{trial_id}_{sample_id}_{command_id}_{marker_tail}__"
-                        
-                        lat = self._measure_command_completion(
-                            child,
-                            command,
-                            marker,
-                            marker_tail,
-                        )
+
+                        lat = self._measure_command_completion(child, command)
                         if not is_warmup:
                             self.results[protocol][command].append(lat)
                         self.records.append(

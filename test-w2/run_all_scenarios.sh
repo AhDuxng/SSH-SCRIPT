@@ -23,12 +23,14 @@
 set -euo pipefail
 
 # --- Connection / interface config -------------------------------------------
-HOST="10.42.0.206"
+HOST="100.66.79.93"
+# HOST="10.42.0.206"
 USER_NAME="pi"
-SOURCE_IP="10.42.0.1"
+SOURCE_IP="100.70.166.91"
+# SOURCE_IP="10.42.0.1"
 IDENTITY_FILE="$HOME/.ssh/id_ed25519"
 
-CLIENT_IFACE="${CLIENT_IFACE:-enp43s0}"
+CLIENT_IFACE="${CLIENT_IFACE:-wlan0}"
 SERVER_IFACE="${SERVER_IFACE:-eth0}"
 
 LOCAL_SET_NETWORK="${LOCAL_SET_NETWORK:-../set_network.sh}"
