@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import errno
 import math
 import random
 import re
@@ -12,7 +11,6 @@ import statistics
 import sys
 import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -23,30 +21,29 @@ except ImportError as exc:
         "Missing dependency: pexpect. Install with: pip install pexpect"
     ) from exc
 
+
 DEFAULT_PROTOCOLS = ["ssh", "ssh3", "mosh"]
-DEFAULT_WORKLOADS = ["per_command"]
-DEFAULT_PROMPT = "W4PROMPT#"
-DEFAULT_SSH3_PATH = "/ssh3-term"
-MARKER_TAIL_LEN = 12
-_TAIL_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 DEFAULT_COMMANDS = [
     "find /",
     "git status",
     "docker logs $(docker ps -q | head -n 1)",
 ]
-COMMAND_WORKLOAD_LABELS = {
+COMMAND_LABELS = {
     "find /": "find /",
     "git status": "git status",
     "docker logs $(docker ps -q | head -n 1)": "docker logs",
 }
+DEFAULT_PROMPT = "__W4_PROMPT__#"
+DEFAULT_SSH3_PATH = "/ssh3-term"
+MARKER_TAIL_LEN = 12
+TAIL_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
-_ANSI_SEQ = r"(?:\x1b\[\??[0-9;]*[a-zA-Z])"
+_ANSI_SEQ = r"(?:\x1b\[\??[0-9;]*[a-zA-Z]|\x1b[\(\)][0-9A-Za-z])"
 _ECHO_GAP = rf"(?:{_ANSI_SEQ}|[\r\n\b])*"
 _INITIAL_PROMPT_RE = re.compile(
     r"[#$>](?:" + _ANSI_SEQ + r"|\s)*\s*$",
 )
 _ANSI_STRIP_RE = re.compile(_ANSI_SEQ)
-_MARKER_SCAN_STRIP_RE = re.compile(r"[^A-Za-z0-9_]+")
 
 
 @dataclass
@@ -98,7 +95,6 @@ class W4Benchmark:
     def __init__(self, args: argparse.Namespace) -> None:
         self.args = args
         self.target = f"{args.user}@{args.host}"
-        self.started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
         self.prompt_marker = args.prompt.rstrip()
         if not self.prompt_marker:
             raise ValueError("Prompt must contain at least one non-space character")
@@ -120,7 +116,7 @@ class W4Benchmark:
     @staticmethod
     def _build_prompt_re(prompt_marker: str) -> re.Pattern[str]:
         parts = [re.escape(ch) + _ECHO_GAP for ch in prompt_marker]
-        return re.compile("".join(parts) + rf"(?:{_ANSI_SEQ}|\s)*")
+        return re.compile("".join(parts) + rf"(?:{_ANSI_SEQ}|\s)*$")
 
     @staticmethod
     def _build_token_re(token: str) -> re.Pattern[str]:
@@ -128,12 +124,8 @@ class W4Benchmark:
         return re.compile("".join(parts))
 
     @staticmethod
-    def _strip_ansi_keep_newlines(text: str) -> str:
+    def _strip_ansi(text: str) -> str:
         return _ANSI_STRIP_RE.sub("", text).replace("\r", "").replace("\b", "")
-
-    @staticmethod
-    def _normalize_marker_scan(text: str) -> str:
-        return _MARKER_SCAN_STRIP_RE.sub("", text).upper()
 
     @staticmethod
     def _drain_pending_output(child: pexpect.spawn, max_reads: int = 8) -> None:
@@ -142,39 +134,16 @@ class W4Benchmark:
                 child.read_nonblocking(size=4096, timeout=0)
             except (pexpect.TIMEOUT, pexpect.EOF):
                 break
-            except OSError as exc:
-                if exc.errno == errno.ENOSPC:
-                    try:
-                        if getattr(child, "logfile_read", None) is not None:
-                            child.logfile_read.close()
-                            child.logfile_read = None
-                    except Exception:
-                        pass
-                    continue
-                raise
 
     @staticmethod
-    def _handle_enospc_logging(child: pexpect.spawn, exc: OSError) -> bool:
-        if exc.errno != errno.ENOSPC:
-            return False
-        try:
-            if getattr(child, "logfile_read", None) is not None:
-                child.logfile_read.close()
-                child.logfile_read = None
-        except Exception:
-            pass
-        print(
-            "[warn] pexpect log disabled: no space left on device",
-            flush=True,
-        )
-        return True
+    def _workload_for_command(command: str) -> str:
+        return COMMAND_LABELS.get(command, command)
 
     def _expect_prompt(
         self,
         child: pexpect.spawn,
         protocol: Optional[str] = None,
     ) -> None:
-        # Match the session readiness behavior used by test/w3_interactive_benchmark.py.
         try:
             child.expect(self.prompt_re, timeout=self.args.timeout)
             return
@@ -196,140 +165,6 @@ class W4Benchmark:
         if last_exc is not None:
             raise last_exc
 
-    def _wait_for_marker_line(self, child: pexpect.spawn, marker: str, marker_tail: str) -> int:
-        sample_timeout = float(self.args.sample_timeout)
-        deadline = time.monotonic() + sample_timeout
-        idle_timeout = float(self.args.command_idle_timeout)
-        last_data_at = time.monotonic()
-        clean_buffer = ""
-        debug_tail = ""
-        max_buffer_chars = 262_144
-        read_size = max(4096, int(self.args.maxread))
-        output_bytes = 0
-        saw_activity = False
-        marker_re = self._build_token_re(marker)
-        marker_tail_re = self._build_token_re(marker_tail)
-        marker_norm = self._normalize_marker_scan(marker)
-        marker_tail_norm = self._normalize_marker_scan(marker_tail)
-
-        def raise_timeout(reason: str) -> None:
-            tail = debug_tail[-500:]
-            if "command not found" in tail.lower():
-                raise ValueError(
-                    f"Remote command failed before marker ({reason}): command not found. "
-                    f"output_bytes={output_bytes}, clean_tail={tail!r}"
-                )
-            raise pexpect.TIMEOUT(
-                f"{reason} while waiting for marker {marker!r}. "
-                f"output_bytes={output_bytes}, clean_tail={tail!r}"
-            )
-
-        while True:
-            now = time.monotonic()
-            if now >= deadline:
-                raise_timeout(f"Marker not received within {sample_timeout:.1f}s")
-
-            if idle_timeout > 0 and saw_activity and (now - last_data_at) >= idle_timeout:
-                raise_timeout(f"No output for {idle_timeout:.1f}s")
-
-            read_timeout = min(0.5, max(0.05, deadline - now))
-            if idle_timeout > 0 and saw_activity:
-                idle_left = idle_timeout - (now - last_data_at)
-                read_timeout = min(read_timeout, max(0.05, idle_left))
-
-            try:
-                chunk = child.read_nonblocking(size=read_size, timeout=read_timeout)
-            except pexpect.TIMEOUT:
-                continue
-            except pexpect.EOF as exc:
-                raise pexpect.EOF(
-                    f"EOF while waiting for marker {marker!r}. "
-                    f"buffer_tail={clean_buffer[-500:]!r}"
-                ) from exc
-            except OSError as exc:
-                if self._handle_enospc_logging(child, exc):
-                    continue
-                raise
-
-            if not chunk:
-                continue
-
-            last_data_at = time.monotonic()
-            clean_chunk = self._strip_ansi_keep_newlines(chunk)
-            if not clean_chunk:
-                continue
-
-            saw_activity = True
-            clean_buffer += clean_chunk
-            debug_tail = (debug_tail + clean_chunk)[-500:]
-
-            marker_match = marker_re.search(clean_buffer)
-            if marker_match is not None:
-                return output_bytes + len(
-                    clean_buffer[: marker_match.start()].encode(
-                        "utf-8", errors="ignore"
-                    )
-                )
-            marker_tail_match = marker_tail_re.search(clean_buffer)
-            if marker_tail_match is not None:
-                return output_bytes + len(
-                    clean_buffer[: marker_tail_match.start()].encode(
-                        "utf-8", errors="ignore"
-                    )
-                )
-
-            lines = clean_buffer.split("\n")
-            clean_buffer = lines.pop() if lines else ""
-            for line in lines:
-                stripped = line.strip()
-                if stripped == marker:
-                    return output_bytes
-                if self.prompt_marker and self.prompt_marker in line:
-                    prompt_pos = line.find(self.prompt_marker)
-                    output_bytes += len(line[:prompt_pos].encode("utf-8", errors="ignore"))
-                    return output_bytes
-                marker_pos = line.find(marker)
-                if marker_pos >= 0:
-                    output_bytes += len(line[:marker_pos].encode("utf-8", errors="ignore"))
-                    return output_bytes
-                output_bytes += len((line + "\n").encode("utf-8", errors="ignore"))
-
-            marker_pos = clean_buffer.find(marker)
-            if marker_pos >= 0:
-                output_bytes += len(clean_buffer[:marker_pos].encode("utf-8", errors="ignore"))
-                return output_bytes
-            if self.prompt_marker:
-                prompt_pos = clean_buffer.find(self.prompt_marker)
-                if prompt_pos >= 0:
-                    output_bytes += len(clean_buffer[:prompt_pos].encode("utf-8", errors="ignore"))
-                    return output_bytes
-            if len(clean_buffer) > max_buffer_chars:
-                dropped = clean_buffer[:-max_buffer_chars]
-                output_bytes += len(dropped.encode("utf-8", errors="ignore"))
-                clean_buffer = clean_buffer[-max_buffer_chars:]
-
-            # Mosh can fragment marker bytes with control traffic; keep this as
-            # a last-resort marker detector so the sample fails less often.
-            normalized_window = self._normalize_marker_scan(clean_buffer[-8192:])
-            if marker_norm in normalized_window:
-                return output_bytes
-            if marker_tail_norm and marker_tail_norm in normalized_window:
-                return output_bytes
-
-    def _next_marker_tail(self) -> str:
-        if self.prev_marker_tail is None:
-            tail = "".join(random.choice(_TAIL_ALPHABET) for _ in range(MARKER_TAIL_LEN))
-            self.prev_marker_tail = tail
-            return tail
-
-        chars: List[str] = []
-        for prev_ch in self.prev_marker_tail:
-            candidates = [c for c in _TAIL_ALPHABET if c != prev_ch]
-            chars.append(random.choice(candidates))
-        tail = "".join(chars)
-        self.prev_marker_tail = tail
-        return tail
-
     def _session_command(self, protocol: str) -> str:
         target = self.target
         ssh_common = ["ssh", "-tt"]
@@ -338,7 +173,12 @@ class W4Benchmark:
         if self.args.strict_host_key_checking:
             ssh_common += ["-o", "StrictHostKeyChecking=yes"]
         else:
-            ssh_common += ["-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null"]
+            ssh_common += [
+                "-o",
+                "StrictHostKeyChecking=no",
+                "-o",
+                "UserKnownHostsFile=/dev/null",
+            ]
         if self.args.identity_file:
             ssh_common += ["-i", self.args.identity_file]
         if self.args.batch_mode:
@@ -382,53 +222,139 @@ class W4Benchmark:
 
         child.sendline(f"export PS1={shlex.quote(self.args.prompt)}")
         self._expect_prompt(child, protocol=protocol)
-
         return child, setup_ms
 
     def _close_session(self, child: pexpect.spawn) -> None:
         try:
-            child.sendcontrol("c")
-            time.sleep(0.2)
             child.sendline("exit")
             child.expect(pexpect.EOF, timeout=5)
         except Exception:
             child.close(force=True)
-        finally:
+
+    def _next_marker_tail(self) -> str:
+        if self.prev_marker_tail is None:
+            tail = "".join(random.choice(TAIL_ALPHABET) for _ in range(MARKER_TAIL_LEN))
+            self.prev_marker_tail = tail
+            return tail
+
+        chars: List[str] = []
+        for prev_ch in self.prev_marker_tail:
+            choices = [c for c in TAIL_ALPHABET if c != prev_ch]
+            chars.append(random.choice(choices))
+        tail = "".join(chars)
+        self.prev_marker_tail = tail
+        return tail
+
+    def _wrap_measured_command(self, command: str, marker: str) -> str:
+        marker_arg = shlex.quote(marker)
+        producer = f"{{ {command}; }} 2>&1"
+        if self.args.max_output_lines > 0:
+            producer = f"{producer} | head -n {int(self.args.max_output_lines)}"
+        return f"{producer}; printf '%s\\n' {marker_arg}"
+
+    def _wait_for_marker(self, child: pexpect.spawn, marker: str, marker_tail: str) -> int:
+        deadline = time.monotonic() + float(self.args.sample_timeout)
+        idle_timeout = float(self.args.command_idle_timeout)
+        marker_re = self._build_token_re(marker)
+        marker_tail_re = self._build_token_re(marker_tail)
+        read_size = max(4096, int(self.args.maxread))
+
+        buffer = ""
+        debug_tail = ""
+        output_bytes = 0
+        saw_activity = False
+        last_data_at = time.monotonic()
+
+        def timeout_error(reason: str) -> pexpect.TIMEOUT:
+            return pexpect.TIMEOUT(
+                f"{reason} while waiting for marker {marker!r}. "
+                f"output_bytes={output_bytes}, clean_tail={debug_tail[-500:]!r}"
+            )
+
+        while True:
+            now = time.monotonic()
+            if now >= deadline:
+                raise timeout_error(
+                    f"Marker not received within {self.args.sample_timeout:.1f}s"
+                )
+            if idle_timeout > 0 and saw_activity and (now - last_data_at) >= idle_timeout:
+                raise timeout_error(f"No output for {idle_timeout:.1f}s")
+
+            read_timeout = min(0.5, max(0.05, deadline - now))
+            if idle_timeout > 0 and saw_activity:
+                idle_left = idle_timeout - (now - last_data_at)
+                read_timeout = min(read_timeout, max(0.05, idle_left))
+
             try:
-                if getattr(child, "logfile_read", None) is not None:
-                    child.logfile_read.close()
-            except Exception:
-                pass
+                chunk = child.read_nonblocking(size=read_size, timeout=read_timeout)
+            except pexpect.TIMEOUT:
+                continue
+            except pexpect.EOF as exc:
+                raise pexpect.EOF(
+                    f"EOF while waiting for marker {marker!r}. "
+                    f"output_bytes={output_bytes}, clean_tail={debug_tail[-500:]!r}"
+                ) from exc
+
+            if not chunk:
+                continue
+
+            clean_chunk = self._strip_ansi(chunk)
+            if not clean_chunk:
+                continue
+
+            saw_activity = True
+            last_data_at = time.monotonic()
+            debug_tail = (debug_tail + clean_chunk)[-500:]
+            buffer += clean_chunk
+
+            match = marker_re.search(buffer)
+            if match is not None:
+                return output_bytes + len(
+                    buffer[: match.start()].encode("utf-8", errors="ignore")
+                )
+
+            tail_match = marker_tail_re.search(buffer)
+            if tail_match is not None:
+                return output_bytes + len(
+                    buffer[: tail_match.start()].encode("utf-8", errors="ignore")
+                )
+
+            lines = buffer.split("\n")
+            buffer = lines.pop() if lines else ""
+            for line in lines:
+                marker_pos = line.find(marker)
+                if marker_pos >= 0:
+                    output_bytes += len(
+                        line[:marker_pos].encode("utf-8", errors="ignore")
+                    )
+                    return output_bytes
+                prompt_pos = line.find(self.prompt_marker)
+                if prompt_pos >= 0:
+                    output_bytes += len(
+                        line[:prompt_pos].encode("utf-8", errors="ignore")
+                    )
+                    return output_bytes
+                output_bytes += len((line + "\n").encode("utf-8", errors="ignore"))
+
+            if len(buffer) > 262_144:
+                dropped = buffer[:-262_144]
+                output_bytes += len(dropped.encode("utf-8", errors="ignore"))
+                buffer = buffer[-262_144:]
 
     def _measure_output_delivery(
         self,
         child: pexpect.spawn,
-        protocol: str,
         command: str,
         marker: str,
         marker_tail: str,
     ) -> tuple[float, int]:
         self._drain_pending_output(child)
-
         wrapped = self._wrap_measured_command(command, marker)
         start_ns = time.perf_counter_ns()
         child.sendline(wrapped)
-        output_bytes = self._wait_for_marker_line(child, marker, marker_tail)
+        output_bytes = self._wait_for_marker(child, marker, marker_tail)
         end_ns = time.perf_counter_ns()
-
-        latency_ms = (end_ns - start_ns) / 1_000_000.0
-        return latency_ms, output_bytes
-
-    def _wrap_measured_command(self, command: str, marker: str) -> str:
-        marker_arg = shlex.quote(marker)
-        if self.args.max_output_lines == 0:
-            return f"{{ {command}; }} 2>&1; printf '%s\\n' {marker_arg}"
-
-        line_limit = int(self.args.max_output_lines)
-        return (
-            f"{{ {command}; }} 2>&1 | head -n {line_limit}; "
-            f"printf '%s\\n' {marker_arg}"
-        )
+        return (end_ns - start_ns) / 1_000_000.0, output_bytes
 
     def _recover_after_timeout(self, child: pexpect.spawn) -> bool:
         try:
@@ -452,37 +378,33 @@ class W4Benchmark:
             marker_tail = self._next_marker_tail()
             marker = f"__W4_DONE_{trial_id}_{sample_id}_{command_id}_{marker_tail}__"
             try:
-                lat, output_bytes = self._measure_output_delivery(
-                    child,
-                    protocol,
-                    command,
-                    marker,
-                    marker_tail,
+                latency_ms, output_bytes = self._measure_output_delivery(
+                    child, command, marker, marker_tail
                 )
-                throughput_kib_s: Optional[float]
-                if lat > 0:
-                    throughput_kib_s = (output_bytes / 1024.0) / (lat / 1000.0)
-                else:
-                    throughput_kib_s = None
-                self.results[protocol][command].append(lat)
+                throughput = (
+                    (output_bytes / 1024.0) / (latency_ms / 1000.0)
+                    if latency_ms > 0
+                    else None
+                )
+                self.results[protocol][command].append(latency_ms)
                 self.output_sizes[protocol][command].append(output_bytes)
                 self.records.append(
                     SampleRecord(
-                        protocol=protocol,
-                        workload=workload,
-                        round_id=trial_id,
-                        sample_id=sample_id,
-                        command_id=command_id,
-                        command=command,
-                        latency_ms=lat,
-                        output_bytes=output_bytes,
-                        throughput_kib_s=throughput_kib_s,
+                        protocol,
+                        workload,
+                        trial_id,
+                        sample_id,
+                        command_id,
+                        command,
+                        latency_ms,
+                        output_bytes,
+                        throughput,
                     )
                 )
                 print(
-                    f"[{protocol:>4}/{command:<36}] trial {trial_id:>2}/{self.args.trials}"
-                    f" sample {sample_id:>3}/{self.args.iterations}: {lat:.2f} ms,"
-                    f" {output_bytes / 1024.0:.1f} KiB",
+                    f"[{protocol:>4}/{workload:<12}] trial {trial_id:>2}/{self.args.trials}"
+                    f" sample {sample_id:>3}/{self.args.iterations}:"
+                    f" {latency_ms:.2f} ms, {output_bytes / 1024.0:.1f} KiB",
                     flush=True,
                 )
             except (pexpect.TIMEOUT, pexpect.EOF, ValueError) as exc:
@@ -491,18 +413,18 @@ class W4Benchmark:
                     recovered = self._recover_after_timeout(child)
                 self.failures.append(
                     FailureRecord(
-                        protocol=protocol,
-                        workload=workload,
-                        round_id=trial_id,
-                        sample_id=sample_id,
-                        command_id=command_id,
-                        command=command,
-                        error_type=type(exc).__name__,
-                        error_message=str(exc),
+                        protocol,
+                        workload,
+                        trial_id,
+                        sample_id,
+                        command_id,
+                        command,
+                        type(exc).__name__,
+                        str(exc),
                     )
                 )
                 print(
-                    f"[{protocol:>4}/{command:<36}] trial {trial_id:>2}"
+                    f"[{protocol:>4}/{workload:<12}] trial {trial_id:>2}"
                     f" sample {sample_id:>3}: FAIL ({type(exc).__name__}: {exc})"
                     f"{'' if recovered else ' [session not recovered]'}",
                     flush=True,
@@ -523,19 +445,12 @@ class W4Benchmark:
                 child, setup_ms = self._open_session(protocol)
                 self.session_setups[protocol][command].append(setup_ms)
                 print(
-                    f"[{protocol:>4}/{command:<36}] trial {trial_id:>2}/{self.args.trials}"
+                    f"[{protocol:>4}/{workload:<12}] trial {trial_id:>2}/{self.args.trials}"
                     f" session_setup={setup_ms:.1f} ms",
                     flush=True,
                 )
                 try:
-                    self._run_trial(
-                        child,
-                        protocol,
-                        workload,
-                        command,
-                        command_id,
-                        trial_id,
-                    )
+                    self._run_trial(child, protocol, workload, command, command_id, trial_id)
                 except (pexpect.TIMEOUT, pexpect.EOF, ValueError):
                     if self.args.reopen_on_failure:
                         continue
@@ -546,9 +461,9 @@ class W4Benchmark:
     def run(self) -> None:
         random.seed(self.args.seed)
         sequence = [
-            (p, self._workload_for_command(c), c, command_id)
-            for p in self.args.protocols
-            for command_id, c in enumerate(self.args.commands, start=1)
+            (protocol, self._workload_for_command(command), command, command_id)
+            for protocol in self.args.protocols
+            for command_id, command in enumerate(self.args.commands, start=1)
         ]
         if self.args.shuffle_pairs:
             random.shuffle(sequence)
@@ -561,154 +476,137 @@ class W4Benchmark:
             return None
         if len(values) == 1:
             return values[0]
-        s = sorted(values)
-        k = (len(s) - 1) * (p / 100.0)
+        ordered = sorted(values)
+        k = (len(ordered) - 1) * (p / 100.0)
         lo = math.floor(k)
         hi = math.ceil(k)
         if lo == hi:
-            return s[int(k)]
-        return s[lo] + (s[hi] - s[lo]) * (k - lo)
+            return ordered[int(k)]
+        return ordered[lo] + (ordered[hi] - ordered[lo]) * (k - lo)
 
-    def _summary_row(self, protocol: str, workload: str, command: str) -> SummaryRow:
+    def _summary_row(self, protocol: str, command: str) -> SummaryRow:
+        workload = self._workload_for_command(command)
         data = self.results[protocol][command]
         sizes = self.output_sizes[protocol][command]
-        fail_n = sum(
+        failures = sum(
             1
-            for f in self.failures
-            if f.protocol == protocol and f.workload == workload and f.command == command
+            for failure in self.failures
+            if failure.protocol == protocol and failure.command == command
         )
-        n = len(data)
-        total = n + fail_n
-        success_rate = (100.0 * n / total) if total else 0.0
-
-        if n == 0:
+        total = len(data) + failures
+        success_rate = (100.0 * len(data) / total) if total else 0.0
+        if not data:
             return SummaryRow(
-                protocol, workload, command, 0, fail_n, success_rate,
-                None, None, None, None, None, None, None, None, None, None,
+                protocol,
+                workload,
+                command,
+                0,
+                failures,
+                success_rate,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
             )
 
         mean_ms = statistics.mean(data)
-        median_ms = statistics.median(data)
-        stdev_ms = statistics.stdev(data) if n > 1 else 0.0
-        ci95 = (1.96 * stdev_ms / math.sqrt(n)) if n > 1 else 0.0
         mean_output_kib = statistics.mean(sizes) / 1024.0 if sizes else None
-        mean_throughput_kib_s = (
-            (mean_output_kib / (mean_ms / 1000.0))
+        mean_throughput = (
+            mean_output_kib / (mean_ms / 1000.0)
             if mean_output_kib is not None and mean_ms > 0
             else None
         )
+        stdev_ms = statistics.stdev(data) if len(data) > 1 else 0.0
         return SummaryRow(
-            protocol=protocol,
-            workload=workload,
-            command=command,
-            n=n,
-            failures=fail_n,
-            success_rate_pct=success_rate,
-            min_ms=min(data),
-            mean_ms=mean_ms,
-            median_ms=median_ms,
-            stdev_ms=stdev_ms,
-            p95_ms=self._percentile(data, 95),
-            p99_ms=self._percentile(data, 99),
-            max_ms=max(data),
-            ci95_half_width_ms=ci95,
-            mean_output_kib=mean_output_kib,
-            mean_throughput_kib_s=mean_throughput_kib_s,
+            protocol,
+            workload,
+            command,
+            len(data),
+            failures,
+            success_rate,
+            min(data),
+            mean_ms,
+            statistics.median(data),
+            stdev_ms,
+            self._percentile(data, 95),
+            self._percentile(data, 99),
+            max(data),
+            (1.96 * stdev_ms / math.sqrt(len(data))) if len(data) > 1 else 0.0,
+            mean_output_kib,
+            mean_throughput,
         )
 
     def summaries(self) -> List[SummaryRow]:
         return [
-            self._summary_row(p, self._workload_for_command(c), c)
-            for p in self.args.protocols
-            for c in self.args.commands
+            self._summary_row(protocol, command)
+            for protocol in self.args.protocols
+            for command in self.args.commands
         ]
 
     def _session_setup_stats(self, protocol: str, command: str) -> dict:
         data = self.session_setups[protocol][command]
         if not data:
-            return dict(n=0, mean=None, median=None, stdev=None, min=None, max=None)
-        n = len(data)
+            return dict(n=0, min=None, mean=None, median=None, stdev=None, max=None)
         return dict(
-            n=n,
+            n=len(data),
+            min=min(data),
             mean=statistics.mean(data),
             median=statistics.median(data),
-            stdev=statistics.stdev(data) if n > 1 else 0.0,
-            min=min(data),
+            stdev=statistics.stdev(data) if len(data) > 1 else 0.0,
             max=max(data),
         )
 
     @staticmethod
-    def _display_command(command: str, width: int) -> str:
-        if len(command) <= width:
-            return command
-        if width <= 3:
-            return command[:width]
-        if width <= 12:
-            return command[: width - 3] + "..."
-        right = 6
-        left = width - 3 - right
-        return f"{command[:left]}...{command[-right:]}"
-
-    @staticmethod
-    def _workload_for_command(command: str) -> str:
-        return COMMAND_WORKLOAD_LABELS.get(command, command)
+    def _fmt(value: Optional[float]) -> str:
+        return f"{value:.2f}" if value is not None else "N/A"
 
     def print_report(self) -> None:
-        def fmt(v: Optional[float]) -> str:
-            return f"{v:.2f}" if v is not None else "N/A"
-
-        proto_w = 8
-        workload_w = 11
-        command_w = 24
-        command_labels = {
-            c: self._display_command(c, command_w) for c in self.args.commands
-        }
-
-        summary_header = (
-            f"{'Protocol':<{proto_w}} | {'Workload':<{workload_w}} | {'Command':<{command_w}} | "
-            f"{'N':>4} | {'Fail':>4} | {'Succ%':>6} | {'Min':>7} | {'Mean':>7} | {'Med':>7} | "
-            f"{'Std':>7} | {'P95':>7} | {'P99':>7} | {'Max':>7} | {'CI95':>7} | {'OutKB':>7} | {'KB/s':>7}"
+        header = (
+            f"{'Protocol':<8} | {'Command':<12} | {'N':>4} | {'Fail':>4} |"
+            f" {'Succ%':>6} | {'Min':>8} | {'Mean':>8} | {'Median':>8} |"
+            f" {'P95':>8} | {'P99':>8} | {'Max':>8} | {'OutKB':>8} | {'KB/s':>8}"
         )
-        width = len(summary_header)
-        print("\n" + "=" * width)
-        print(summary_header)
-        print("-" * width)
+        print("\n" + "=" * len(header))
+        print(header)
+        print("-" * len(header))
         for row in self.summaries():
             print(
-                f"{row.protocol:<{proto_w}} | {row.workload:<{workload_w}} | {command_labels[row.command]:<{command_w}} | "
-                f"{row.n:>4} | {row.failures:>4} | {row.success_rate_pct:>6.1f} | {fmt(row.min_ms):>7} | {fmt(row.mean_ms):>7} | "
-                f"{fmt(row.median_ms):>7} | {fmt(row.stdev_ms):>7} | {fmt(row.p95_ms):>7} | {fmt(row.p99_ms):>7} | "
-                f"{fmt(row.max_ms):>7} | {fmt(row.ci95_half_width_ms):>7} | {fmt(row.mean_output_kib):>7} | "
-                f"{fmt(row.mean_throughput_kib_s):>7}"
+                f"{row.protocol:<8} | {row.workload:<12} | {row.n:>4} |"
+                f" {row.failures:>4} | {row.success_rate_pct:>6.1f} |"
+                f" {self._fmt(row.min_ms):>8} | {self._fmt(row.mean_ms):>8} |"
+                f" {self._fmt(row.median_ms):>8} | {self._fmt(row.p95_ms):>8} |"
+                f" {self._fmt(row.p99_ms):>8} | {self._fmt(row.max_ms):>8} |"
+                f" {self._fmt(row.mean_output_kib):>8} |"
+                f" {self._fmt(row.mean_throughput_kib_s):>8}"
             )
-        print("=" * width)
+        print("=" * len(header))
 
         setup_header = (
-            f"{'Protocol':<{proto_w}} | {'Command':<{command_w}} | {'N':>3} |"
-            f" {'Min':>7} | {'Mean':>7} | {'Median':>7} | {'Std':>7} | {'Max':>7}"
+            f"{'Protocol':<8} | {'Command':<12} | {'N':>3} | {'Min':>8} |"
+            f" {'Mean':>8} | {'Median':>8} | {'Std':>8} | {'Max':>8}"
         )
-        ss_width = len(setup_header)
-        print("\n" + "-" * ss_width)
-        print(
-            "SESSION SETUP LATENCY (ms)  "
-            "[spawn -> first shell prompt, PS1 export excluded]"
-        )
+        print("\nSESSION SETUP LATENCY (ms) [same logic as test/w3]")
         print(setup_header)
-        print("-" * ss_width)
+        print("-" * len(setup_header))
         for protocol in self.args.protocols:
             for command in self.args.commands:
-                s = self._session_setup_stats(protocol, command)
+                stats = self._session_setup_stats(protocol, command)
                 print(
-                    f"{protocol:<{proto_w}} | {command_labels[command]:<{command_w}} | {s['n']:>3} |"
-                    f" {fmt(s['min']):>7} | {fmt(s['mean']):>7} |"
-                    f" {fmt(s['median']):>7} | {fmt(s['stdev']):>7} |"
-                    f" {fmt(s['max']):>7}"
+                    f"{protocol:<8} | {self._workload_for_command(command):<12} |"
+                    f" {stats['n']:>3} | {self._fmt(stats['min']):>8} |"
+                    f" {self._fmt(stats['mean']):>8} |"
+                    f" {self._fmt(stats['median']):>8} |"
+                    f" {self._fmt(stats['stdev']):>8} | {self._fmt(stats['max']):>8}"
                 )
-        print("-" * ss_width)
         print("Command map:")
         for command in self.args.commands:
-            label = command_labels[command]
-            print(f"  {label:<{command_w}} -> {command}")
+            print(f"  {self._workload_for_command(command)} -> {command}")
 
     def export(self) -> None:
         outdir = Path(self.args.output_dir)
@@ -735,95 +633,100 @@ class W4Benchmark:
                     "error_message",
                 ]
             )
-            for r in self.records:
-                throughput = f"{r.throughput_kib_s:.6f}" if r.throughput_kib_s is not None else ""
+            for record in self.records:
                 writer.writerow(
                     [
-                        r.protocol,
-                        r.workload,
-                        r.round_id,
-                        r.sample_id,
-                        r.command_id,
-                        r.command,
-                        f"{r.latency_ms:.6f}",
-                        r.output_bytes,
-                        throughput,
+                        record.protocol,
+                        record.workload,
+                        record.round_id,
+                        record.sample_id,
+                        record.command_id,
+                        record.command,
+                        f"{record.latency_ms:.6f}",
+                        record.output_bytes,
+                        (
+                            f"{record.throughput_kib_s:.6f}"
+                            if record.throughput_kib_s is not None
+                            else ""
+                        ),
                         "ok",
                         "",
                         "",
                     ]
                 )
-            for r in self.failures:
+            for failure in self.failures:
                 writer.writerow(
                     [
-                        r.protocol,
-                        r.workload,
-                        r.round_id,
-                        r.sample_id,
-                        r.command_id,
-                        r.command,
+                        failure.protocol,
+                        failure.workload,
+                        failure.round_id,
+                        failure.sample_id,
+                        failure.command_id,
+                        failure.command,
                         "",
                         "",
                         "",
                         "fail",
-                        r.error_type,
-                        r.error_message,
+                        failure.error_type,
+                        failure.error_message,
                     ]
                 )
 
         with setup_csv.open("w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
             writer.writerow(["protocol", "command", "trial_id", "session_setup_ms"])
-            for p in self.args.protocols:
-                for c in self.args.commands:
-                    for trial_id, ms in enumerate(self.session_setups[p][c], start=1):
-                        writer.writerow([p, c, trial_id, f"{ms:.6f}"])
+            for protocol in self.args.protocols:
+                for command in self.args.commands:
+                    for trial_id, setup_ms in enumerate(
+                        self.session_setups[protocol][command], start=1
+                    ):
+                        writer.writerow(
+                            [protocol, command, trial_id, f"{setup_ms:.6f}"]
+                        )
 
-        print(f"Saved line log CSV    : {line_csv}")
-        print(f"Saved session setup   : {setup_csv}")
+        print(f"Saved line log CSV  : {line_csv}")
+        print(f"Saved setup CSV     : {setup_csv}")
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="W4 Large Output Commands benchmark")
-    p.add_argument("--host", default="192.168.8.102", help="Target host IP or hostname")
-    p.add_argument("--user", default="trungnt", help="Remote username")
-    p.add_argument("--source-ip", default="192.168.8.100", help="Client source IP for SSH / Mosh where supported")
-    p.add_argument("--identity-file", default=str(Path.home() / ".ssh" / "id_rsa"), help="SSH private key path")
-    p.add_argument("--protocols", nargs="+", default=DEFAULT_PROTOCOLS, choices=DEFAULT_PROTOCOLS)
-    p.add_argument(
-        "--workloads",
-        nargs="+",
-        default=DEFAULT_WORKLOADS,
-        choices=DEFAULT_WORKLOADS,
-        help="Deprecated compatibility flag; W4 records one workload label per command",
+    parser = argparse.ArgumentParser(description="W4 real large-output benchmark")
+    parser.add_argument("--host", default="192.168.8.102")
+    parser.add_argument("--user", default="trungnt")
+    parser.add_argument("--source-ip", default="192.168.8.100")
+    parser.add_argument(
+        "--identity-file",
+        default=str(Path.home() / ".ssh" / "id_rsa"),
     )
-    p.add_argument("--commands", nargs="+", default=DEFAULT_COMMANDS, help="Large-output commands executed in each sample")
-    p.add_argument("--trials", type=int, default=3, help="Independent sessions per protocol/workload pair")
-    p.add_argument("--iterations", type=int, default=1, help="Recorded command samples per trial")
-    p.add_argument("--timeout", type=int, default=20, help="pexpect timeout in seconds for session setup/recovery")
-    p.add_argument("--sample-timeout", type=float, default=300.0, help="Maximum seconds to wait for one command sample marker")
-    p.add_argument("--command-idle-timeout", type=float, default=30.0, help="Fail command only if no output is observed for this many seconds (0 = disable idle timeout)")
-    p.add_argument("--max-output-lines", type=int, default=1000, help="Maximum output lines to read from each command sample (0 = unlimited)")
-    p.add_argument("--maxread", type=int, default=65535, help="pexpect maxread bytes")
-    p.add_argument("--search-window-size", type=int, default=8192, help="pexpect search window size (0 = unlimited)")
-    p.add_argument("--seed", type=int, default=42, help="Random seed")
-    p.add_argument("--output-dir", default="w4_results", help="Directory for JSON/CSV outputs")
-    p.add_argument("--prompt", default=DEFAULT_PROMPT, help="Unique shell prompt marker used after session is ready")
-    p.add_argument("--ssh3-path", default=DEFAULT_SSH3_PATH, help="SSH3 terminal path suffix")
-    p.add_argument("--ssh3-insecure", action="store_true", help="Pass -insecure to ssh3")
-    p.add_argument("--batch-mode", action="store_true", help="Enable BatchMode for SSHv2 / Mosh bootstrap SSH")
-    p.add_argument("--strict-host-key-checking", action="store_true", help="Keep strict host key checking enabled")
-    p.add_argument("--mosh-predict", default="always", choices=["adaptive", "always", "never"], help="Mosh prediction mode")
-    p.add_argument("--shuffle-pairs", action="store_true", help="Shuffle protocol/workload execution order")
-    p.add_argument("--reopen-on-failure", action="store_true", help="Reopen session after failure")
-    p.add_argument("--log-pexpect", action="store_true", help="Deprecated compatibility flag (no-op): pexpect logs are disabled")
-    return p
+    parser.add_argument("--protocols", nargs="+", default=DEFAULT_PROTOCOLS, choices=DEFAULT_PROTOCOLS)
+    parser.add_argument("--commands", nargs="+", default=DEFAULT_COMMANDS)
+    parser.add_argument("--trials", type=int, default=3)
+    parser.add_argument("--iterations", type=int, default=1)
+    parser.add_argument("--timeout", type=int, default=20)
+    parser.add_argument("--sample-timeout", type=float, default=60.0)
+    parser.add_argument("--command-idle-timeout", type=float, default=15.0)
+    parser.add_argument("--max-output-lines", type=int, default=1000)
+    parser.add_argument("--maxread", type=int, default=65535)
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--output-dir", default="w4_results")
+    parser.add_argument("--prompt", default=DEFAULT_PROMPT)
+    parser.add_argument("--ssh3-path", default=DEFAULT_SSH3_PATH)
+    parser.add_argument("--ssh3-insecure", action="store_true")
+    parser.add_argument("--batch-mode", action="store_true")
+    parser.add_argument("--strict-host-key-checking", action="store_true")
+    parser.add_argument(
+        "--mosh-predict",
+        default="always",
+        choices=["adaptive", "always", "never"],
+    )
+    parser.add_argument("--shuffle-pairs", action="store_true")
+    parser.add_argument("--reopen-on-failure", action="store_true")
+    parser.add_argument("--log-pexpect", action="store_true", help="Compatibility no-op")
+    return parser
 
 
 def main() -> int:
     parser = build_arg_parser()
     args = parser.parse_args()
-
     if args.trials <= 0:
         parser.error("--trials must be > 0")
     if args.iterations <= 0:
@@ -838,13 +741,11 @@ def main() -> int:
         parser.error("--max-output-lines must be >= 0")
     if args.maxread <= 0:
         parser.error("--maxread must be > 0")
-    if args.search_window_size < 0:
-        parser.error("--search-window-size must be >= 0")
 
-    bench = W4Benchmark(args)
-    bench.run()
-    bench.print_report()
-    bench.export()
+    benchmark = W4Benchmark(args)
+    benchmark.run()
+    benchmark.print_report()
+    benchmark.export()
     return 0
 
 
