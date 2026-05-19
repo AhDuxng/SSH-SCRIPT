@@ -27,7 +27,7 @@ DEFAULT_WORKLOADS = ["interactive_shell", "vim", "nano"]
 DEFAULT_PROMPT    = "__W3_PROMPT__#"
 DEFAULT_SSH3_PATH = "/ssh3-term"
 
-PROBE_CHAR_ALPHABET = "abcdegijkopvwxz"
+DEFAULT_PROBE_SEQUENCE = "Go straight for 3 meters, then stop"
 
 # Include common CSI sequences plus SCS sequences like ESC(B
 # that nano emits during screen redraws.
@@ -80,23 +80,22 @@ class W3Benchmark:
         self.prompt_marker = args.prompt.rstrip()
         if not self.prompt_marker:
             raise ValueError("Prompt must contain at least one non-space character")
-        if not args.probe_chars:
-            raise ValueError("--probe-chars must contain at least one character")
-        probe_chars = "".join(
-            ch for ch in dict.fromkeys(args.probe_chars)
-            if ch.isalnum() and ch.isprintable()
-        )
-        if not probe_chars:
-            raise ValueError("--probe-chars must contain alphanumeric characters")
         if args.probe_search_window < 0:
             raise ValueError("--probe-search-window must be >= 0")
+        probe_sequence = args.probe_sequence
+        if probe_sequence is None:
+            probe_sequence = ""
+        if not probe_sequence:
+            raise ValueError("--probe-sequence must not be empty")
+        if "\n" in probe_sequence or "\r" in probe_sequence:
+            raise ValueError("--probe-sequence must not contain newline characters")
         self.prompt_re = self._build_prompt_re(self.prompt_marker)
-        self.probe_chars = probe_chars
+        self.probe_sequence = probe_sequence
+        self.probe_sequence_index = 0
         self.probe_search_window: Optional[int] = (
             None if args.probe_search_window == 0
             else max(8, args.probe_search_window)
         )
-        self.prev_probe_char: Optional[str] = None
         self.records:  List[SampleRecord]  = []
         self.failures: List[FailureRecord] = []
         self.results: Dict[str, Dict[str, List[float]]] = {
@@ -165,16 +164,10 @@ class W3Benchmark:
                 break
 
     def _next_probe_char(self) -> str:
-        if len(self.probe_chars) == 1:
-            probe_char = self.probe_chars[0]
-            self.prev_probe_char = probe_char
-            return probe_char
-
-        probe_char = random.choice(self.probe_chars)
-        if self.prev_probe_char is not None and probe_char == self.prev_probe_char:
-            choices = self.probe_chars.replace(self.prev_probe_char, "")
-            probe_char = random.choice(choices)
-        self.prev_probe_char = probe_char
+        probe_char = self.probe_sequence[self.probe_sequence_index]
+        self.probe_sequence_index = (
+            self.probe_sequence_index + 1
+        ) % len(self.probe_sequence)
         return probe_char
 
     def _consume_stray_probe_chars(
@@ -827,8 +820,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Random seed",
     )
     p.add_argument(
-        "--probe-chars", default=PROBE_CHAR_ALPHABET,
-        help="Alphanumeric character pool for random single-character probes",
+        "--probe-sequence", default=DEFAULT_PROBE_SEQUENCE,
+        help=(
+            "Sequential probe string used left-to-right per keystroke"
+        ),
     )
     p.add_argument(
         "--probe-search-window", type=int, default=0,

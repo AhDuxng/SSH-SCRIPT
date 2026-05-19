@@ -19,6 +19,7 @@ OUTPUT_DIR="w3_results"
 LOG_PEXPECT=false    
 
 PROMPT="__W3_PROMPT__# "
+PROBE_SEQUENCE='Go straight for 3 meters, then stop'
 
 SSH3_PATH="/ssh3-term"
 SSH3_INSECURE=true     
@@ -46,6 +47,7 @@ CMD=(
     --trials          "$TRIALS"
     --timeout         "$TIMEOUT"
     --seed            "$SEED"
+    --probe-sequence  "$PROBE_SEQUENCE"
     --output-dir      "$OUTPUT_DIR"
     --prompt          "$PROMPT"
     --ssh3-path       "$SSH3_PATH"

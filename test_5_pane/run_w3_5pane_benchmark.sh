@@ -19,9 +19,8 @@ WARMUP_ROUNDS="${WARMUP_ROUNDS:-10}"
 TIMEOUT="${TIMEOUT:-20}"
 SEED="${SEED:-42}"
 
-# Background panes redraw continuously. Keep probe chars rare and absent from
-# the default background text to avoid matching the wrong pane.
-PROBE_CHARS="${PROBE_CHARS:-QZ}"
+# Probe keystrokes follow a fixed sequence, left-to-right.
+PROBE_SEQUENCE="${PROBE_SEQUENCE:-Go straight for 3 meters, then stop}"
 PROBE_SEARCH_WINDOW="${PROBE_SEARCH_WINDOW:-0}"
 EDITOR_CLEANUP_BATCH="${EDITOR_CLEANUP_BATCH:-32}"
 
@@ -608,7 +607,8 @@ run_for_host() {
   echo "[${HOST}] protocols: ${PROTOCOLS}"
   echo "[${HOST}] workloads: ${WORKLOADS}"
   echo "[${HOST}] tmux: session=${TMUX_SESSION}, pane0=${TMUX_WINDOW}.${PANE0_INDEX}"
-  echo "[${HOST}] probe chars/window: ${PROBE_CHARS}/${PROBE_SEARCH_WINDOW}"
+  echo "[${HOST}] probe window: ${PROBE_SEARCH_WINDOW}"
+  echo "[${HOST}] probe sequence: ${PROBE_SEQUENCE}"
 
   stop_stale_local_benchmarks "$HOST" || return 1
 
@@ -677,7 +677,7 @@ run_for_host() {
       --warmup-rounds "$WARMUP_ROUNDS"
       --timeout "$TIMEOUT"
       --seed "$SEED"
-      --probe-chars "$PROBE_CHARS"
+      --probe-sequence "$PROBE_SEQUENCE"
       --probe-search-window "$PROBE_SEARCH_WINDOW"
       --editor-cleanup-batch "$EDITOR_CLEANUP_BATCH"
       --tmux-fail-streak-limit "$TMUX_FAIL_STREAK_LIMIT"
