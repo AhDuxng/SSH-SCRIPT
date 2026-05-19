@@ -257,11 +257,10 @@ class W4Benchmark:
             producer = f"{producer} | head -n {int(self.args.max_output_lines)}"
         return f"{producer}; printf '%s\\n' {marker_arg}"
 
-    def _wait_for_marker(self, child: pexpect.spawn, marker: str, marker_tail: str) -> int:
+    def _wait_for_marker(self, child: pexpect.spawn, marker: str, _marker_tail: str) -> int:
         deadline = time.monotonic() + float(self.args.sample_timeout)
         idle_timeout = float(self.args.command_idle_timeout)
         marker_re = self._build_token_re(marker)
-        marker_tail_re = self._build_token_re(marker_tail)
         read_size = max(4096, int(self.args.maxread))
 
         buffer = ""
@@ -318,12 +317,6 @@ class W4Benchmark:
                     buffer[: match.start()].encode("utf-8", errors="ignore")
                 )
 
-            tail_match = marker_tail_re.search(buffer)
-            if tail_match is not None:
-                return output_bytes + len(
-                    buffer[: tail_match.start()].encode("utf-8", errors="ignore")
-                )
-
             lines = buffer.split("\n")
             buffer = lines.pop() if lines else ""
             for line in lines:
@@ -331,12 +324,6 @@ class W4Benchmark:
                 if marker_pos >= 0:
                     output_bytes += len(
                         line[:marker_pos].encode("utf-8", errors="ignore")
-                    )
-                    return output_bytes
-                prompt_pos = line.find(self.prompt_marker)
-                if prompt_pos >= 0:
-                    output_bytes += len(
-                        line[:prompt_pos].encode("utf-8", errors="ignore")
                     )
                     return output_bytes
                 output_bytes += len((line + "\n").encode("utf-8", errors="ignore"))
