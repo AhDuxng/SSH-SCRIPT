@@ -16,7 +16,7 @@ COMMANDS=(
   "docker logs \$(docker ps -q | head -n 1)"
 )
 
-ITERATIONS="${ITERATIONS:-30}"
+ITERATIONS="${ITERATIONS:-100}"
 TRIALS="${TRIALS:-5}"
 TIMEOUT="${TIMEOUT:-20}"
 SAMPLE_TIMEOUT="${SAMPLE_TIMEOUT:-60}"
