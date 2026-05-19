@@ -222,6 +222,11 @@ class W4Benchmark:
 
         child.sendline(f"export PS1={shlex.quote(self.args.prompt)}")
         self._expect_prompt(child, protocol=protocol)
+        # Keep setup timing identical to test/w3, then disable echo so command
+        # lines cannot expose the end marker before the real workload finishes.
+        child.sendline("stty -echo")
+        self._expect_prompt(child, protocol=protocol)
+        self._drain_pending_output(child)
         return child, setup_ms
 
     def _close_session(self, child: pexpect.spawn) -> None:
