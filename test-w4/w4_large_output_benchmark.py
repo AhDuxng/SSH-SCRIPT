@@ -35,7 +35,7 @@ COMMAND_LABELS = {
 }
 DEFAULT_PROMPT = "__W4_PROMPT__#"
 DEFAULT_SSH3_PATH = "/ssh3-term"
-MARKER_TAIL_LEN = 12
+MARKER_TOKEN_LEN = 24
 TAIL_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
 _ANSI_SEQ = r"(?:\x1b\[\??[0-9;]*[a-zA-Z]|\x1b[\(\)][0-9A-Za-z])"
@@ -99,7 +99,7 @@ class W4Benchmark:
         if not self.prompt_marker:
             raise ValueError("Prompt must contain at least one non-space character")
         self.prompt_re = self._build_prompt_re(self.prompt_marker)
-        self.prev_marker_tail: Optional[str] = None
+        self.prev_marker_token: Optional[str] = None
 
         self.records: List[SampleRecord] = []
         self.failures: List[FailureRecord] = []
@@ -236,19 +236,19 @@ class W4Benchmark:
         except Exception:
             child.close(force=True)
 
-    def _next_marker_tail(self) -> str:
-        if self.prev_marker_tail is None:
-            tail = "".join(random.choice(TAIL_ALPHABET) for _ in range(MARKER_TAIL_LEN))
-            self.prev_marker_tail = tail
-            return tail
+    def _next_marker_token(self) -> str:
+        if self.prev_marker_token is None:
+            token = "".join(random.choice(TAIL_ALPHABET) for _ in range(MARKER_TOKEN_LEN))
+            self.prev_marker_token = token
+            return token
 
         chars: List[str] = []
-        for prev_ch in self.prev_marker_tail:
+        for prev_ch in self.prev_marker_token:
             choices = [c for c in TAIL_ALPHABET if c != prev_ch]
             chars.append(random.choice(choices))
-        tail = "".join(chars)
-        self.prev_marker_tail = tail
-        return tail
+        token = "".join(chars)
+        self.prev_marker_token = token
+        return token
 
     def _wrap_measured_command(self, command: str, marker: str) -> str:
         marker_arg = shlex.quote(marker)
@@ -257,7 +257,7 @@ class W4Benchmark:
             producer = f"{producer} | head -n {int(self.args.max_output_lines)}"
         return f"{producer}; printf '%s\\n' {marker_arg}"
 
-    def _wait_for_marker(self, child: pexpect.spawn, marker: str, _marker_tail: str) -> int:
+    def _wait_for_marker(self, child: pexpect.spawn, marker: str) -> int:
         deadline = time.monotonic() + float(self.args.sample_timeout)
         idle_timeout = float(self.args.command_idle_timeout)
         marker_re = self._build_token_re(marker)
@@ -338,13 +338,12 @@ class W4Benchmark:
         child: pexpect.spawn,
         command: str,
         marker: str,
-        marker_tail: str,
     ) -> tuple[float, int]:
         self._drain_pending_output(child)
         wrapped = self._wrap_measured_command(command, marker)
         start_ns = time.perf_counter_ns()
         child.sendline(wrapped)
-        output_bytes = self._wait_for_marker(child, marker, marker_tail)
+        output_bytes = self._wait_for_marker(child, marker)
         end_ns = time.perf_counter_ns()
         return (end_ns - start_ns) / 1_000_000.0, output_bytes
 
@@ -367,11 +366,10 @@ class W4Benchmark:
         trial_id: int,
     ) -> None:
         for sample_id in range(1, self.args.iterations + 1):
-            marker_tail = self._next_marker_tail()
-            marker = f"__W4_DONE_{trial_id}_{sample_id}_{command_id}_{marker_tail}__"
+            marker = self._next_marker_token()
             try:
                 latency_ms, output_bytes = self._measure_output_delivery(
-                    child, command, marker, marker_tail
+                    child, command, marker
                 )
                 throughput = (
                     (output_bytes / 1024.0) / (latency_ms / 1000.0)
