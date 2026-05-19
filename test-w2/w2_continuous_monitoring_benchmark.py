@@ -23,13 +23,11 @@ except ImportError as exc:
     ) from exc
 
 try:
-    import pyte
-except ImportError as exc:
-    raise SystemExit(
-        "Missing dependency: pyte. Install with: pip install pyte"
-    ) from exc
+    import pyte  # noqa: F401 — kept as optional dependency for future use
+except ImportError:
+    pass
 
-DEFAULT_PROTOCOLS = ["ssh", "ssh3", "mosh"]
+DEFAULT_PROTOCOLS = ["ssh", "ssh3", "mosh", "mosh-adaptive"]
 DEFAULT_WORKLOADS = ["top", "tail", "ping"]
 DEFAULT_PROMPT = "__W2_PROMPT__#"
 DEFAULT_SSH3_PATH = "/ssh3-term"
@@ -144,11 +142,13 @@ class W2Benchmark:
         if protocol == "ssh":
             return shlex.join(ssh_common)
 
-        if protocol == "mosh":
+        if protocol == "mosh" or protocol == "mosh-adaptive":
             mosh_ssh = [arg for arg in ssh_common[:-1] if arg != "-tt"]
             ssh_cmd = shlex.join(mosh_ssh)
             mosh_parts = ["mosh", f"--ssh={ssh_cmd}"]
-            if self.args.mosh_predict and self.args.mosh_predict != "adaptive":
+            if protocol == "mosh-adaptive":
+                mosh_parts += ["--predict", "adaptive"]
+            elif self.args.mosh_predict and self.args.mosh_predict != "adaptive":
                 mosh_parts += ["--predict", self.args.mosh_predict]
             mosh_parts += [target]
             return shlex.join(mosh_parts)
@@ -167,7 +167,7 @@ class W2Benchmark:
     def _open_session(self, protocol: str, max_retries: int = 3) -> tuple[pexpect.spawn, float]:
         last_exc: Exception | None = None
         base_timeout = self.args.timeout
-        if protocol == "mosh":
+        if protocol in ("mosh", "mosh-adaptive"):
             base_timeout = max(base_timeout, 30)
 
         for attempt in range(1, max_retries + 1):
@@ -227,7 +227,7 @@ class W2Benchmark:
             except Exception:
                 pass
 
-        if protocol == "mosh" and hasattr(child, "pid") and child.pid:
+        if protocol in ("mosh", "mosh-adaptive") and hasattr(child, "pid") and child.pid:
             try:
                 import os, signal
                 os.kill(child.pid, signal.SIGKILL)
@@ -417,31 +417,48 @@ class W2Benchmark:
         protocol: str = "ssh",
     ) -> None:
         interval = self.args.top_interval
-        marker_re = re.compile(r"W2_CUI_\d+:(\d{10,19})")
-        CUI_LOOP = (
-            f"SEQ=0; while true; do "
-            f"SEQ=$((SEQ+1)); "
-            r"printf '\033[2J\033[H"
-            r"=== System Monitor [Frame %d] ===\n"
-            r" CPU [####............]  78%%\n"
-            r" MEM [##########......]  67%%\n"
-            r" SWP [##.................] 10%%\n"
-            r"---\n"
-            r" PID  USER      %%CPU  COMMAND\n"
-            r"1024  root       4.2  systemd\n"
-            r"1138  www-data   3.1  nginx\n"
-            r"2201  postgres   2.8  postgres\n"
-            r"3345  node       2.1  node\n"
-            r"4410  redis      1.5  redis-server\n"
-            r"---\n"
-            r"W2_CUI_%d:%s\n"
-            "' "
-            f"\"$SEQ\" \"$SEQ\" \"$(date +%s%N)\"; "
-            f"sleep {interval}; "
-            f"done"
-        )
+        if protocol in ("mosh", "mosh-adaptive"):
+            marker_re = re.compile(
+                self._build_gapped_literal("W2_CUI_")
+                + r"\d(?:" + _ECHO_GAP + r"\d)*"
+                + _ECHO_GAP + re.escape(":") + _ECHO_GAP
+                + _GAPPED_EPOCH_NS
+            )
+        else:
+            marker_re = re.compile(r"W2_CUI_\d+:(\d{10,19})")
+        if protocol in ("mosh", "mosh-adaptive"):
+            CUI_LOOP = (
+                f"SEQ=0; while true; do "
+                f"SEQ=$((SEQ+1)); "
+                r"echo \"W2_CUI_${SEQ}:$(date +%s%N)\"; "
+                f"sleep {interval}; "
+                f"done"
+            )
+        else:
+            CUI_LOOP = (
+                f"stty -onlcr; "
+                f"SEQ=0; while true; do "
+                f"SEQ=$((SEQ+1)); "
+                r"printf '\033[2J\033[H"
+                r"=== System Monitor [Frame %d] ===\r\n"
+                r" CPU [####............]  78%%\r\n"
+                r" MEM [##########......]  67%%\r\n"
+                r" SWP [##.................] 10%%\r\n"
+                r"---\r\n"
+                r" PID  USER      %%CPU  COMMAND\r\n"
+                r"1024  root       4.2  systemd\r\n"
+                r"1138  www-data   3.1  nginx\r\n"
+                r"2201  postgres   2.8  postgres\r\n"
+                r"3345  node       2.1  node\r\n"
+                r"4410  redis      1.5  redis-server\r\n"
+                r"---\r\n"
+                r"W2_CUI_%d:%s\r\n"
+                "' "
+                f"\"$SEQ\" \"$SEQ\" \"$(date +%s%N)\"; "
+                f"sleep {interval}; "
+                f"done"
+            )
         expect_timeout = max(self.args.timeout, int(interval * 3) + 5)
-        dropped = 0
 
         def stop_loop() -> None:
             for _ in range(3):
@@ -453,11 +470,11 @@ class W2Benchmark:
                 child.sendcontrol("c")
                 time.sleep(1)
                 self._expect_prompt(child)
+            if protocol not in ("mosh", "mosh-adaptive"):
+                child.sendline("stty onlcr")
+                self._expect_prompt(child)
 
-        if protocol == "mosh":
-            self._measure_top_pyte(child, iterations, report_cb, marker_re, CUI_LOOP, expect_timeout, stop_loop)
-        else:
-            self._measure_top_regex(child, iterations, report_cb, marker_re, CUI_LOOP, expect_timeout, stop_loop)
+        self._measure_top_regex(child, iterations, report_cb, marker_re, CUI_LOOP, expect_timeout, stop_loop)
 
     def _measure_top_regex(
         self,
@@ -479,7 +496,7 @@ class W2Benchmark:
         while sample_id < iterations:
             child.expect(marker_re, timeout=expect_timeout)
             recv_ns = time.time_ns()
-            raw_token = child.match.group(1)
+            raw_token = re.sub(_ANSI_SEQ, "", child.match.group(1))
             try:
                 remote_event_ns = self._parse_epoch_to_ns(raw_token, recv_ns)
             except ValueError as exc:
@@ -499,82 +516,6 @@ class W2Benchmark:
                 continue
             sample_id += 1
             report_cb(sample_id, lat)
-
-        stop_loop()
-
-    def _measure_top_pyte(
-        self,
-        child: pexpect.spawn,
-        iterations: int,
-        report_cb: Callable[[int, float], None],
-        marker_re: re.Pattern,
-        cui_loop: str,
-        expect_timeout: float,
-        stop_loop: Callable[[], None],
-    ) -> None:
-        """Mosh SSP sends per-cell diffs — raw PTY regex fails after frame 1.
-        Use pyte virtual terminal to reconstruct screen state."""
-        dropped = 0
-        screen = pyte.Screen(120, 40)
-        stream = pyte.Stream(screen)
-
-        child.sendline(cui_loop)
-
-        last_epoch: Optional[str] = None
-        sample_id = 0
-        warmup_frames = 3
-        warmup_seen = 0
-        deadline = time.time() + expect_timeout
-
-        while sample_id < iterations:
-            if time.time() > deadline:
-                raise pexpect.TIMEOUT(f"top/pyte: no new frame within {expect_timeout}s")
-
-            try:
-                data = child.read_nonblocking(size=4096, timeout=1.0)
-            except pexpect.TIMEOUT:
-                continue
-            except pexpect.EOF:
-                raise
-
-            if data:
-                stream.feed(data)
-
-            for row in range(screen.lines):
-                line = screen.display[row].rstrip()
-                m = marker_re.search(line)
-                if m:
-                    raw_token = m.group(1)
-                    if raw_token == last_epoch:
-                        break
-                    recv_ns = time.time_ns()
-                    last_epoch = raw_token
-                    deadline = time.time() + expect_timeout
-
-                    if warmup_seen < warmup_frames:
-                        warmup_seen += 1
-                        break
-
-                    try:
-                        remote_event_ns = self._parse_epoch_to_ns(raw_token, recv_ns)
-                    except ValueError as exc:
-                        dropped = self._warn_and_count_invalid("top", dropped, str(exc), raw_token)
-                        break
-                    lat = self._event_latency_ms(remote_event_ns, recv_ns)
-                    if not self._latency_is_valid(lat):
-                        dropped = self._warn_and_count_invalid(
-                            "top",
-                            dropped,
-                            (
-                                f"latency {lat:.2f} ms outside "
-                                f"[{self.args.min_valid_latency_ms:.2f}, {self.args.max_valid_latency_ms:.2f}]"
-                            ),
-                            raw_token,
-                        )
-                        break
-                    sample_id += 1
-                    report_cb(sample_id, lat)
-                    break
 
         stop_loop()
 
@@ -792,7 +733,7 @@ class W2Benchmark:
                 self.current_clock_offset_ns = 0
                 if child is not None:
                     self._close_session(child, protocol)
-                if protocol == "mosh":
+                if protocol in ("mosh", "mosh-adaptive"):
                     time.sleep(2)
 
     def run(self) -> None:

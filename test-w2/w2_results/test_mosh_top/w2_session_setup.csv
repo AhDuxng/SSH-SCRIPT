@@ -1,0 +1,3 @@
+protocol,workload,trial_id,session_setup_ms
+mosh,top,1,345.092471
+mosh-adaptive,top,1,335.071841
