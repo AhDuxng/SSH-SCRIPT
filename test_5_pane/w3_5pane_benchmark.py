@@ -103,6 +103,9 @@ class W3Benchmark:
             None if args.tmux_search_window == 0
             else max(1024, args.tmux_search_window)
         )
+        # In tmux 5-pane mode, match with short rolling context from pane 0
+        # to avoid collisions with background pane redraw bytes.
+        self.tmux_probe_tail_limit = 48
         self.records:  List[SampleRecord]  = []
         self.failures: List[FailureRecord] = []
         self.results: Dict[str, Dict[str, List[float]]] = {
@@ -328,11 +331,11 @@ class W3Benchmark:
                 break
 
     def _next_probe_text(self) -> str:
-        probe_char = self.probe_sequence[self.probe_sequence_index]
+        probe_text = self.probe_sequence[self.probe_sequence_index]
         self.probe_sequence_index = (
             self.probe_sequence_index + 1
         ) % len(self.probe_sequence)
-        return probe_char
+        return probe_text
 
     def _consume_stray_probe_text(
         self,
@@ -354,6 +357,26 @@ class W3Benchmark:
             if idx == 1:
                 return
             raise pexpect.EOF("EOF while draining stale probe bytes")
+        # Bounded flush to reduce leftover stale bytes when many rapid redraws
+        # keep matching the same probe text (common for spaces in tmux mode).
+        self._drain_pending_output(child, max_reads=2)
+
+    def _prime_tmux_probe_anchor(self, child: pexpect.spawn) -> str:
+        anchor = f"__W3P{random.randrange(100000, 999999)}__"
+        self._drain_pending_output(child, max_reads=16)
+        self._consume_stray_probe_text(
+            child,
+            anchor,
+            self.tmux_search_window,
+            max_polls=8,
+        )
+        child.send(anchor)
+        child.expect_exact(
+            anchor,
+            timeout=self.args.timeout,
+            searchwindowsize=self.tmux_search_window,
+        )
+        return anchor
 
     def _probe_once(
         self,
@@ -361,6 +384,8 @@ class W3Benchmark:
         erase_after_echo: bool = False,
         erase_key: str = "\x7f",
         expect_timeout: Optional[float] = None,
+        probe_text: Optional[str] = None,
+        match_text: Optional[str] = None,
     ) -> float:
         self._drain_pending_output(child)
         search_window: Optional[int] = self.probe_search_window
@@ -371,10 +396,12 @@ class W3Benchmark:
             # In 5-pane mode the same single-char probe may be re-rendered many
             # times; clear more stale matches to avoid near-zero false samples.
             consume_polls = 128
-        probe_text = self._next_probe_text()
+        if probe_text is None:
+            probe_text = self._next_probe_text()
+        expected_text = probe_text if match_text is None else match_text
         self._consume_stray_probe_text(
             child,
-            probe_text,
+            expected_text,
             search_window,
             max_polls=consume_polls,
         )
@@ -382,13 +409,13 @@ class W3Benchmark:
         child.send(probe_text)
         if self._tmux_attach_mode():
             child.expect_exact(
-                probe_text,
+                expected_text,
                 timeout=timeout,
                 searchwindowsize=self.tmux_search_window,
             )
         else:
             child.expect_exact(
-                probe_text,
+                expected_text,
                 timeout=timeout,
                 searchwindowsize=search_window,
             )
@@ -490,9 +517,16 @@ class W3Benchmark:
         self,
         child: pexpect.spawn,
         erase_after_echo: bool = True,
+        probe_text: Optional[str] = None,
+        match_text: Optional[str] = None,
     ) -> float:
         # Assumes Vim is already in Insert mode.
-        return self._probe_once(child, erase_after_echo=erase_after_echo)
+        return self._probe_once(
+            child,
+            erase_after_echo=erase_after_echo,
+            probe_text=probe_text,
+            match_text=match_text,
+        )
 
     def _session_command(self, protocol: str) -> str:
         target     = self.target
@@ -623,6 +657,7 @@ class W3Benchmark:
         self._refresh_prompt(child, protocol=protocol)
         cleanup_batch = max(1, self.args.editor_cleanup_batch)
         pending_chars = 0
+        tmux_probe_tail = ""
         # Keep parity with test/w3_interactive_benchmark.py:
         # measured probes are not erased immediately.
         erase_per_probe = False
@@ -631,32 +666,73 @@ class W3Benchmark:
         fail_total = 0
         fail_trial_limit = max(0, self.args.tmux_trial_fail_limit)
 
+        def ensure_tmux_probe_tail() -> None:
+            nonlocal pending_chars, tmux_probe_tail
+            if not self._tmux_attach_mode() or tmux_probe_tail:
+                return
+            anchor = self._prime_tmux_probe_anchor(child)
+            tmux_probe_tail = anchor[-self.tmux_probe_tail_limit:]
+            if not erase_per_probe:
+                pending_chars += len(anchor)
+
         for _ in range(warmup):
+            ensure_tmux_probe_tail()
+            probe_text = self._next_probe_text()
+            match_text = (
+                f"{tmux_probe_tail}{probe_text}"
+                if tmux_probe_tail
+                else probe_text
+            )
             try:
-                self._probe_once(child, erase_after_echo=erase_per_probe)
+                self._probe_once(
+                    child,
+                    erase_after_echo=erase_per_probe,
+                    probe_text=probe_text,
+                    match_text=match_text,
+                )
             except pexpect.TIMEOUT:
                 self._recover_shell_state(child)
+                pending_chars = 0
+                tmux_probe_tail = ""
                 self._refresh_prompt(child, protocol=protocol)
                 continue
             if erase_per_probe:
                 continue
-            pending_chars += 1
+            pending_chars += len(probe_text)
+            if tmux_probe_tail:
+                tmux_probe_tail = (
+                    f"{tmux_probe_tail}{probe_text}"
+                )[-self.tmux_probe_tail_limit:]
             if pending_chars >= cleanup_batch:
                 self._erase_probe_chars(child, pending_chars)
                 pending_chars = 0
+                tmux_probe_tail = ""
                 self._drain_pending_output(child)
 
         # Keep warmup side effects outside measured rounds.
         if not erase_per_probe and pending_chars > 0:
             self._erase_probe_chars(child, pending_chars)
             pending_chars = 0
+            tmux_probe_tail = ""
             self._drain_pending_output(child)
         self._refresh_prompt(child, protocol=protocol)
 
         latencies: List[float] = []
         for i in range(iterations):
+            ensure_tmux_probe_tail()
+            probe_text = self._next_probe_text()
+            match_text = (
+                f"{tmux_probe_tail}{probe_text}"
+                if tmux_probe_tail
+                else probe_text
+            )
             try:
-                lat = self._probe_once(child, erase_after_echo=erase_per_probe)
+                lat = self._probe_once(
+                    child,
+                    erase_after_echo=erase_per_probe,
+                    probe_text=probe_text,
+                    match_text=match_text,
+                )
             except pexpect.TIMEOUT as exc:
                 fail_streak += 1
                 fail_total += 1
@@ -666,6 +742,8 @@ class W3Benchmark:
                     child = self._reopen_session_for_sample_failure(child, protocol)
                 else:
                     self._recover_shell_state(child)
+                pending_chars = 0
+                tmux_probe_tail = ""
                 self._refresh_prompt(child, protocol=protocol)
                 if (
                     self._tmux_attach_mode()
@@ -682,10 +760,15 @@ class W3Benchmark:
                 continue
             fail_streak = 0
             if not erase_per_probe:
-                pending_chars += 1
+                pending_chars += len(probe_text)
+                if tmux_probe_tail:
+                    tmux_probe_tail = (
+                        f"{tmux_probe_tail}{probe_text}"
+                    )[-self.tmux_probe_tail_limit:]
             if not erase_per_probe and pending_chars >= cleanup_batch:
                 self._erase_probe_chars(child, pending_chars)
                 pending_chars = 0
+                tmux_probe_tail = ""
                 self._drain_pending_output(child)
             latencies.append(lat)
             if report_cb:
@@ -693,6 +776,7 @@ class W3Benchmark:
 
         if not erase_per_probe and pending_chars > 0:
             self._erase_probe_chars(child, pending_chars)
+            tmux_probe_tail = ""
             self._drain_pending_output(child)
 
         self._refresh_prompt(child, protocol=protocol)
@@ -710,27 +794,58 @@ class W3Benchmark:
         self._enter_vim_insert_mode(child)
         # Keep parity with test/w3_interactive_benchmark.py.
         erase_per_probe = False
+        tmux_probe_tail = ""
         fail_streak = 0
         fail_limit = max(0, self.args.tmux_fail_streak_limit)
         fail_total = 0
         fail_trial_limit = max(0, self.args.tmux_trial_fail_limit)
 
+        def ensure_tmux_probe_tail() -> None:
+            nonlocal tmux_probe_tail
+            if not self._tmux_attach_mode() or tmux_probe_tail:
+                return
+            anchor = self._prime_tmux_probe_anchor(child)
+            tmux_probe_tail = anchor[-self.tmux_probe_tail_limit:]
+
         for _ in range(warmup):
+            ensure_tmux_probe_tail()
+            probe_text = self._next_probe_text()
+            match_text = (
+                f"{tmux_probe_tail}{probe_text}"
+                if tmux_probe_tail
+                else probe_text
+            )
             try:
                 self._probe_vim_once(
                     child,
                     erase_after_echo=erase_per_probe,
+                    probe_text=probe_text,
+                    match_text=match_text,
                 )
             except pexpect.TIMEOUT:
                 self._recover_vim_state(child)
+                tmux_probe_tail = ""
                 continue
+            if tmux_probe_tail:
+                tmux_probe_tail = (
+                    f"{tmux_probe_tail}{probe_text}"
+                )[-self.tmux_probe_tail_limit:]
 
         latencies: List[float] = []
         for i in range(iterations):
+            ensure_tmux_probe_tail()
+            probe_text = self._next_probe_text()
+            match_text = (
+                f"{tmux_probe_tail}{probe_text}"
+                if tmux_probe_tail
+                else probe_text
+            )
             try:
                 lat = self._probe_vim_once(
                     child,
                     erase_after_echo=erase_per_probe,
+                    probe_text=probe_text,
+                    match_text=match_text,
                 )
             except pexpect.TIMEOUT as exc:
                 fail_streak += 1
@@ -742,6 +857,7 @@ class W3Benchmark:
                     self._enter_vim_insert_mode(child)
                 else:
                     self._recover_vim_state(child)
+                tmux_probe_tail = ""
                 if (
                     self._tmux_attach_mode()
                     and fail_trial_limit > 0
@@ -756,6 +872,10 @@ class W3Benchmark:
                     )
                 continue
             fail_streak = 0
+            if tmux_probe_tail:
+                tmux_probe_tail = (
+                    f"{tmux_probe_tail}{probe_text}"
+                )[-self.tmux_probe_tail_limit:]
             latencies.append(lat)
             if report_cb:
                 report_cb(i + 1, lat)
@@ -777,27 +897,58 @@ class W3Benchmark:
         self._enter_nano_mode(child)
         # Keep parity with test/w3_interactive_benchmark.py.
         erase_per_probe = False
+        tmux_probe_tail = ""
         fail_streak = 0
         fail_limit = max(0, self.args.tmux_fail_streak_limit)
         fail_total = 0
         fail_trial_limit = max(0, self.args.tmux_trial_fail_limit)
 
+        def ensure_tmux_probe_tail() -> None:
+            nonlocal tmux_probe_tail
+            if not self._tmux_attach_mode() or tmux_probe_tail:
+                return
+            anchor = self._prime_tmux_probe_anchor(child)
+            tmux_probe_tail = anchor[-self.tmux_probe_tail_limit:]
+
         for _ in range(warmup):
+            ensure_tmux_probe_tail()
+            probe_text = self._next_probe_text()
+            match_text = (
+                f"{tmux_probe_tail}{probe_text}"
+                if tmux_probe_tail
+                else probe_text
+            )
             try:
                 self._probe_once(
                     child,
                     erase_after_echo=erase_per_probe,
+                    probe_text=probe_text,
+                    match_text=match_text,
                 )
             except pexpect.TIMEOUT:
                 self._recover_nano_state(child)
+                tmux_probe_tail = ""
                 continue
+            if tmux_probe_tail:
+                tmux_probe_tail = (
+                    f"{tmux_probe_tail}{probe_text}"
+                )[-self.tmux_probe_tail_limit:]
 
         latencies: List[float] = []
         for i in range(iterations):
+            ensure_tmux_probe_tail()
+            probe_text = self._next_probe_text()
+            match_text = (
+                f"{tmux_probe_tail}{probe_text}"
+                if tmux_probe_tail
+                else probe_text
+            )
             try:
                 lat = self._probe_once(
                     child,
                     erase_after_echo=erase_per_probe,
+                    probe_text=probe_text,
+                    match_text=match_text,
                 )
             except pexpect.TIMEOUT as exc:
                 fail_streak += 1
@@ -809,6 +960,7 @@ class W3Benchmark:
                     self._enter_nano_mode(child)
                 else:
                     self._recover_nano_state(child)
+                tmux_probe_tail = ""
                 if (
                     self._tmux_attach_mode()
                     and fail_trial_limit > 0
@@ -823,6 +975,10 @@ class W3Benchmark:
                     )
                 continue
             fail_streak = 0
+            if tmux_probe_tail:
+                tmux_probe_tail = (
+                    f"{tmux_probe_tail}{probe_text}"
+                )[-self.tmux_probe_tail_limit:]
             latencies.append(lat)
             if report_cb:
                 report_cb(i + 1, lat)
