@@ -371,8 +371,11 @@ class W3Benchmark:
             max_polls=8,
         )
         child.send(anchor)
-        child.expect_exact(
-            anchor,
+        child.expect(
+            self._build_loose_interleaved_text_re(
+                anchor,
+                max_gap=self.args.tmux_probe_max_gap,
+            ),
             timeout=self.args.timeout,
             searchwindowsize=self.tmux_search_window,
         )
@@ -391,6 +394,7 @@ class W3Benchmark:
         search_window: Optional[int] = self.probe_search_window
         consume_polls = 4
         timeout = self.args.timeout if expect_timeout is None else expect_timeout
+        use_tmux_context_match = False
         if self._tmux_attach_mode():
             search_window = self.tmux_search_window
             # In 5-pane mode the same single-char probe may be re-rendered many
@@ -399,15 +403,35 @@ class W3Benchmark:
         if probe_text is None:
             probe_text = self._next_probe_text()
         expected_text = probe_text if match_text is None else match_text
-        self._consume_stray_probe_text(
-            child,
-            expected_text,
-            search_window,
-            max_polls=consume_polls,
-        )
+        if self._tmux_attach_mode() and match_text is not None and len(match_text) > 1:
+            # In tmux mode, contextual match may be split by ANSI/redraw bytes.
+            # Keep stale-drain narrow (probe byte only) and match with loose regex.
+            use_tmux_context_match = True
+            self._consume_stray_probe_text(
+                child,
+                probe_text,
+                search_window,
+                max_polls=min(16, consume_polls),
+            )
+        else:
+            self._consume_stray_probe_text(
+                child,
+                expected_text,
+                search_window,
+                max_polls=consume_polls,
+            )
         start_ns = time.perf_counter_ns()
         child.send(probe_text)
-        if self._tmux_attach_mode():
+        if use_tmux_context_match:
+            child.expect(
+                self._build_loose_interleaved_text_re(
+                    expected_text,
+                    max_gap=self.args.tmux_probe_max_gap,
+                ),
+                timeout=timeout,
+                searchwindowsize=self.tmux_search_window,
+            )
+        elif self._tmux_attach_mode():
             child.expect_exact(
                 expected_text,
                 timeout=timeout,
