@@ -178,6 +178,10 @@ ATTACH_CMD_MOSH_SIMPLE=""
 ATTACH_AFTER_LOGIN_PROTOCOLS=""
 SSH3_ATTACH_ENABLED=0
 SSH_CTL=()
+PANE0_TOP=""
+PANE0_LEFT=""
+PANE0_BOTTOM=""
+PANE0_RIGHT=""
 
 install_default_tmux_setup() {
   echo "[${HOST}] setup: installing default ~/w3_tmux_setup.sh"
@@ -436,6 +440,35 @@ send_token_to_pane0() {
   echo "[${HOST}] setup: token confirmed in pane 0 only"
 }
 
+fetch_pane0_bounds() {
+  local pane0="${TMUX_SESSION}:${TMUX_WINDOW}.${PANE0_INDEX}"
+  local pane0_q raw top left bottom right
+  pane0_q="$(printf '%q' "$pane0")"
+  raw="$("${SSH_CTL[@]}" "tmux display-message -p -t ${pane0_q} '#{pane_top} #{pane_left} #{pane_bottom} #{pane_right}' 2>/dev/null" 2>/dev/null | tr -d '\r' || true)"
+
+  if [[ ! "$raw" =~ ^[[:space:]]*([0-9]+)[[:space:]]+([0-9]+)[[:space:]]+([0-9]+)[[:space:]]+([0-9]+)[[:space:]]*$ ]]; then
+    echo "[${HOST}] setup: WARN unable to read pane0 bounds; stream match will use legacy mode." >&2
+    PANE0_TOP=""
+    PANE0_LEFT=""
+    PANE0_BOTTOM=""
+    PANE0_RIGHT=""
+    return 0
+  fi
+
+  top="${BASH_REMATCH[1]}"
+  left="${BASH_REMATCH[2]}"
+  bottom="${BASH_REMATCH[3]}"
+  right="${BASH_REMATCH[4]}"
+
+  # tmux pane coordinates are 0-based; terminal cursor coordinates are 1-based.
+  PANE0_TOP="$((top + 1))"
+  PANE0_LEFT="$((left + 1))"
+  PANE0_BOTTOM="$((bottom + 1))"
+  PANE0_RIGHT="$((right + 1))"
+
+  echo "[${HOST}] setup: pane0 bounds rows=${PANE0_TOP}-${PANE0_BOTTOM}, cols=${PANE0_LEFT}-${PANE0_RIGHT}"
+}
+
 build_attach_cmd() {
   local session_q window_q pane0_q rc_q boot_q
   local rc_line1_q rc_line2_q rc_line3_q pane_shell_cmd pane_shell_cmd_q
@@ -628,6 +661,7 @@ run_for_host() {
     fi
   fi
   send_token_to_pane0 || return 1
+  fetch_pane0_bounds || return 1
   build_attach_cmd
   probe_ssh3_attach_support
 
@@ -650,6 +684,10 @@ run_for_host() {
   export W3_ATTACH_SSH_AFTER_LOGIN="1"
   export W3_ATTACH_SSH3_AFTER_LOGIN="1"
   export W3_ATTACH_AFTER_LOGIN_PROTOCOLS="$ATTACH_AFTER_LOGIN_PROTOCOLS"
+  export W3_PANE0_TOP="$PANE0_TOP"
+  export W3_PANE0_LEFT="$PANE0_LEFT"
+  export W3_PANE0_BOTTOM="$PANE0_BOTTOM"
+  export W3_PANE0_RIGHT="$PANE0_RIGHT"
 
   local host_output_dir="$OUTPUT_DIR"
   if (( HOST_COUNT > 1 )); then

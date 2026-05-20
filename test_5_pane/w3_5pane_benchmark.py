@@ -103,6 +103,9 @@ class W3Benchmark:
             None if args.tmux_search_window == 0
             else max(1024, args.tmux_search_window)
         )
+        self.pane0_bounds = self._read_pane0_bounds_from_env()
+        self._pane0_stream_row: Optional[int] = None
+        self._pane0_stream_col: Optional[int] = None
         self.records:  List[SampleRecord]  = []
         self.failures: List[FailureRecord] = []
         self.results: Dict[str, Dict[str, List[float]]] = {
@@ -116,6 +119,155 @@ class W3Benchmark:
     def _build_prompt_re(prompt_marker: str) -> re.Pattern[str]:
         parts = [re.escape(ch) + _ECHO_GAP for ch in prompt_marker]
         return re.compile("".join(parts) + rf"(?:{_ANSI_SEQ}|\s)*$")
+
+    @staticmethod
+    def _read_pane0_bounds_from_env() -> Optional[tuple[int, int, int, int]]:
+        raw_top = os.environ.get("W3_PANE0_TOP", "").strip()
+        raw_left = os.environ.get("W3_PANE0_LEFT", "").strip()
+        raw_bottom = os.environ.get("W3_PANE0_BOTTOM", "").strip()
+        raw_right = os.environ.get("W3_PANE0_RIGHT", "").strip()
+        if not (raw_top and raw_left and raw_bottom and raw_right):
+            return None
+        try:
+            top = int(raw_top)
+            left = int(raw_left)
+            bottom = int(raw_bottom)
+            right = int(raw_right)
+        except ValueError:
+            return None
+        if top < 1 or left < 1 or bottom < top or right < left:
+            return None
+        return (top, left, bottom, right)
+
+    def _reset_pane0_stream_cursor(self) -> None:
+        self._pane0_stream_row = None
+        self._pane0_stream_col = None
+
+    def _char_in_pane0_bounds(self, row: Optional[int], col: Optional[int]) -> bool:
+        if self.pane0_bounds is None or row is None or col is None:
+            return False
+        top, left, bottom, right = self.pane0_bounds
+        return top <= row <= bottom and left <= col <= right
+
+    def _expect_probe_in_pane0(
+        self,
+        child: pexpect.spawn,
+        probe_text: str,
+        timeout: float,
+    ) -> None:
+        if len(probe_text) != 1 or self.pane0_bounds is None:
+            child.expect_exact(
+                probe_text,
+                timeout=timeout,
+                searchwindowsize=self.tmux_search_window,
+            )
+            return
+
+        if self._pane0_stream_row is None or self._pane0_stream_col is None:
+            # Start from a conservative default inside pane0 so direct echo
+            # without an immediately preceding CUP can still be matched.
+            top, left, _, _ = self.pane0_bounds
+            self._pane0_stream_row = top
+            self._pane0_stream_col = left
+
+        deadline = time.perf_counter() + timeout
+        carry = ""
+        while True:
+            now = time.perf_counter()
+            if now >= deadline:
+                raise pexpect.TIMEOUT("timeout waiting for probe echo in pane0 area")
+            read_timeout = max(0.01, min(0.25, deadline - now))
+            try:
+                chunk = child.read_nonblocking(size=4096, timeout=read_timeout)
+            except pexpect.TIMEOUT:
+                continue
+            if not chunk:
+                continue
+            data = carry + chunk
+            i = 0
+            carry = ""
+            data_len = len(data)
+            while i < data_len:
+                ch = data[i]
+                if ch == "\x1b":
+                    if i + 1 >= data_len:
+                        carry = data[i:]
+                        i = data_len
+                        break
+                    nxt = data[i + 1]
+                    if nxt == "[":
+                        j = i + 2
+                        while j < data_len and not ("@" <= data[j] <= "~"):
+                            j += 1
+                        if j >= data_len:
+                            carry = data[i:]
+                            i = data_len
+                            break
+                        params = data[i + 2 : j]
+                        final = data[j]
+                        if final in ("H", "f"):
+                            parts = params.split(";")
+                            row = 1
+                            col = 1
+                            if parts and parts[0]:
+                                try:
+                                    row = int(parts[0])
+                                except ValueError:
+                                    row = 1
+                            if len(parts) > 1 and parts[1]:
+                                try:
+                                    col = int(parts[1])
+                                except ValueError:
+                                    col = 1
+                            self._pane0_stream_row = max(1, row)
+                            self._pane0_stream_col = max(1, col)
+                        elif final == "G":
+                            col = 1
+                            if params:
+                                try:
+                                    col = int(params)
+                                except ValueError:
+                                    col = 1
+                            self._pane0_stream_col = max(1, col)
+                        elif final in ("A", "B", "C", "D"):
+                            n = 1
+                            if params:
+                                try:
+                                    n = int(params)
+                                except ValueError:
+                                    n = 1
+                            n = max(1, n)
+                            if self._pane0_stream_row is not None and final == "A":
+                                self._pane0_stream_row = max(1, self._pane0_stream_row - n)
+                            elif self._pane0_stream_row is not None and final == "B":
+                                self._pane0_stream_row += n
+                            elif self._pane0_stream_col is not None and final == "C":
+                                self._pane0_stream_col += n
+                            elif self._pane0_stream_col is not None and final == "D":
+                                self._pane0_stream_col = max(1, self._pane0_stream_col - n)
+                        i = j + 1
+                        continue
+                    # Non-CSI escape; skip ESC and next byte.
+                    i += 2
+                    continue
+
+                row = self._pane0_stream_row
+                col = self._pane0_stream_col
+                if ch == "\r":
+                    self._pane0_stream_col = 1
+                elif ch == "\n":
+                    if self._pane0_stream_row is not None:
+                        self._pane0_stream_row += 1
+                    self._pane0_stream_col = 1
+                elif ch == "\b":
+                    if self._pane0_stream_col is not None:
+                        self._pane0_stream_col = max(1, self._pane0_stream_col - 1)
+                else:
+                    if ch == probe_text and self._char_in_pane0_bounds(row, col):
+                        return
+                    if self._pane0_stream_col is not None:
+                        self._pane0_stream_col += 1
+                i += 1
 
     @staticmethod
     def _build_interleaved_text_re(text: str) -> re.Pattern[str]:
@@ -319,13 +471,17 @@ class W3Benchmark:
         if length > 0:
             child.send(erase_key * length)
 
-    @staticmethod
-    def _drain_pending_output(child: pexpect.spawn, max_reads: int = 8) -> None:
+    def _drain_pending_output(self, child: pexpect.spawn, max_reads: int = 8) -> None:
+        drained_any = False
         for _ in range(max_reads):
             try:
                 child.read_nonblocking(size=4096, timeout=0)
+                drained_any = True
             except (pexpect.TIMEOUT, pexpect.EOF):
                 break
+        if drained_any and self.pane0_bounds is not None:
+            # We discarded raw stream bytes, so tracked cursor position is stale.
+            self._reset_pane0_stream_cursor()
 
     def _next_probe_text(self) -> str:
         probe_char = self.probe_sequence[self.probe_sequence_index]
@@ -381,10 +537,10 @@ class W3Benchmark:
         start_ns = time.perf_counter_ns()
         child.send(probe_text)
         if self._tmux_attach_mode():
-            child.expect_exact(
+            self._expect_probe_in_pane0(
+                child,
                 probe_text,
                 timeout=timeout,
-                searchwindowsize=self.tmux_search_window,
             )
         else:
             child.expect_exact(
@@ -541,6 +697,7 @@ class W3Benchmark:
 
         last_exc: Optional[Exception] = None
         for attempt in range(1, attempts + 1):
+            self._reset_pane0_stream_cursor()
             child = pexpect.spawn(
                 self._session_command(protocol),
                 encoding="utf-8",
@@ -587,6 +744,7 @@ class W3Benchmark:
         raise RuntimeError("failed to open session")
 
     def _close_session(self, child: pexpect.spawn) -> None:
+        self._reset_pane0_stream_cursor()
         if self._tmux_attach_mode():
             try:
                 child.sendcontrol("b")
