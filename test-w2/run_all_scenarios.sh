@@ -23,15 +23,15 @@
 set -euo pipefail
 
 # --- Connection / interface config -------------------------------------------
-HOST="100.66.79.93"
-# HOST="10.42.0.206"
+# HOST="100.66.79.93"
+HOST="10.42.0.206"
 USER_NAME="pi"
-SOURCE_IP="100.70.166.91"
-# SOURCE_IP="10.42.0.1"
+# SOURCE_IP="100.70.166.91"
+SOURCE_IP="10.42.0.1"
 IDENTITY_FILE="$HOME/.ssh/id_ed25519"
 
-CLIENT_IFACE="${CLIENT_IFACE:-tailscale0}"
-SERVER_IFACE="${SERVER_IFACE:-tailscale0}"
+CLIENT_IFACE="${CLIENT_IFACE:-enp43s0}"
+SERVER_IFACE="${SERVER_IFACE:-eth0}"
 
 LOCAL_SET_NETWORK="${LOCAL_SET_NETWORK:-../set_network.sh}"
 
@@ -79,7 +79,7 @@ ssh_pi_tty() {
 if [[ $# -gt 0 ]]; then
   SCENARIOS=("$@")
 else
-  SCENARIOS=(low medium high)
+  SCENARIOS=(default low medium high)
 fi
 
 # --- Helpers -----------------------------------------------------------------
@@ -187,8 +187,8 @@ fi
 
 for scenario in "${SCENARIOS[@]}"; do
   case "$scenario" in
-    low|medium|high) ;;
-    *) echo "ERROR: unknown scenario '$scenario' (allowed: low, medium, high)" >&2; exit 2 ;;
+    default|low|medium|high) ;;
+    *) echo "ERROR: unknown scenario '$scenario' (allowed: default, low, medium, high)" >&2; exit 2 ;;
   esac
 done
 
@@ -222,11 +222,16 @@ for scenario in "${SCENARIOS[@]}"; do
   sleep_with_dots "$SETTLE_SEC" "post-clear settle"
 
   log "--- step 2/4: apply $scenario on both ends"
-  apply_both "$scenario"
+  if [[ "$scenario" == "default" ]]; then
+    apply_both clear
+  else
+    apply_both "$scenario"
+  fi
   sleep_with_dots "$SETTLE_SEC" "post-apply settle"
 
   log "--- preflight: ping RTT check"
   case "$scenario" in
+    default) expected_rtt_ms=10 ;;
     low)    expected_rtt_ms=20  ;;
     medium) expected_rtt_ms=100 ;;
     high)   expected_rtt_ms=200 ;;
