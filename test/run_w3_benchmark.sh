@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-HOST="192.168.8.102"
-USER_NAME="trungnt"
-SOURCE_IP="192.168.8.100"
-IDENTITY_FILE="$HOME/.ssh/id_rsa" 
+HOST="${HOST:-100.66.79.93}"
+HOSTS="${HOSTS:-$HOST}"
+USER_NAME="${USER_NAME:-pi}"
+SOURCE_IP="${SOURCE_IP:-}"
+IDENTITY_FILE="${IDENTITY_FILE:-$HOME/.ssh/id_ed25519}"
 
 PROTOCOLS="ssh ssh3 mosh"                          
 WORKLOADS="interactive_shell vim nano"   
@@ -21,7 +22,7 @@ LOG_PEXPECT=false
 PROMPT="__W3_PROMPT__# "
 PROBE_SEQUENCE='Go straight for 3 meters, then stop'
 
-SSH3_PATH="/ssh3-term"
+SSH3_PATH=":4433/ssh3-term"
 SSH3_INSECURE=true     
 
 BATCH_MODE=false              
