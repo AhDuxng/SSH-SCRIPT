@@ -22,7 +22,12 @@ except ImportError as exc:
         "Missing dependency: pexpect. Install with: pip install pexpect"
     ) from exc
 
-DEFAULT_PROTOCOLS = ["ssh", "ssh3", "mosh"]
+try:
+    import pyte  
+except ImportError:
+    pass
+
+DEFAULT_PROTOCOLS = ["ssh", "ssh3", "mosh", "mosh-adaptive"]
 DEFAULT_WORKLOADS = ["top", "tail", "ping"]
 DEFAULT_PROMPT = "__W2_PROMPT__#"
 DEFAULT_SSH3_PATH = "/ssh3-term"
@@ -39,6 +44,7 @@ _GAPPED_PING_EPOCH_US = (
 )
 _INITIAL_PROMPT_RE = re.compile(
     r"[#$>](?:" + _ANSI_SEQ + r"|\s)*\s*$",
+    re.MULTILINE,
 )
 
 @dataclass
@@ -115,40 +121,8 @@ class W2Benchmark:
     def _build_gapped_literal(token: str) -> str:
         return "".join(re.escape(ch) + _ECHO_GAP for ch in token)
 
-    def _expect_prompt(
-        self,
-        child: pexpect.spawn,
-        protocol: Optional[str] = None,
-    ) -> None:
-        # Match the session readiness behavior used by test/w3_interactive_benchmark.py.
-        try:
-            child.expect(self.prompt_re, timeout=self.args.timeout)
-            return
-        except pexpect.TIMEOUT:
-            if protocol != "mosh":
-                raise
-
-        last_exc: Optional[pexpect.TIMEOUT] = None
-        for clear_screen in (False, True):
-            self._drain_pending_output(child)
-            if clear_screen:
-                child.sendcontrol("l")
-            child.sendline("")
-            try:
-                child.expect(self.prompt_re, timeout=self.args.timeout)
-                return
-            except pexpect.TIMEOUT as exc:
-                last_exc = exc
-        if last_exc is not None:
-            raise last_exc
-
-    @staticmethod
-    def _drain_pending_output(child: pexpect.spawn, max_reads: int = 8) -> None:
-        for _ in range(max_reads):
-            try:
-                child.read_nonblocking(size=4096, timeout=0)
-            except (pexpect.TIMEOUT, pexpect.EOF):
-                break
+    def _expect_prompt(self, child: pexpect.spawn) -> None:
+        child.expect(self.prompt_re, timeout=self.args.timeout)
 
     def _session_command(self, protocol: str) -> str:
         target = self.target
@@ -168,10 +142,13 @@ class W2Benchmark:
         if protocol == "ssh":
             return shlex.join(ssh_common)
 
-        if protocol == "mosh":
-            ssh_cmd = shlex.join(ssh_common[:-1])
+        if protocol == "mosh" or protocol == "mosh-adaptive":
+            mosh_ssh = [arg for arg in ssh_common[:-1] if arg != "-tt"]
+            ssh_cmd = shlex.join(mosh_ssh)
             mosh_parts = ["mosh", f"--ssh={ssh_cmd}"]
-            if self.args.mosh_predict and self.args.mosh_predict != "adaptive":
+            if protocol == "mosh-adaptive":
+                mosh_parts += ["--predict", "adaptive"]
+            elif self.args.mosh_predict and self.args.mosh_predict != "adaptive":
                 mosh_parts += ["--predict", self.args.mosh_predict]
             mosh_parts += [target]
             return shlex.join(mosh_parts)
@@ -187,22 +164,45 @@ class W2Benchmark:
 
         raise ValueError(f"Unsupported protocol: {protocol}")
 
-    def _open_session(self, protocol: str) -> tuple[pexpect.spawn, float]:
-        child = pexpect.spawn(
-            self._session_command(protocol),
-            encoding="utf-8",
-            codec_errors="ignore",
-            timeout=self.args.timeout,
-        )
-        child.delaybeforesend = 0
+    def _open_session(self, protocol: str, max_retries: int = 3) -> tuple[pexpect.spawn, float]:
+        last_exc: Exception | None = None
+        base_timeout = self.args.timeout
+        if protocol in ("mosh", "mosh-adaptive"):
+            base_timeout = max(base_timeout, 30)
 
-        start_ns = time.perf_counter_ns()
-        child.expect(_INITIAL_PROMPT_RE, timeout=self.args.timeout)
-        setup_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
+        for attempt in range(1, max_retries + 1):
+            child: pexpect.spawn | None = None
+            try:
+                child = pexpect.spawn(
+                    self._session_command(protocol),
+                    encoding="utf-8",
+                    codec_errors="ignore",
+                    timeout=base_timeout,
+                )
 
-        child.sendline(f"export PS1={shlex.quote(self.args.prompt)}")
-        self._expect_prompt(child, protocol=protocol)
-        return child, setup_ms
+                connect_timeout = base_timeout * attempt
+
+                start_ns = time.perf_counter_ns()
+                child.expect(_INITIAL_PROMPT_RE, timeout=connect_timeout)
+                setup_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
+
+                child.sendline(f"export PS1={shlex.quote(self.args.prompt)}")
+                self._expect_prompt(child)
+                return child, setup_ms
+
+            except (pexpect.TIMEOUT, pexpect.EOF) as exc:
+                last_exc = exc
+                print(
+                    f"  [WARN] _open_session({protocol}) attempt {attempt}/{max_retries} failed: {type(exc).__name__}",
+                    flush=True,
+                )
+                if child is not None:
+                    self._close_session(child, protocol)
+                time.sleep(2 * attempt)
+
+        if last_exc is None:
+            raise RuntimeError(f"_open_session({protocol}) failed without a captured exception")
+        raise last_exc
 
     def _close_session(self, child: pexpect.spawn, protocol: str = "") -> None:
         """Close the pexpect session, forcefully killing any running processes first."""
@@ -227,7 +227,7 @@ class W2Benchmark:
             except Exception:
                 pass
 
-        if protocol == "mosh" and hasattr(child, "pid") and child.pid:
+        if protocol in ("mosh", "mosh-adaptive") and hasattr(child, "pid") and child.pid:
             try:
                 import os, signal
                 os.kill(child.pid, signal.SIGKILL)
@@ -308,9 +308,10 @@ class W2Benchmark:
 
         for probe_idx in range(1, probes + 1):
             try:
+                probe_timeout = min(self.args.timeout, 10)
                 t0 = time.time_ns()
                 child.sendline("echo \"W2_CLOCK_TS:$(date +%s%N)\"")
-                child.expect(marker_re, timeout=self.args.timeout)
+                child.expect(marker_re, timeout=probe_timeout)
                 t1 = time.time_ns()
                 mid_local_ns = (t0 + t1) // 2
                 remote_ns = self._parse_epoch_to_ns(child.match.group(1), mid_local_ns)
@@ -320,7 +321,7 @@ class W2Benchmark:
             except (pexpect.TIMEOUT, pexpect.EOF, ValueError) as exc:
                 print(
                     f"  [WARN] clock offset probe {probe_idx}/{probes} failed: {type(exc).__name__}. "
-                    "Fallback to zero offset for this trial.",
+                    "Skipping this probe.",
                     flush=True,
                 )
                 try:
@@ -328,8 +329,7 @@ class W2Benchmark:
                     self._expect_prompt(child)
                 except Exception:
                     pass
-                probe_data.clear()
-                break
+                continue
 
         if not probe_data:
             self.clock_offsets.append(
@@ -346,25 +346,26 @@ class W2Benchmark:
             )
             return 0
 
-        best_offset_ns, best_rtt_ms = min(probe_data, key=lambda item: item[1])
-        offset_ns = int(best_offset_ns)
+        offset_ns = int(statistics.median([o for o, _ in probe_data]))
         median_rtt_ms = statistics.median([rtt for _, rtt in probe_data])
+        min_rtt_ms = min(rtt for _, rtt in probe_data)
         self.clock_offsets.append(
             ClockOffsetRecord(
                 protocol=protocol,
                 workload=workload,
                 round_id=trial_id,
-                probes=probes,
+                probes=len(probe_data),
                 offset_ns=offset_ns,
                 offset_ms=offset_ns / 1_000_000.0,
                 median_rtt_ms=median_rtt_ms,
-                method="midpoint_round_trip_min_rtt_pick",
+                method="midpoint_round_trip_median_offset",
             )
         )
         print(
             f"[{protocol:>4}/{workload:<18}] trial {trial_id:>2}/{self.args.trials}"
             f" clock_offset_est={offset_ns / 1_000_000.0:.2f} ms"
-            f" (best_rtt={best_rtt_ms:.2f} ms, median_rtt={median_rtt_ms:.2f} ms)",
+            f" (min_rtt={min_rtt_ms:.2f} ms, median_rtt={median_rtt_ms:.2f} ms,"
+            f" probes_ok={len(probe_data)}/{probes})",
             flush=True,
         )
         return offset_ns
@@ -413,23 +414,81 @@ class W2Benchmark:
         child: pexpect.spawn,
         iterations: int,
         report_cb: Callable[[int, float], None],
+        protocol: str = "ssh",
     ) -> None:
         interval = self.args.top_interval
-        marker_re = re.compile(
-            self._build_gapped_literal("W2_TOP_REFRESH:") + _GAPPED_EPOCH_NS
-        )
-        TOP_LOOP = (
-            f"while true; do "
-            f"echo \"W2_TOP_REFRESH:$(date +%s%N)\"; "
-            f"top -bn1 2>/dev/null | head -20; "
-            f"sleep {interval}; "
-            f"done"
-        )
-        child.sendline(TOP_LOOP)
-
+        if protocol in ("mosh", "mosh-adaptive"):
+            marker_re = re.compile(
+                self._build_gapped_literal("W2_CUI_")
+                + r"\d(?:" + _ECHO_GAP + r"\d)*"
+                + _ECHO_GAP + re.escape(":") + _ECHO_GAP
+                + _GAPPED_EPOCH_NS
+            )
+        else:
+            marker_re = re.compile(r"W2_CUI_\d+:(\d{10,19})")
+        if protocol in ("mosh", "mosh-adaptive"):
+            CUI_LOOP = (
+                f"SEQ=0; while true; do "
+                f"SEQ=$((SEQ+1)); "
+                r"echo \"W2_CUI_${SEQ}:$(date +%s%N)\"; "
+                f"sleep {interval}; "
+                f"done"
+            )
+        else:
+            CUI_LOOP = (
+                f"stty -onlcr; "
+                f"SEQ=0; while true; do "
+                f"SEQ=$((SEQ+1)); "
+                r"printf '\033[2J\033[H"
+                r"=== System Monitor [Frame %d] ===\r\n"
+                r" CPU [####............]  78%%\r\n"
+                r" MEM [##########......]  67%%\r\n"
+                r" SWP [##.................] 10%%\r\n"
+                r"---\r\n"
+                r" PID  USER      %%CPU  COMMAND\r\n"
+                r"1024  root       4.2  systemd\r\n"
+                r"1138  www-data   3.1  nginx\r\n"
+                r"2201  postgres   2.8  postgres\r\n"
+                r"3345  node       2.1  node\r\n"
+                r"4410  redis      1.5  redis-server\r\n"
+                r"---\r\n"
+                r"W2_CUI_%d:%s\r\n"
+                "' "
+                f"\"$SEQ\" \"$SEQ\" \"$(date +%s%N)\"; "
+                f"sleep {interval}; "
+                f"done"
+            )
         expect_timeout = max(self.args.timeout, int(interval * 3) + 5)
+
+        def stop_loop() -> None:
+            for _ in range(3):
+                child.sendcontrol("c")
+                time.sleep(0.5)
+            try:
+                self._expect_prompt(child)
+            except pexpect.TIMEOUT:
+                child.sendcontrol("c")
+                time.sleep(1)
+                self._expect_prompt(child)
+            if protocol not in ("mosh", "mosh-adaptive"):
+                child.sendline("stty onlcr")
+                self._expect_prompt(child)
+
+        self._measure_top_regex(child, iterations, report_cb, marker_re, CUI_LOOP, expect_timeout, stop_loop)
+
+    def _measure_top_regex(
+        self,
+        child: pexpect.spawn,
+        iterations: int,
+        report_cb: Callable[[int, float], None],
+        marker_re: re.Pattern,
+        cui_loop: str,
+        expect_timeout: float,
+        stop_loop: Callable[[], None],
+    ) -> None:
         dropped = 0
 
+        child.sendline(cui_loop)
         for _ in range(3):
             child.expect(marker_re, timeout=expect_timeout)
 
@@ -437,7 +496,7 @@ class W2Benchmark:
         while sample_id < iterations:
             child.expect(marker_re, timeout=expect_timeout)
             recv_ns = time.time_ns()
-            raw_token = child.match.group(1)
+            raw_token = re.sub(_ANSI_SEQ, "", child.match.group(1))
             try:
                 remote_event_ns = self._parse_epoch_to_ns(raw_token, recv_ns)
             except ValueError as exc:
@@ -458,15 +517,7 @@ class W2Benchmark:
             sample_id += 1
             report_cb(sample_id, lat)
 
-        for _ in range(3):
-            child.sendcontrol("c")
-            time.sleep(0.5)
-        try:
-            self._expect_prompt(child)
-        except pexpect.TIMEOUT:
-            child.sendcontrol("c")
-            time.sleep(1)
-            self._expect_prompt(child)
+        stop_loop()
 
     def _measure_tail(
         self,
@@ -558,7 +609,7 @@ class W2Benchmark:
         child.expect(r"PING ", timeout=self.args.timeout)
         dropped = 0
 
-        for _ in range(5):
+        for _ in range(10):
             child.expect(marker_re, timeout=self.args.timeout)
 
         sample_id = 0
@@ -611,7 +662,7 @@ class W2Benchmark:
             )
 
         if workload == "top":
-            self._measure_top(child, self.args.iterations, report_cb)
+            self._measure_top(child, self.args.iterations, report_cb, protocol)
         elif workload == "tail":
             self._measure_tail(child, self.args.iterations, report_cb)
         elif workload == "ping":
@@ -682,7 +733,7 @@ class W2Benchmark:
                 self.current_clock_offset_ns = 0
                 if child is not None:
                     self._close_session(child, protocol)
-                if protocol == "mosh":
+                if protocol in ("mosh", "mosh-adaptive"):
                     time.sleep(2)
 
     def run(self) -> None:
@@ -906,7 +957,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--ssh3-insecure", action="store_true", help="Pass -insecure to ssh3")
     p.add_argument("--batch-mode", action="store_true", help="Enable BatchMode for SSHv2 / Mosh bootstrap SSH")
     p.add_argument("--strict-host-key-checking", action="store_true", help="Keep strict host key checking enabled")
-    p.add_argument("--mosh-predict", default="always", choices=["adaptive", "always", "never"], help="Mosh prediction mode")
+    p.add_argument("--mosh-predict", default="adaptive", choices=["adaptive", "always", "never"], help="Mosh prediction mode")
     p.add_argument("--shuffle-pairs", action="store_true", help="Shuffle protocol/workload execution order")
     p.add_argument("--reopen-on-failure", action="store_true", help="Reopen session after failure")
     p.add_argument("--log-pexpect", action="store_true", help="Deprecated compatibility flag (no-op): pexpect logs are disabled")
