@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import math
 import random
 import re
@@ -10,7 +11,7 @@ import shlex
 import statistics
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -26,18 +27,19 @@ DEFAULT_PROTOCOLS = ["ssh", "ssh3", "mosh"]
 DEFAULT_WORKLOADS = ["command_loop"]
 DEFAULT_PROMPT = "__W1_PROMPT__#"
 DEFAULT_SSH3_PATH = "/ssh3-term"
-MARKER_TAIL_LEN = 12
-_TAIL_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 DEFAULT_COMMANDS = [
     "ls",
     "df -h",
     "ps aux",
     "grep -n root /etc/passwd",
+    "cat /proc/meminfo",
+    "find /usr -maxdepth 3",
 ]
 _ANSI_SEQ = r"(?:\x1b\[\??[0-9;]*[a-zA-Z])"
 _ECHO_GAP = rf"(?:{_ANSI_SEQ}|[\r\n\b])*"
 _INITIAL_PROMPT_RE = re.compile(
     r"[#$>](?:" + _ANSI_SEQ + r"|\s)*\s*$",
+    re.MULTILINE,
 )
 
 
@@ -50,6 +52,7 @@ class SampleRecord:
     command_id: int
     command: str
     latency_ms: float
+    warmup: bool = False
 
 
 @dataclass
@@ -62,6 +65,7 @@ class FailureRecord:
     command: str
     error_type: str
     error_message: str
+    warmup: bool = False
 
 
 @dataclass
@@ -87,12 +91,17 @@ class W1Benchmark:
         self.args = args
         self.target = f"{args.user}@{args.host}"
         self.started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        self.scenario = (args.scenario or "").strip() or "unspecified"
+        self.warmup = max(0, int(args.warmup))
+        if self.warmup >= args.iterations:
+            raise ValueError(
+                f"--warmup ({self.warmup}) must be < --iterations ({args.iterations})"
+            )
         self.prompt_marker = args.prompt.rstrip()
         if not self.prompt_marker:
             raise ValueError("Prompt must contain at least one non-space character")
         # Prompt bytes can be split by ANSI redraw sequences (esp. over mosh).
         self.prompt_re = self._build_prompt_re(self.prompt_marker)
-        self.prev_marker_tail: Optional[str] = None
 
         self.records: List[SampleRecord] = []
         self.failures: List[FailureRecord] = []
@@ -103,42 +112,13 @@ class W1Benchmark:
             p: {c: [] for c in args.commands} for p in args.protocols
         }
 
-    def _expect_prompt(
-        self,
-        child: pexpect.spawn,
-        protocol: Optional[str] = None,
-    ) -> None:
-        # Match the session readiness behavior used by test/w3_interactive_benchmark.py.
-        try:
-            child.expect(self.prompt_re, timeout=self.args.timeout)
-            return
-        except pexpect.TIMEOUT:
-            if protocol != "mosh":
-                raise
-
-        last_exc: Optional[pexpect.TIMEOUT] = None
-        for clear_screen in (False, True):
-            self._drain_pending_output(child)
-            if clear_screen:
-                child.sendcontrol("l")
-            child.sendline("")
-            try:
-                child.expect(self.prompt_re, timeout=self.args.timeout)
-                return
-            except pexpect.TIMEOUT as exc:
-                last_exc = exc
-        if last_exc is not None:
-            raise last_exc
+    def _expect_prompt(self, child: pexpect.spawn) -> None:
+        child.expect(self.prompt_re, timeout=self.args.timeout)
 
     @staticmethod
     def _build_prompt_re(prompt_marker: str) -> re.Pattern[str]:
         parts = [re.escape(ch) + _ECHO_GAP for ch in prompt_marker]
         return re.compile("".join(parts) + rf"(?:{_ANSI_SEQ}|\s)*")
-
-    @staticmethod
-    def _build_token_re(token: str) -> re.Pattern[str]:
-        parts = [re.escape(ch) + _ECHO_GAP for ch in token]
-        return re.compile("".join(parts))
 
     @staticmethod
     def _drain_pending_output(child: pexpect.spawn, max_reads: int = 8) -> None:
@@ -147,22 +127,6 @@ class W1Benchmark:
                 child.read_nonblocking(size=4096, timeout=0)
             except (pexpect.TIMEOUT, pexpect.EOF):
                 break
-
-    def _next_marker_tail(self) -> str:
-        # Mosh can send screen deltas only. Ensure each position changes so
-        # this tail is fully emitted and matchable in the pty stream.
-        if self.prev_marker_tail is None:
-            tail = "".join(random.choice(_TAIL_ALPHABET) for _ in range(MARKER_TAIL_LEN))
-            self.prev_marker_tail = tail
-            return tail
-
-        chars: List[str] = []
-        for i, prev_ch in enumerate(self.prev_marker_tail):
-            candidates = [c for c in _TAIL_ALPHABET if c != prev_ch]
-            chars.append(random.choice(candidates))
-        tail = "".join(chars)
-        self.prev_marker_tail = tail
-        return tail
 
     def _session_command(self, protocol: str) -> str:
         target = self.target
@@ -208,14 +172,13 @@ class W1Benchmark:
             codec_errors="ignore",
             timeout=self.args.timeout,
         )
-        child.delaybeforesend = 0
 
         start_ns = time.perf_counter_ns()
         child.expect(_INITIAL_PROMPT_RE, timeout=self.args.timeout)
         setup_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
 
         child.sendline(f"export PS1={shlex.quote(self.args.prompt)}")
-        self._expect_prompt(child, protocol=protocol)
+        self._expect_prompt(child)
         return child, setup_ms
 
     def _close_session(self, child: pexpect.spawn) -> None:
@@ -235,67 +198,76 @@ class W1Benchmark:
         self,
         child: pexpect.spawn,
         command: str,
-        marker: str,
-        marker_tail: str,
     ) -> float:
-        marker_re = self._build_token_re(marker)
-        marker_tail_re = self._build_token_re(marker_tail)
-        wrapped = f"{{ {command}; }}; echo {marker}"
         self._drain_pending_output(child)
         start_ns = time.perf_counter_ns()
-        child.sendline(wrapped)
-        child.expect([marker_re, marker_tail_re], timeout=self.args.timeout)
+        child.sendline(command)
+        self._expect_prompt(child)
         end_ns = time.perf_counter_ns()
         return (end_ns - start_ns) / 1_000_000.0
 
-    def _run_trial(
-        self,
-        child: pexpect.spawn,
-        protocol: str,
-        workload: str,
-        command: str,
-        command_id: int,
-        trial_id: int,
-    ) -> None:
-        for sample_id in range(1, self.args.iterations + 1):
-            marker_tail = self._next_marker_tail()
-            marker = f"__W1_DONE_{trial_id}_{sample_id}_{command_id}_{marker_tail}__"
-            try:
-                lat = self._measure_command_completion(
-                    child,
-                    command,
-                    marker,
-                    marker_tail,
-                )
-                self.results[protocol][command].append(lat)
-                self.records.append(
-                    SampleRecord(protocol, workload, trial_id, sample_id, command_id, command, lat)
-                )
-                print(
-                    f"[{protocol:>4}/{command:<18}] trial {trial_id:>2}/{self.args.trials}"
-                    f" measure {sample_id:>3}/{self.args.iterations}: {lat:.2f} ms",
-                    flush=True,
-                )
-            except (pexpect.TIMEOUT, pexpect.EOF, ValueError) as exc:
-                self.failures.append(
-                    FailureRecord(
-                        protocol=protocol,
-                        workload=workload,
-                        round_id=trial_id,
-                        sample_id=sample_id,
-                        command_id=command_id,
-                        command=command,
-                        error_type=type(exc).__name__,
-                        error_message=str(exc),
-                    )
-                )
-                print(
-                    f"[{protocol:>4}/{command:<18}] trial {trial_id:>2}"
-                    f" measure {sample_id:>3}: FAIL ({type(exc).__name__}: {exc})",
-                    flush=True,
-                )
-                if self.args.reopen_on_failure:
-                    raise
+    # def _run_trial(
+    #     self,
+    #     child: pexpect.spawn,
+    #     protocol: str,
+    #     workload: str,
+    #     command: str,
+    #     command_id: int,
+    #     trial_id: int,
+    # ) -> None:
+    #     for sample_id in range(1, self.args.iterations + 1):
+    #         is_warmup = sample_id <= self.warmup
+    #         marker_tail = self._next_marker_tail()
+    #         marker = f"__W1_DONE_{trial_id}_{sample_id}_{command_id}_{marker_tail}__"
+    #         try:
+    #             lat = self._measure_command_completion(
+    #                 child,
+    #                 command,
+    #                 marker,
+    #                 marker_tail,
+    #             )
+    #             if not is_warmup:
+    #                 self.results[protocol][command].append(lat)
+    #             self.records.append(
+    #                 SampleRecord(
+    #                     protocol,
+    #                     workload,
+    #                     trial_id,
+    #                     sample_id,
+    #                     command_id,
+    #                     command,
+    #                     lat,
+    #                     warmup=is_warmup,
+    #                 )
+    #             )
+    #             tag = "WARM" if is_warmup else "meas"
+    #             print(
+    #                 f"[{protocol:>4}/{command:<18}] trial {trial_id:>2}/{self.args.trials}"
+    #                 f" {tag} {sample_id:>3}/{self.args.iterations}: {lat:.2f} ms",
+    #                 flush=True,
+    #             )
+    #         except (pexpect.TIMEOUT, pexpect.EOF, ValueError) as exc:
+    #             self.failures.append(
+    #                 FailureRecord(
+    #                     protocol=protocol,
+    #                     workload=workload,
+    #                     round_id=trial_id,
+    #                     sample_id=sample_id,
+    #                     command_id=command_id,
+    #                     command=command,
+    #                     error_type=type(exc).__name__,
+    #                     error_message=str(exc),
+    #                     warmup=is_warmup,
+    #                 )
+    #             )
+    #             tag = "WARM-FAIL" if is_warmup else "FAIL"
+    #             print(
+    #                 f"[{protocol:>4}/{command:<18}] trial {trial_id:>2}"
+    #                 f" {tag} {sample_id:>3}: ({type(exc).__name__}: {exc})",
+    #                 flush=True,
+    #             )
+    #             if self.args.reopen_on_failure:
+    #                 raise
 
     def _run_session_group(
         self,
@@ -305,30 +277,67 @@ class W1Benchmark:
         command_id: int,
     ) -> None:
         for trial_id in range(1, self.args.trials + 1):
-            child: Optional[pexpect.spawn] = None
-            try:
-                child, setup_ms = self._open_session(protocol)
-                self.session_setups[protocol][command].append(setup_ms)
-                print(
-                    f"[{protocol:>4}/{command:<18}] trial {trial_id:>2}/{self.args.trials}"
-                    f" session_setup={setup_ms:.1f} ms",
-                    flush=True,
-                )
+            sample_id = 1
+            while sample_id <= self.args.iterations:
+                child: Optional[pexpect.spawn] = None
                 try:
-                    self._run_trial(
-                        child,
-                        protocol,
-                        workload,
-                        command,
-                        command_id,
-                        trial_id,
+                    child, setup_ms = self._open_session(protocol)
+                    if sample_id == 1:
+                        self.session_setups[protocol][command].append(setup_ms)
+                    print(
+                        f"[{protocol:>4}/{command:<18}] trial {trial_id:>2}/{self.args.trials}"
+                        f" session_setup={setup_ms:.1f} ms (resuming from sample {sample_id})",
+                        flush=True,
                     )
-                except (pexpect.TIMEOUT, pexpect.EOF):
-                    if self.args.reopen_on_failure:
-                        continue
-            finally:
-                if child is not None:
-                    self._close_session(child)
+                    
+                    # Chạy các samples còn lại của trial
+                    while sample_id <= self.args.iterations:
+                        is_warmup = sample_id <= self.warmup
+
+                        lat = self._measure_command_completion(child, command)
+                        if not is_warmup:
+                            self.results[protocol][command].append(lat)
+                        self.records.append(
+                            SampleRecord(
+                                protocol, workload, trial_id, sample_id,
+                                command_id, command, lat, warmup=is_warmup,
+                            )
+                        )
+                        tag = "WARM" if is_warmup else "meas"
+                        print(
+                            f"[{protocol:>4}/{command:<18}] trial {trial_id:>2}/{self.args.trials}"
+                            f" {tag} {sample_id:>3}/{self.args.iterations}: {lat:.2f} ms",
+                            flush=True,
+                        )
+                        sample_id += 1
+
+                except (pexpect.TIMEOUT, pexpect.EOF, ValueError) as exc:
+                    self.failures.append(
+                        FailureRecord(
+                            protocol=protocol,
+                            workload=workload,
+                            round_id=trial_id,
+                            sample_id=sample_id,
+                            command_id=command_id,
+                            command=command,
+                            error_type=type(exc).__name__,
+                            error_message=str(exc),
+                            warmup=(sample_id <= self.warmup),
+                        )
+                    )
+                    tag = "WARM-FAIL" if (sample_id <= self.warmup) else "FAIL"
+                    print(
+                        f"[{protocol:>4}/{command:<18}] trial {trial_id:>2}"
+                        f" {tag} {sample_id:>3}: ({type(exc).__name__}: {exc})",
+                        flush=True,
+                    )
+                    
+                    if not self.args.reopen_on_failure:
+                        break # Bỏ qua trial này nếu không bật reopen_on_failure
+                    # Nếu bật reopen, vòng lặp while bên ngoài sẽ mở lại child và tiếp tục tại sample_id hiện tại
+                finally:
+                    if child is not None:
+                        self._close_session(child)
 
     def run(self) -> None:
         random.seed(self.args.seed)
@@ -362,7 +371,10 @@ class W1Benchmark:
         fail_n = sum(
             1
             for f in self.failures
-            if f.protocol == protocol and f.workload == workload and f.command == command
+            if f.protocol == protocol
+            and f.workload == workload
+            and f.command == command
+            and not f.warmup
         )
         n = len(data)
         total = n + fail_n
@@ -461,11 +473,13 @@ class W1Benchmark:
 
         line_csv = outdir / "w1_line_log.csv"
         setup_csv = outdir / "w1_session_setup.csv"
+        meta_json = outdir / "w1_meta.json"
 
         with line_csv.open("w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
             writer.writerow(
                 [
+                    "scenario",
                     "protocol",
                     "workload",
                     "round_id",
@@ -474,6 +488,7 @@ class W1Benchmark:
                     "command",
                     "latency_ms",
                     "status",
+                    "warmup",
                     "error_type",
                     "error_message",
                 ]
@@ -481,6 +496,7 @@ class W1Benchmark:
             for r in self.records:
                 writer.writerow(
                     [
+                        self.scenario,
                         r.protocol,
                         r.workload,
                         r.round_id,
@@ -489,6 +505,7 @@ class W1Benchmark:
                         r.command,
                         f"{r.latency_ms:.6f}",
                         "ok",
+                        "1" if r.warmup else "0",
                         "",
                         "",
                     ]
@@ -496,6 +513,7 @@ class W1Benchmark:
             for r in self.failures:
                 writer.writerow(
                     [
+                        self.scenario,
                         r.protocol,
                         r.workload,
                         r.round_id,
@@ -504,6 +522,7 @@ class W1Benchmark:
                         r.command,
                         "",
                         "fail",
+                        "1" if r.warmup else "0",
                         r.error_type,
                         r.error_message,
                     ]
@@ -511,14 +530,43 @@ class W1Benchmark:
 
         with setup_csv.open("w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
-            writer.writerow(["protocol", "command", "trial_id", "session_setup_ms"])
+            writer.writerow(
+                ["scenario", "protocol", "command", "trial_id", "session_setup_ms"]
+            )
             for p in self.args.protocols:
                 for c in self.args.commands:
                     for trial_id, ms in enumerate(self.session_setups[p][c], start=1):
-                        writer.writerow([p, c, trial_id, f"{ms:.6f}"])
+                        writer.writerow(
+                            [self.scenario, p, c, trial_id, f"{ms:.6f}"]
+                        )
+
+        meta = {
+            "started_at_utc": self.started_at,
+            "scenario": self.scenario,
+            "target": self.target,
+            "client_source_ip": self.args.source_ip,
+            "protocols": self.args.protocols,
+            "workloads": self.args.workloads,
+            "commands": self.args.commands,
+            "trials": self.args.trials,
+            "iterations": self.args.iterations,
+            "warmup": self.warmup,
+            "timeout_sec": self.args.timeout,
+            "random_seed": self.args.seed,
+            "shuffle_pairs": bool(self.args.shuffle_pairs),
+            "reopen_on_failure": bool(self.args.reopen_on_failure),
+            "mosh_predict": self.args.mosh_predict,
+            "summary": [asdict(row) for row in self.summaries()],
+            "session_setup": {
+                p: {c: self._session_setup_stats(p, c) for c in self.args.commands}
+                for p in self.args.protocols
+            },
+        }
+        meta_json.write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
         print(f"Saved line log CSV    : {line_csv}")
         print(f"Saved session setup   : {setup_csv}")
+        print(f"Saved meta JSON       : {meta_json}")
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -532,6 +580,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--commands", nargs="+", default=DEFAULT_COMMANDS, help="Commands executed sequentially in each sample")
     p.add_argument("--trials", type=int, default=15, help="Independent sessions per protocol/workload pair")
     p.add_argument("--iterations", type=int, default=100, help="Recorded command-loop samples per trial")
+    p.add_argument("--warmup", type=int, default=0, help="First N samples per trial are measured but excluded from summary (flagged warmup=1 in CSV)")
+    p.add_argument("--scenario", default="", help="Free-form network scenario label (e.g. low/medium/high). Written to CSV/meta for later aggregation.")
     p.add_argument("--timeout", type=int, default=20, help="pexpect timeout in seconds")
     p.add_argument("--seed", type=int, default=42, help="Random seed")
     p.add_argument("--output-dir", default="w1_results", help="Directory for JSON/CSV outputs")
@@ -540,7 +590,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--ssh3-insecure", action="store_true", help="Pass -insecure to ssh3")
     p.add_argument("--batch-mode", action="store_true", help="Enable BatchMode for SSHv2 / Mosh bootstrap SSH")
     p.add_argument("--strict-host-key-checking", action="store_true", help="Keep strict host key checking enabled")
-    p.add_argument("--mosh-predict", default="always", choices=["adaptive", "always", "never"], help="Mosh prediction mode")
+    p.add_argument("--mosh-predict", default="adaptive", choices=["adaptive", "always", "never"], help="Mosh prediction mode")
     p.add_argument("--shuffle-pairs", action="store_true", help="Shuffle protocol/workload execution order")
     p.add_argument("--reopen-on-failure", action="store_true", help="Reopen session after failure")
     p.add_argument("--log-pexpect", action="store_true", help="Deprecated compatibility flag (no-op): pexpect logs are disabled")
