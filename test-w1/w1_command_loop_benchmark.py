@@ -36,6 +36,7 @@ DEFAULT_COMMANDS = [
     "find /usr -maxdepth 3",
 ]
 _ANSI_SEQ = r"(?:\x1b\[\??[0-9;]*[a-zA-Z])"
+_ANSI_STRIP_RE = re.compile(r"\x1b\[\??[0-9;]*[a-zA-Z]|\x1b\][^\x07]*\x07|\x1b[()][A-Z0-9]|\r")
 _ECHO_GAP = rf"(?:{_ANSI_SEQ}|[\r\n\b])*"
 _INITIAL_PROMPT_RE = re.compile(
     r"[#$>](?:" + _ANSI_SEQ + r"|\s)*\s*$",
@@ -52,6 +53,7 @@ class SampleRecord:
     command_id: int
     command: str
     latency_ms: float
+    received_pct: float = 100.0
     warmup: bool = False
 
 
@@ -84,6 +86,8 @@ class SummaryRow:
     p99_ms: Optional[float]
     max_ms: Optional[float]
     ci95_half_width_ms: Optional[float]
+    recv_pct_mean: Optional[float]
+    recv_pct_min: Optional[float]
 
 
 class W1Benchmark:
@@ -111,9 +115,53 @@ class W1Benchmark:
         self.session_setups: Dict[str, Dict[str, List[float]]] = {
             p: {c: [] for c in args.commands} for p in args.protocols
         }
+        self.ref_line_counts: Dict[str, int] = self._collect_reference_outputs()
 
     def _expect_prompt(self, child: pexpect.spawn) -> None:
         child.expect(self.prompt_re, timeout=self.args.timeout)
+
+    @staticmethod
+    def _strip_ansi(text: str) -> str:
+        return _ANSI_STRIP_RE.sub("", text)
+
+    def _extract_output_lines(self, raw: str, command: str) -> List[str]:
+        cleaned = self._strip_ansi(raw)
+        lines = cleaned.split("\n")
+        if lines and command in lines[0]:
+            lines = lines[1:]
+        return [l for l in lines if l.strip()]
+
+    def _collect_reference_outputs(self) -> Dict[str, int]:
+        ref: Dict[str, List[int]] = {cmd: [] for cmd in self.args.commands}
+        n_runs = 3
+        print("=== Collecting reference line counts (via SSH PTY session) ===", flush=True)
+        try:
+            for run_idx in range(1, n_runs + 1):
+                for cmd in self.args.commands:
+                    child, _ = self._open_session("ssh")
+                    self._drain_pending_output(child)
+                    child.sendline(cmd)
+                    self._expect_prompt(child)
+                    raw_output = child.before or ""
+                    lines = self._extract_output_lines(raw_output, cmd)
+                    ref[cmd].append(len(lines))
+                    self._close_session(child)
+                print(f"  run {run_idx}/{n_runs} done", flush=True)
+        except Exception as exc:
+            print(f"  Reference collection FAILED: {exc}", flush=True)
+
+        result = {}
+        for cmd in self.args.commands:
+            counts = ref[cmd]
+            if counts:
+                counts.sort()
+                median_count = counts[len(counts) // 2]
+                result[cmd] = median_count
+            else:
+                result[cmd] = 0
+            print(f"  ref[{cmd}] = {result[cmd]} lines (samples: {counts})", flush=True)
+        print("", flush=True)
+        return result
 
     @staticmethod
     def _build_prompt_re(prompt_marker: str) -> re.Pattern[str]:
@@ -198,13 +246,25 @@ class W1Benchmark:
         self,
         child: pexpect.spawn,
         command: str,
-    ) -> float:
+    ) -> tuple[float, float]:
         self._drain_pending_output(child)
         start_ns = time.perf_counter_ns()
         child.sendline(command)
         self._expect_prompt(child)
         end_ns = time.perf_counter_ns()
-        return (end_ns - start_ns) / 1_000_000.0
+        latency_ms = (end_ns - start_ns) / 1_000_000.0
+
+        raw_output = child.before or ""
+        received_lines = self._extract_output_lines(raw_output, command)
+        received_count = len(received_lines)
+
+        ref_count = self.ref_line_counts.get(command, 0)
+        if ref_count > 0:
+            received_pct = min(100.0, received_count / ref_count * 100.0)
+        else:
+            received_pct = 100.0
+
+        return latency_ms, received_pct
 
     # def _run_trial(
     #     self,
@@ -294,19 +354,19 @@ class W1Benchmark:
                     while sample_id <= self.args.iterations:
                         is_warmup = sample_id <= self.warmup
 
-                        lat = self._measure_command_completion(child, command)
+                        lat, received_pct = self._measure_command_completion(child, command)
                         if not is_warmup:
                             self.results[protocol][command].append(lat)
                         self.records.append(
                             SampleRecord(
                                 protocol, workload, trial_id, sample_id,
-                                command_id, command, lat, warmup=is_warmup,
+                                command_id, command, lat, received_pct=received_pct, warmup=is_warmup,
                             )
                         )
                         tag = "WARM" if is_warmup else "meas"
                         print(
                             f"[{protocol:>4}/{command:<18}] trial {trial_id:>2}/{self.args.trials}"
-                            f" {tag} {sample_id:>3}/{self.args.iterations}: {lat:.2f} ms",
+                            f" {tag} {sample_id:>3}/{self.args.iterations}: {lat:.2f} ms | recv {received_pct:.1f}%",
                             flush=True,
                         )
                         sample_id += 1
@@ -380,8 +440,14 @@ class W1Benchmark:
         total = n + fail_n
         success_rate = (100.0 * n / total) if total else 0.0
 
+        recv_data = [
+            r.received_pct for r in self.records
+            if r.protocol == protocol and r.workload == workload
+            and r.command == command and not r.warmup
+        ]
+
         if n == 0:
-            return SummaryRow(protocol, workload, command, 0, fail_n, success_rate, None, None, None, None, None, None, None, None)
+            return SummaryRow(protocol, workload, command, 0, fail_n, success_rate, None, None, None, None, None, None, None, None, None, None)
 
         mean_ms = statistics.mean(data)
         median_ms = statistics.median(data)
@@ -402,6 +468,8 @@ class W1Benchmark:
             p99_ms=self._percentile(data, 99),
             max_ms=max(data),
             ci95_half_width_ms=ci95,
+            recv_pct_mean=statistics.mean(recv_data) if recv_data else None,
+            recv_pct_min=min(recv_data) if recv_data else None,
         )
 
     def summaries(self) -> List[SummaryRow]:
@@ -430,18 +498,20 @@ class W1Benchmark:
         def fmt(v: Optional[float]) -> str:
             return f"{v:.2f}" if v is not None else "N/A"
 
-        width = 168
+        width = 192
         print("\n" + "=" * width)
         print(
             f"{'Protocol':<8} | {'Workload':<12} | {'Command':<26} | {'N':>4} | {'Fail':>4} | {'Success%':>8} | "
-            f"{'Min':>8} | {'Mean':>8} | {'Median':>8} | {'Std':>8} | {'P95':>8} | {'P99':>8} | {'Max':>8} | {'CI95+/-':>9}"
+            f"{'Min':>8} | {'Mean':>8} | {'Median':>8} | {'Std':>8} | {'P95':>8} | {'P99':>8} | {'Max':>8} | {'CI95+/-':>9} | "
+            f"{'Recv%Avg':>8} | {'Recv%Min':>8}"
         )
         print("-" * width)
         for row in self.summaries():
             print(
                 f"{row.protocol:<8} | {row.workload:<12} | {row.command:<26} | {row.n:>4} | {row.failures:>4} | "
                 f"{row.success_rate_pct:>8.1f} | {fmt(row.min_ms):>8} | {fmt(row.mean_ms):>8} | {fmt(row.median_ms):>8} | "
-                f"{fmt(row.stdev_ms):>8} | {fmt(row.p95_ms):>8} | {fmt(row.p99_ms):>8} | {fmt(row.max_ms):>8} | {fmt(row.ci95_half_width_ms):>9}"
+                f"{fmt(row.stdev_ms):>8} | {fmt(row.p95_ms):>8} | {fmt(row.p99_ms):>8} | {fmt(row.max_ms):>8} | {fmt(row.ci95_half_width_ms):>9} | "
+                f"{fmt(row.recv_pct_mean):>8} | {fmt(row.recv_pct_min):>8}"
             )
         print("=" * width)
 
@@ -487,6 +557,7 @@ class W1Benchmark:
                     "command_id",
                     "command",
                     "latency_ms",
+                    "received_pct",
                     "status",
                     "warmup",
                     "error_type",
@@ -504,6 +575,7 @@ class W1Benchmark:
                         r.command_id,
                         r.command,
                         f"{r.latency_ms:.6f}",
+                        f"{r.received_pct:.2f}",
                         "ok",
                         "1" if r.warmup else "0",
                         "",
@@ -520,6 +592,7 @@ class W1Benchmark:
                         r.sample_id,
                         r.command_id,
                         r.command,
+                        "",
                         "",
                         "fail",
                         "1" if r.warmup else "0",
