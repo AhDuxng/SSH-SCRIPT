@@ -5,6 +5,7 @@ import argparse
 import csv
 import json
 import math
+import posixpath
 import random
 import re
 import shlex
@@ -27,6 +28,12 @@ DEFAULT_PROTOCOLS = ["ssh", "ssh3", "mosh"]
 DEFAULT_WORKLOADS = ["command_loop"]
 DEFAULT_PROMPT = "__W1_PROMPT__#"
 DEFAULT_SSH3_PATH = "/ssh3-term"
+DEFAULT_FIND_FIXTURE_DIR = "/tmp/w1_find_fixture"
+DEFAULT_FIND_FIXTURE_NAME = "w1_find_target.txt"
+DEFAULT_FIND_COMMAND = (
+    f"find {DEFAULT_FIND_FIXTURE_DIR} -maxdepth 1 "
+    f"-name {DEFAULT_FIND_FIXTURE_NAME} -print -quit"
+)
 MARKER_TOKEN_LEN = 24
 TAIL_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 DEFAULT_COMMANDS = [
@@ -35,7 +42,7 @@ DEFAULT_COMMANDS = [
     "ps aux",
     "grep -n root /etc/passwd",
     "cat /proc/meminfo",
-    "find /usr -maxdepth 3",
+    DEFAULT_FIND_COMMAND,
 ]
 _ANSI_SEQ = r"(?:\x1b\[\??[0-9;]*[a-zA-Z]|\x1b[\(\)][0-9A-Za-z])"
 _ANSI_STRIP_RE = re.compile(r"\x1b\[\??[0-9;]*[a-zA-Z]|\x1b\][^\x07]*\x07|\x1b[()][A-Z0-9]|\r")
@@ -242,6 +249,7 @@ class W1Benchmark:
         # completed; disable it so marker timing and output counting are clean.
         child.sendline("stty -echo")
         self._expect_prompt(child)
+        self._ensure_find_fixture(child)
         self._drain_pending_output(child)
         return child, setup_ms
 
@@ -257,6 +265,20 @@ class W1Benchmark:
                     child.logfile_read.close()
             except Exception:
                 pass
+
+    def _find_fixture_path(self) -> str:
+        return posixpath.join(
+            self.args.find_fixture_dir.rstrip("/"),
+            self.args.find_fixture_name,
+        )
+
+    def _ensure_find_fixture(self, child: pexpect.spawn) -> None:
+        fixture_dir = shlex.quote(self.args.find_fixture_dir)
+        fixture_path = shlex.quote(self._find_fixture_path())
+        child.sendline(
+            f"mkdir -p {fixture_dir} && printf '%s\\n' W1_FIND_TARGET > {fixture_path}"
+        )
+        self._expect_prompt(child)
 
     def _next_marker_token(self) -> str:
         if self.prev_marker_token is None:
@@ -671,6 +693,8 @@ class W1Benchmark:
             "workloads": self.args.workloads,
             "commands": self.args.commands,
             "reference_line_counts": self.ref_line_counts,
+            "find_fixture_dir": self.args.find_fixture_dir,
+            "find_fixture_name": self.args.find_fixture_name,
             "trials": self.args.trials,
             "iterations": self.args.iterations,
             "warmup": self.warmup,
@@ -710,6 +734,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--output-dir", default="w1_results", help="Directory for JSON/CSV outputs")
     p.add_argument("--prompt", default=DEFAULT_PROMPT, help="Unique shell prompt marker used after session is ready")
     p.add_argument("--ssh3-path", default=DEFAULT_SSH3_PATH, help="SSH3 terminal path suffix")
+    p.add_argument("--find-fixture-dir", default=DEFAULT_FIND_FIXTURE_DIR, help="Remote directory containing the fixed find target")
+    p.add_argument("--find-fixture-name", default=DEFAULT_FIND_FIXTURE_NAME, help="Fixed filename used by the default find workload")
     p.add_argument("--ssh3-insecure", action="store_true", help="Pass -insecure to ssh3")
     p.add_argument("--batch-mode", action="store_true", help="Enable BatchMode for SSHv2 / Mosh bootstrap SSH")
     p.add_argument("--strict-host-key-checking", action="store_true", help="Keep strict host key checking enabled")
@@ -728,6 +754,8 @@ def main() -> int:
         parser.error("--trials must be > 0")
     if args.iterations <= 0:
         parser.error("--iterations must be > 0")
+    if not args.find_fixture_name.strip() or "/" in args.find_fixture_name:
+        parser.error("--find-fixture-name must be a non-empty basename")
 
     bench = W1Benchmark(args)
     bench.run()

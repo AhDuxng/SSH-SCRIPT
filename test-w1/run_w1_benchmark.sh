@@ -15,7 +15,7 @@ COMMANDS=(
   "ps aux"
   "grep -n root /etc/passwd"
   "cat /proc/meminfo"
-  "find /usr -maxdepth 3"
+  "find /tmp/w1_find_fixture -maxdepth 1 -name w1_find_target.txt -print -quit"
 )
 
 ITERATIONS=100
