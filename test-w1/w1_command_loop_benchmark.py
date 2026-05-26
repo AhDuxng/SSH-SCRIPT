@@ -27,6 +27,8 @@ DEFAULT_PROTOCOLS = ["ssh", "ssh3", "mosh"]
 DEFAULT_WORKLOADS = ["command_loop"]
 DEFAULT_PROMPT = "__W1_PROMPT__#"
 DEFAULT_SSH3_PATH = "/ssh3-term"
+MARKER_TOKEN_LEN = 24
+TAIL_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 DEFAULT_COMMANDS = [
     "ls",
     "df -h",
@@ -35,12 +37,11 @@ DEFAULT_COMMANDS = [
     "cat /proc/meminfo",
     "find /usr -maxdepth 3",
 ]
-_ANSI_SEQ = r"(?:\x1b\[\??[0-9;]*[a-zA-Z])"
+_ANSI_SEQ = r"(?:\x1b\[\??[0-9;]*[a-zA-Z]|\x1b[\(\)][0-9A-Za-z])"
 _ANSI_STRIP_RE = re.compile(r"\x1b\[\??[0-9;]*[a-zA-Z]|\x1b\][^\x07]*\x07|\x1b[()][A-Z0-9]|\r")
 _ECHO_GAP = rf"(?:{_ANSI_SEQ}|[\r\n\b])*"
 _INITIAL_PROMPT_RE = re.compile(
     r"[#$>](?:" + _ANSI_SEQ + r"|\s)*\s*$",
-    re.MULTILINE,
 )
 
 
@@ -106,6 +107,7 @@ class W1Benchmark:
             raise ValueError("Prompt must contain at least one non-space character")
         # Prompt bytes can be split by ANSI redraw sequences (esp. over mosh).
         self.prompt_re = self._build_prompt_re(self.prompt_marker)
+        self.prev_marker_token: Optional[str] = None
 
         self.records: List[SampleRecord] = []
         self.failures: List[FailureRecord] = []
@@ -122,7 +124,7 @@ class W1Benchmark:
 
     @staticmethod
     def _strip_ansi(text: str) -> str:
-        return _ANSI_STRIP_RE.sub("", text)
+        return _ANSI_STRIP_RE.sub("", text).replace("\r", "").replace("\b", "")
 
     def _extract_output_lines(self, raw: str, command: str) -> List[str]:
         cleaned = self._strip_ansi(raw)
@@ -139,10 +141,10 @@ class W1Benchmark:
             for run_idx in range(1, n_runs + 1):
                 child, _ = self._open_session("ssh")
                 for cmd in self.args.commands:
-                    self._drain_pending_output(child)
-                    child.sendline(cmd)
-                    self._expect_prompt(child)
-                    raw_output = child.before or ""
+                    marker = self._next_marker_token()
+                    _, raw_output = self._capture_command_output(
+                        child, cmd, marker
+                    )
                     lines = self._extract_output_lines(raw_output, cmd)
                     ref[cmd].append(len(lines))
                 self._close_session(child)
@@ -161,12 +163,18 @@ class W1Benchmark:
                 result[cmd] = 0
             print(f"  ref[{cmd}] = {result[cmd]} lines (samples: {counts})", flush=True)
         print("", flush=True)
+        self.prev_marker_token = None
         return result
 
     @staticmethod
     def _build_prompt_re(prompt_marker: str) -> re.Pattern[str]:
         parts = [re.escape(ch) + _ECHO_GAP for ch in prompt_marker]
-        return re.compile("".join(parts) + rf"(?:{_ANSI_SEQ}|\s)*")
+        return re.compile("".join(parts) + rf"(?:{_ANSI_SEQ}|\s)*$")
+
+    @staticmethod
+    def _build_token_re(token: str) -> re.Pattern[str]:
+        parts = [re.escape(ch) + _ECHO_GAP for ch in token]
+        return re.compile("".join(parts))
 
     @staticmethod
     def _drain_pending_output(child: pexpect.spawn, max_reads: int = 8) -> None:
@@ -220,6 +228,7 @@ class W1Benchmark:
             codec_errors="ignore",
             timeout=self.args.timeout,
         )
+        child.delaybeforesend = 0
 
         start_ns = time.perf_counter_ns()
         child.expect(_INITIAL_PROMPT_RE, timeout=self.args.timeout)
@@ -229,6 +238,11 @@ class W1Benchmark:
         self._expect_prompt(child)
         child.sendline("export COLUMNS=200")
         self._expect_prompt(child)
+        # Command echo can contain the marker before the command has actually
+        # completed; disable it so marker timing and output counting are clean.
+        child.sendline("stty -echo")
+        self._expect_prompt(child)
+        self._drain_pending_output(child)
         return child, setup_ms
 
     def _close_session(self, child: pexpect.spawn) -> None:
@@ -244,19 +258,51 @@ class W1Benchmark:
             except Exception:
                 pass
 
+    def _next_marker_token(self) -> str:
+        if self.prev_marker_token is None:
+            token = "".join(
+                random.choice(TAIL_ALPHABET) for _ in range(MARKER_TOKEN_LEN)
+            )
+            self.prev_marker_token = token
+            return token
+
+        chars: List[str] = []
+        for prev_ch in self.prev_marker_token:
+            choices = [c for c in TAIL_ALPHABET if c != prev_ch]
+            chars.append(random.choice(choices))
+        token = "".join(chars)
+        self.prev_marker_token = token
+        return token
+
+    @staticmethod
+    def _wrap_measured_command(command: str, marker: str) -> str:
+        return f"{{ {command}; }}; printf '%s\\n' {shlex.quote(marker)}"
+
+    def _capture_command_output(
+        self,
+        child: pexpect.spawn,
+        command: str,
+        marker: str,
+    ) -> tuple[float, str]:
+        self._drain_pending_output(child)
+        wrapped = self._wrap_measured_command(command, marker)
+        start_ns = time.perf_counter_ns()
+        child.sendline(wrapped)
+        child.expect(self._build_token_re(marker), timeout=self.args.timeout)
+        end_ns = time.perf_counter_ns()
+        raw_output = child.before or ""
+        self._expect_prompt(child)
+        return (end_ns - start_ns) / 1_000_000.0, raw_output
+
     def _measure_command_completion(
         self,
         child: pexpect.spawn,
         command: str,
     ) -> tuple[float, float]:
-        self._drain_pending_output(child)
-        start_ns = time.perf_counter_ns()
-        child.sendline(command)
-        self._expect_prompt(child)
-        end_ns = time.perf_counter_ns()
-        latency_ms = (end_ns - start_ns) / 1_000_000.0
-
-        raw_output = child.before or ""
+        marker = self._next_marker_token()
+        latency_ms, raw_output = self._capture_command_output(
+            child, command, marker
+        )
         received_lines = self._extract_output_lines(raw_output, command)
         received_count = len(received_lines)
 
@@ -403,6 +449,7 @@ class W1Benchmark:
 
     def run(self) -> None:
         random.seed(self.args.seed)
+        self.prev_marker_token = None
         sequence = [
             (p, w, c, command_id)
             for p in self.args.protocols
@@ -623,6 +670,7 @@ class W1Benchmark:
             "protocols": self.args.protocols,
             "workloads": self.args.workloads,
             "commands": self.args.commands,
+            "reference_line_counts": self.ref_line_counts,
             "trials": self.args.trials,
             "iterations": self.args.iterations,
             "warmup": self.warmup,
