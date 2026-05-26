@@ -10,12 +10,12 @@ PROTOCOLS="ssh ssh3 mosh"
 WORKLOADS="command_loop"
 
 COMMANDS=(
-  "ls"
-  "df -h"
-  "ps aux"
-  "grep -n root /etc/passwd"
-  "cat /proc/meminfo"
-  "find /tmp/w1_find_fixture -maxdepth 1 -name w1_find_target.txt -print -quit"
+  "ls",
+  "df -h",
+  "ps aux",
+  "grep -n root /etc/passwd",
+  "cat /proc/meminfo",
+  "find /usr -maxdepth 3",
 )
 
 ITERATIONS=100
