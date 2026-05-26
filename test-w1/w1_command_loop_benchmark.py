@@ -30,6 +30,7 @@ DEFAULT_PROMPT = "__W1_PROMPT__#"
 DEFAULT_SSH3_PATH = "/ssh3-term"
 DEFAULT_FIND_FIXTURE_DIR = "/tmp/w1_find_fixture"
 DEFAULT_FIND_FIXTURE_NAME = "w1_find_target.txt"
+DEFAULT_FIND_FIXTURE_SIZE_MIB = 5
 DEFAULT_FIND_COMMAND = (
     f"find {DEFAULT_FIND_FIXTURE_DIR} -maxdepth 1 "
     f"-name {DEFAULT_FIND_FIXTURE_NAME} -print -quit"
@@ -272,11 +273,20 @@ class W1Benchmark:
             self.args.find_fixture_name,
         )
 
+    def _display_command(self, command: str) -> str:
+        find_prefix = f"find {self.args.find_fixture_dir.rstrip('/')}"
+        if command.startswith(find_prefix):
+            return "find /"
+        return command
+
     def _ensure_find_fixture(self, child: pexpect.spawn) -> None:
         fixture_dir = shlex.quote(self.args.find_fixture_dir)
         fixture_path = shlex.quote(self._find_fixture_path())
+        size_mib = int(self.args.find_fixture_size_mib)
         child.sendline(
-            f"mkdir -p {fixture_dir} && printf '%s\\n' W1_FIND_TARGET > {fixture_path}"
+            f"mkdir -p {fixture_dir} && "
+            f"dd if=/dev/zero of={fixture_path} bs=1048576 count={size_mib} "
+            f">/dev/null 2>&1"
         )
         self._expect_prompt(child)
 
@@ -313,7 +323,10 @@ class W1Benchmark:
         child.expect(self._build_token_re(marker), timeout=self.args.timeout)
         end_ns = time.perf_counter_ns()
         raw_output = child.before or ""
-        self._expect_prompt(child)
+        # The marker is the synchronization point. Waiting for the shell prompt
+        # after it creates false failures with mosh, which may coalesce or omit
+        # intermediate terminal redraws even though the command has completed.
+        self._drain_pending_output(child, max_reads=2)
         return (end_ns - start_ns) / 1_000_000.0, raw_output
 
     def _measure_command_completion(
@@ -406,6 +419,7 @@ class W1Benchmark:
         command: str,
         command_id: int,
     ) -> None:
+        display_command = self._display_command(command)
         for trial_id in range(1, self.args.trials + 1):
             sample_id = 1
             while sample_id <= self.args.iterations:
@@ -415,7 +429,7 @@ class W1Benchmark:
                     if sample_id == 1:
                         self.session_setups[protocol][command].append(setup_ms)
                     print(
-                        f"[{protocol:>4}/{command:<18}] trial {trial_id:>2}/{self.args.trials}"
+                        f"[{protocol:>4}/{display_command:<18}] trial {trial_id:>2}/{self.args.trials}"
                         f" session_setup={setup_ms:.1f} ms (resuming from sample {sample_id})",
                         flush=True,
                     )
@@ -435,7 +449,7 @@ class W1Benchmark:
                         )
                         tag = "WARM" if is_warmup else "meas"
                         print(
-                            f"[{protocol:>4}/{command:<18}] trial {trial_id:>2}/{self.args.trials}"
+                            f"[{protocol:>4}/{display_command:<18}] trial {trial_id:>2}/{self.args.trials}"
                             f" {tag} {sample_id:>3}/{self.args.iterations}: {lat:.2f} ms | recv {received_pct:.1f}%",
                             flush=True,
                         )
@@ -457,7 +471,7 @@ class W1Benchmark:
                     )
                     tag = "WARM-FAIL" if (sample_id <= self.warmup) else "FAIL"
                     print(
-                        f"[{protocol:>4}/{command:<18}] trial {trial_id:>2}"
+                        f"[{protocol:>4}/{display_command:<18}] trial {trial_id:>2}"
                         f" {tag} {sample_id:>3}: ({type(exc).__name__}: {exc})",
                         flush=True,
                     )
@@ -578,8 +592,9 @@ class W1Benchmark:
         )
         print("-" * width)
         for row in self.summaries():
+            display_command = self._display_command(row.command)
             print(
-                f"{row.protocol:<8} | {row.workload:<12} | {row.command:<26} | {row.n:>4} | {row.failures:>4} | "
+                f"{row.protocol:<8} | {row.workload:<12} | {display_command:<26} | {row.n:>4} | {row.failures:>4} | "
                 f"{row.success_rate_pct:>8.1f} | {fmt(row.min_ms):>8} | {fmt(row.mean_ms):>8} | {fmt(row.median_ms):>8} | "
                 f"{fmt(row.stdev_ms):>8} | {fmt(row.p95_ms):>8} | {fmt(row.p99_ms):>8} | {fmt(row.max_ms):>8} | {fmt(row.ci95_half_width_ms):>9} | "
                 f"{fmt(row.recv_pct_mean):>8} | {fmt(row.recv_pct_min):>8}"
@@ -600,8 +615,9 @@ class W1Benchmark:
         for protocol in self.args.protocols:
             for command in self.args.commands:
                 s = self._session_setup_stats(protocol, command)
+                display_command = self._display_command(command)
                 print(
-                    f"{protocol:<8} | {command:<26} | {s['n']:>3} |"
+                    f"{protocol:<8} | {display_command:<26} | {s['n']:>3} |"
                     f" {fmt(s['min']):>8} | {fmt(s['mean']):>8} |"
                     f" {fmt(s['median']):>8} | {fmt(s['stdev']):>8} |"
                     f" {fmt(s['max']):>8}"
@@ -695,6 +711,7 @@ class W1Benchmark:
             "reference_line_counts": self.ref_line_counts,
             "find_fixture_dir": self.args.find_fixture_dir,
             "find_fixture_name": self.args.find_fixture_name,
+            "find_fixture_size_mib": self.args.find_fixture_size_mib,
             "trials": self.args.trials,
             "iterations": self.args.iterations,
             "warmup": self.warmup,
@@ -736,6 +753,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--ssh3-path", default=DEFAULT_SSH3_PATH, help="SSH3 terminal path suffix")
     p.add_argument("--find-fixture-dir", default=DEFAULT_FIND_FIXTURE_DIR, help="Remote directory containing the fixed find target")
     p.add_argument("--find-fixture-name", default=DEFAULT_FIND_FIXTURE_NAME, help="Fixed filename used by the default find workload")
+    p.add_argument("--find-fixture-size-mib", type=int, default=DEFAULT_FIND_FIXTURE_SIZE_MIB, help="Remote fixed find target size in MiB")
     p.add_argument("--ssh3-insecure", action="store_true", help="Pass -insecure to ssh3")
     p.add_argument("--batch-mode", action="store_true", help="Enable BatchMode for SSHv2 / Mosh bootstrap SSH")
     p.add_argument("--strict-host-key-checking", action="store_true", help="Keep strict host key checking enabled")
@@ -756,6 +774,8 @@ def main() -> int:
         parser.error("--iterations must be > 0")
     if not args.find_fixture_name.strip() or "/" in args.find_fixture_name:
         parser.error("--find-fixture-name must be a non-empty basename")
+    if args.find_fixture_size_mib <= 0:
+        parser.error("--find-fixture-size-mib must be > 0")
 
     bench = W1Benchmark(args)
     bench.run()
