@@ -14,10 +14,13 @@ COMMANDS=(
   "df -h"
   "ps aux"
   "grep -n root /etc/passwd"
+  "cat /proc/meminfo"
+  "find /usr -maxdepth 3"
 )
 
 ITERATIONS=100
-TRIALS=10
+WARMUP=3
+TRIALS=1
 TIMEOUT=20
 SEED=42
 
@@ -41,10 +44,12 @@ CMD=(
   --protocols $PROTOCOLS
   --workloads $WORKLOADS
   --iterations "$ITERATIONS"
+  --warmup "$WARMUP"
   --trials "$TRIALS"
   --timeout "$TIMEOUT"
   --seed "$SEED"
   --output-dir "$OUTPUT_DIR"
+  --scenario "$SCENARIO"
   --prompt "$PROMPT"
   --ssh3-path "$SSH3_PATH"
   --mosh-predict "$MOSH_PREDICT"
@@ -54,7 +59,8 @@ CMD=(
 $SSH3_INSECURE     && CMD+=(--ssh3-insecure)
 $BATCH_MODE        && CMD+=(--batch-mode)
 $STRICT_HOST_KEY   && CMD+=(--strict-host-key-checking)
-$LOG_PEXPECT       && CMD+=(--log-pexpect)
+$SHUFFLE_PAIRS     && CMD+=(--shuffle-pairs)
+$REOPEN_ON_FAILURE && CMD+=(--reopen-on-failure)
 
 echo "=== W1 Command Loop Benchmark ==="
 echo "Command:"
