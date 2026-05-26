@@ -112,7 +112,7 @@ class W1Benchmark:
         self.results: Dict[str, Dict[str, List[float]]] = {
             p: {c: [] for c in args.commands} for p in args.protocols
         }
-        self.session_setups: Dict[str, Dict[str, List[tuple[int, float]]]] = {
+        self.session_setups: Dict[str, Dict[str, List[float]]] = {
             p: {c: [] for c in args.commands} for p in args.protocols
         }
         self.ref_line_counts: Dict[str, int] = self._collect_reference_outputs()
@@ -343,7 +343,7 @@ class W1Benchmark:
                 try:
                     child, setup_ms = self._open_session(protocol)
                     if sample_id == 1:
-                        self.session_setups[protocol][command].append((trial_id, setup_ms))
+                        self.session_setups[protocol][command].append(setup_ms)
                     print(
                         f"[{protocol:>4}/{command:<18}] trial {trial_id:>2}/{self.args.trials}"
                         f" session_setup={setup_ms:.1f} ms (resuming from sample {sample_id})",
@@ -428,7 +428,7 @@ class W1Benchmark:
 
     def _summary_row(self, protocol: str, workload: str, command: str) -> SummaryRow:
         data = self.results[protocol][command]
-        fail_n_logged = sum(
+        fail_n = sum(
             1
             for f in self.failures
             if f.protocol == protocol
@@ -436,10 +436,7 @@ class W1Benchmark:
             and f.command == command
             and not f.warmup
         )
-        expected_n = self.args.trials * max(0, self.args.iterations - self.warmup)
         n = len(data)
-        missing_n = max(0, expected_n - (n + fail_n_logged))
-        fail_n = fail_n_logged + missing_n
         total = n + fail_n
         success_rate = (100.0 * n / total) if total else 0.0
 
@@ -484,10 +481,9 @@ class W1Benchmark:
         ]
 
     def _session_setup_stats(self, protocol: str, command: str) -> dict:
-        rows = self.session_setups[protocol][command]
-        if not rows:
+        data = self.session_setups[protocol][command]
+        if not data:
             return dict(n=0, mean=None, median=None, stdev=None, min=None, max=None)
-        data = [ms for _, ms in rows]
         n = len(data)
         return dict(
             n=n,
@@ -612,7 +608,7 @@ class W1Benchmark:
             )
             for p in self.args.protocols:
                 for c in self.args.commands:
-                    for trial_id, ms in self.session_setups[p][c]:
+                    for trial_id, ms in enumerate(self.session_setups[p][c], start=1):
                         writer.writerow(
                             [self.scenario, p, c, trial_id, f"{ms:.6f}"]
                         )
