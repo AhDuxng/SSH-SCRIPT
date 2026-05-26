@@ -137,15 +137,15 @@ class W1Benchmark:
         print("=== Collecting reference line counts (via SSH PTY session) ===", flush=True)
         try:
             for run_idx in range(1, n_runs + 1):
+                child, _ = self._open_session("ssh")
                 for cmd in self.args.commands:
-                    child, _ = self._open_session("ssh")
                     self._drain_pending_output(child)
                     child.sendline(cmd)
                     self._expect_prompt(child)
                     raw_output = child.before or ""
                     lines = self._extract_output_lines(raw_output, cmd)
                     ref[cmd].append(len(lines))
-                    self._close_session(child)
+                self._close_session(child)
                 print(f"  run {run_idx}/{n_runs} done", flush=True)
         except Exception as exc:
             print(f"  Reference collection FAILED: {exc}", flush=True)
@@ -226,6 +226,8 @@ class W1Benchmark:
         setup_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
 
         child.sendline(f"export PS1={shlex.quote(self.args.prompt)}")
+        self._expect_prompt(child)
+        child.sendline("export COLUMNS=200")
         self._expect_prompt(child)
         return child, setup_ms
 
