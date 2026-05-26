@@ -115,7 +115,7 @@ class W1Benchmark:
         self.session_setups: Dict[str, Dict[str, List[float]]] = {
             p: {c: [] for c in args.commands} for p in args.protocols
         }
-        self.ref_line_counts: Dict[str, int] = self._collect_reference_outputs()
+        self.ref_output_bytes: Dict[str, int] = self._collect_reference_outputs()
 
     def _expect_prompt(self, child: pexpect.spawn) -> None:
         child.expect(self.prompt_re, timeout=self.args.timeout)
@@ -134,34 +134,39 @@ class W1Benchmark:
     def _collect_reference_outputs(self) -> Dict[str, int]:
         ref: Dict[str, List[int]] = {cmd: [] for cmd in self.args.commands}
         n_runs = 3
-        print("=== Collecting reference line counts (via SSH PTY session) ===", flush=True)
-        try:
-            for run_idx in range(1, n_runs + 1):
-                for cmd in self.args.commands:
-                    child, _ = self._open_session("ssh")
-                    self._drain_pending_output(child)
-                    child.sendline(cmd)
-                    self._expect_prompt(child)
-                    raw_output = child.before or ""
-                    lines = self._extract_output_lines(raw_output, cmd)
-                    ref[cmd].append(len(lines))
-                    self._close_session(child)
-                print(f"  run {run_idx}/{n_runs} done", flush=True)
-        except Exception as exc:
-            print(f"  Reference collection FAILED: {exc}", flush=True)
+        ssh_cmd = [
+            "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
+            "-o", "BatchMode=yes",
+        ]
+        if self.args.identity_file:
+            ssh_cmd += ["-i", self.args.identity_file]
+        ssh_cmd.append(self.target)
 
-        result = {}
+        print("=== Collecting reference output bytes (via SSH exec, no PTY) ===", flush=True)
+        for run_idx in range(1, n_runs + 1):
+            for cmd in self.args.commands:
+                try:
+                    import subprocess
+                    result = subprocess.run(
+                        ssh_cmd + [cmd],
+                        capture_output=True, timeout=60,
+                    )
+                    ref[cmd].append(len(result.stdout))
+                except Exception as exc:
+                    print(f"  ref[{cmd}] run {run_idx} FAILED: {exc}", flush=True)
+            print(f"  run {run_idx}/{n_runs} done", flush=True)
+
+        result_dict = {}
         for cmd in self.args.commands:
-            counts = ref[cmd]
-            if counts:
-                counts.sort()
-                median_count = counts[len(counts) // 2]
-                result[cmd] = median_count
+            sizes = ref[cmd]
+            if sizes:
+                sizes.sort()
+                result_dict[cmd] = sizes[len(sizes) // 2]
             else:
-                result[cmd] = 0
-            print(f"  ref[{cmd}] = {result[cmd]} lines (samples: {counts})", flush=True)
+                result_dict[cmd] = 0
+            print(f"  ref[{cmd}] = {result_dict[cmd]} bytes (samples: {sizes})", flush=True)
         print("", flush=True)
-        return result
+        return result_dict
 
     @staticmethod
     def _build_prompt_re(prompt_marker: str) -> re.Pattern[str]:
@@ -220,12 +225,17 @@ class W1Benchmark:
             codec_errors="ignore",
             timeout=self.args.timeout,
         )
+        # Set PTY window size so programs using ioctl(TIOCGWINSZ) (e.g. ps aux)
+        # report the same column width as the no-PTY reference measurement.
+        child.setwinsize(50, 200)
 
         start_ns = time.perf_counter_ns()
         child.expect(_INITIAL_PROMPT_RE, timeout=self.args.timeout)
         setup_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
 
         child.sendline(f"export PS1={shlex.quote(self.args.prompt)}")
+        self._expect_prompt(child)
+        child.sendline("export COLUMNS=200")
         self._expect_prompt(child)
         return child, setup_ms
 
@@ -255,12 +265,12 @@ class W1Benchmark:
         latency_ms = (end_ns - start_ns) / 1_000_000.0
 
         raw_output = child.before or ""
-        received_lines = self._extract_output_lines(raw_output, command)
-        received_count = len(received_lines)
+        cleaned = self._strip_ansi(raw_output)
+        received_bytes = len(cleaned.encode("utf-8", errors="ignore"))
 
-        ref_count = self.ref_line_counts.get(command, 0)
-        if ref_count > 0:
-            received_pct = min(100.0, received_count / ref_count * 100.0)
+        ref_bytes = self.ref_output_bytes.get(command, 0)
+        if ref_bytes > 0:
+            received_pct = min(100.0, received_bytes / ref_bytes * 100.0)
         else:
             received_pct = 100.0
 
