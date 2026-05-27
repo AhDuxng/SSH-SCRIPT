@@ -13,7 +13,7 @@ PROTOCOLS="${PROTOCOLS:-ssh ssh3 mosh}"
 
 COMMANDS=(
   "find /etc /var/log -type f 2>/dev/null"
-  "docker logs <container_name> 2>/dev/null"
+  'cid=$(docker ps -q | head -n 1); [ -n "$cid" ] && docker logs "$cid" 2>/dev/null || true'
   "git log --oneline -500 2>/dev/null"
 )
 

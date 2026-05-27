@@ -33,6 +33,7 @@ COMMAND_LABELS = {
     "find /": "find /",
     "git status": "git status",
     "docker logs $(docker ps -q | head -n 1)": "docker logs",
+    'cid=$(docker ps -q | head -n 1); [ -n "$cid" ] && docker logs "$cid" 2>/dev/null || true': "docker logs",
 }
 DEFAULT_PROMPT = "__W4_PROMPT__#"
 DEFAULT_SSH3_PATH = "/ssh3-term"
