@@ -1,55 +1,181 @@
 scenario,protocol,command,trial_id,session_setup_ms
-low,ssh,ls,1,762.478255
-low,ssh,ls,2,709.975796
-low,ssh,ls,3,734.103975
-low,ssh,df -h,1,758.907364
-low,ssh,df -h,2,725.749758
-low,ssh,df -h,3,721.402056
-low,ssh,ps aux,1,712.868552
-low,ssh,ps aux,2,712.233869
-low,ssh,ps aux,3,708.977164
-low,ssh,grep -n root /etc/passwd,1,730.384444
-low,ssh,grep -n root /etc/passwd,2,721.444871
-low,ssh,grep -n root /etc/passwd,3,726.911316
-low,ssh,cat /proc/meminfo,1,734.478966
-low,ssh,cat /proc/meminfo,2,722.663492
-low,ssh,cat /proc/meminfo,3,732.104336
-low,ssh,find /usr -maxdepth 3,1,718.734948
-low,ssh,find /usr -maxdepth 3,2,704.157036
-low,ssh,find /usr -maxdepth 3,3,724.358034
-low,ssh3,ls,1,194.920027
-low,ssh3,ls,2,197.202011
-low,ssh3,ls,3,203.132857
-low,ssh3,df -h,1,191.690141
-low,ssh3,df -h,2,193.879306
-low,ssh3,df -h,3,192.169081
-low,ssh3,ps aux,1,200.178500
-low,ssh3,ps aux,2,208.183156
-low,ssh3,ps aux,3,238.673362
-low,ssh3,grep -n root /etc/passwd,1,202.966707
-low,ssh3,grep -n root /etc/passwd,2,185.729729
-low,ssh3,grep -n root /etc/passwd,3,211.804147
-low,ssh3,cat /proc/meminfo,1,186.314671
-low,ssh3,cat /proc/meminfo,2,193.252013
-low,ssh3,cat /proc/meminfo,3,201.922752
-low,ssh3,find /usr -maxdepth 3,1,192.949197
-low,ssh3,find /usr -maxdepth 3,2,192.039913
-low,ssh3,find /usr -maxdepth 3,3,195.183110
-low,mosh,ls,1,858.047785
-low,mosh,ls,2,885.642046
-low,mosh,ls,3,893.812928
-low,mosh,df -h,1,863.365569
-low,mosh,df -h,2,858.906117
-low,mosh,df -h,3,1453.783236
-low,mosh,ps aux,1,902.350821
-low,mosh,ps aux,2,874.921225
-low,mosh,ps aux,3,857.165002
-low,mosh,grep -n root /etc/passwd,1,864.296560
-low,mosh,grep -n root /etc/passwd,2,880.717783
-low,mosh,grep -n root /etc/passwd,3,862.315591
-low,mosh,cat /proc/meminfo,1,876.623981
-low,mosh,cat /proc/meminfo,2,858.855186
-low,mosh,cat /proc/meminfo,3,868.036785
-low,mosh,find /usr -maxdepth 3,1,849.856609
-low,mosh,find /usr -maxdepth 3,2,864.865858
-low,mosh,find /usr -maxdepth 3,3,861.678810
+low,ssh,ls,1,625.506963
+low,ssh,ls,2,419.770148
+low,ssh,ls,3,456.113152
+low,ssh,ls,4,491.154051
+low,ssh,ls,5,437.303336
+low,ssh,ls,6,413.685583
+low,ssh,ls,7,468.522595
+low,ssh,ls,8,462.947316
+low,ssh,ls,9,433.567890
+low,ssh,ls,10,434.181723
+low,ssh,df -h,1,469.191229
+low,ssh,df -h,2,482.611524
+low,ssh,df -h,3,435.606811
+low,ssh,df -h,4,474.708142
+low,ssh,df -h,5,473.683398
+low,ssh,df -h,6,425.178779
+low,ssh,df -h,7,428.902761
+low,ssh,df -h,8,416.795657
+low,ssh,df -h,9,442.583051
+low,ssh,df -h,10,430.050187
+low,ssh,ps aux,1,608.161572
+low,ssh,ps aux,2,454.763027
+low,ssh,ps aux,3,423.286781
+low,ssh,ps aux,4,451.379667
+low,ssh,ps aux,5,437.930154
+low,ssh,ps aux,6,420.400321
+low,ssh,ps aux,7,429.474306
+low,ssh,ps aux,8,458.321432
+low,ssh,ps aux,9,433.453548
+low,ssh,ps aux,10,436.383938
+low,ssh,grep -rn root /etc/,1,417.831636
+low,ssh,grep -rn root /etc/,2,419.274414
+low,ssh,grep -rn root /etc/,3,433.146613
+low,ssh,grep -rn root /etc/,4,437.378325
+low,ssh,grep -rn root /etc/,5,427.945880
+low,ssh,grep -rn root /etc/,6,463.630471
+low,ssh,grep -rn root /etc/,7,423.859636
+low,ssh,grep -rn root /etc/,8,471.118076
+low,ssh,grep -rn root /etc/,9,432.956932
+low,ssh,grep -rn root /etc/,10,421.485541
+low,ssh,cat /proc/meminfo,1,426.610602
+low,ssh,cat /proc/meminfo,2,418.339916
+low,ssh,cat /proc/meminfo,3,483.761396
+low,ssh,cat /proc/meminfo,4,433.295150
+low,ssh,cat /proc/meminfo,5,467.095899
+low,ssh,cat /proc/meminfo,6,470.561836
+low,ssh,cat /proc/meminfo,7,445.987327
+low,ssh,cat /proc/meminfo,8,459.075751
+low,ssh,cat /proc/meminfo,9,443.007334
+low,ssh,cat /proc/meminfo,10,475.104522
+low,ssh,find /usr -maxdepth 3,1,614.993371
+low,ssh,find /usr -maxdepth 3,2,442.072115
+low,ssh,find /usr -maxdepth 3,3,428.735518
+low,ssh,find /usr -maxdepth 3,4,413.560586
+low,ssh,find /usr -maxdepth 3,5,436.641176
+low,ssh,find /usr -maxdepth 3,6,433.665396
+low,ssh,find /usr -maxdepth 3,7,427.937461
+low,ssh,find /usr -maxdepth 3,8,465.353323
+low,ssh,find /usr -maxdepth 3,9,431.117716
+low,ssh,find /usr -maxdepth 3,10,430.264074
+low,ssh3,ls,1,131.154918
+low,ssh3,ls,2,140.117187
+low,ssh3,ls,3,145.475592
+low,ssh3,ls,4,116.886441
+low,ssh3,ls,5,114.355276
+low,ssh3,ls,6,145.411977
+low,ssh3,ls,7,127.138332
+low,ssh3,ls,8,145.176950
+low,ssh3,ls,9,142.354552
+low,ssh3,ls,10,113.711631
+low,ssh3,df -h,1,116.221110
+low,ssh3,df -h,2,147.131391
+low,ssh3,df -h,3,142.967924
+low,ssh3,df -h,4,118.057283
+low,ssh3,df -h,5,112.359607
+low,ssh3,df -h,6,140.516703
+low,ssh3,df -h,7,116.097523
+low,ssh3,df -h,8,113.852518
+low,ssh3,df -h,9,131.458232
+low,ssh3,df -h,10,133.071776
+low,ssh3,ps aux,1,116.105629
+low,ssh3,ps aux,2,122.399197
+low,ssh3,ps aux,3,139.195071
+low,ssh3,ps aux,4,140.557784
+low,ssh3,ps aux,5,115.004981
+low,ssh3,ps aux,6,141.659740
+low,ssh3,ps aux,7,124.934751
+low,ssh3,ps aux,8,136.849118
+low,ssh3,ps aux,9,114.422903
+low,ssh3,ps aux,10,140.315218
+low,ssh3,grep -rn root /etc/,1,127.174526
+low,ssh3,grep -rn root /etc/,2,114.547965
+low,ssh3,grep -rn root /etc/,3,116.104203
+low,ssh3,grep -rn root /etc/,4,116.881769
+low,ssh3,grep -rn root /etc/,5,114.253032
+low,ssh3,grep -rn root /etc/,6,112.707462
+low,ssh3,grep -rn root /etc/,7,116.775285
+low,ssh3,grep -rn root /etc/,8,123.638959
+low,ssh3,grep -rn root /etc/,9,118.359918
+low,ssh3,grep -rn root /etc/,10,116.910628
+low,ssh3,cat /proc/meminfo,1,116.319777
+low,ssh3,cat /proc/meminfo,2,111.498732
+low,ssh3,cat /proc/meminfo,3,119.726631
+low,ssh3,cat /proc/meminfo,4,139.345314
+low,ssh3,cat /proc/meminfo,5,114.424739
+low,ssh3,cat /proc/meminfo,6,139.638358
+low,ssh3,cat /proc/meminfo,7,112.845445
+low,ssh3,cat /proc/meminfo,8,119.910719
+low,ssh3,cat /proc/meminfo,9,112.721931
+low,ssh3,cat /proc/meminfo,10,136.846573
+low,ssh3,find /usr -maxdepth 3,1,129.458167
+low,ssh3,find /usr -maxdepth 3,2,121.138661
+low,ssh3,find /usr -maxdepth 3,3,120.930873
+low,ssh3,find /usr -maxdepth 3,4,115.681558
+low,ssh3,find /usr -maxdepth 3,5,115.573519
+low,ssh3,find /usr -maxdepth 3,6,114.821037
+low,ssh3,find /usr -maxdepth 3,7,116.269037
+low,ssh3,find /usr -maxdepth 3,8,116.415023
+low,ssh3,find /usr -maxdepth 3,9,127.137007
+low,ssh3,find /usr -maxdepth 3,10,124.784041
+low,mosh,ls,1,390.263822
+low,mosh,ls,2,510.559852
+low,mosh,ls,3,612.744423
+low,mosh,ls,4,509.526192
+low,mosh,ls,5,556.666243
+low,mosh,ls,6,585.010720
+low,mosh,ls,7,652.730188
+low,mosh,ls,8,612.406705
+low,mosh,ls,9,599.565261
+low,mosh,ls,10,545.924704
+low,mosh,df -h,1,455.690886
+low,mosh,df -h,2,374.876490
+low,mosh,df -h,3,363.192078
+low,mosh,df -h,4,397.451809
+low,mosh,df -h,5,390.773326
+low,mosh,df -h,6,344.766272
+low,mosh,df -h,7,377.759022
+low,mosh,df -h,8,404.599274
+low,mosh,df -h,9,347.654175
+low,mosh,df -h,10,380.707196
+low,mosh,ps aux,1,609.214738
+low,mosh,ps aux,2,568.733483
+low,mosh,ps aux,3,613.405616
+low,mosh,ps aux,4,628.011389
+low,mosh,ps aux,5,630.846083
+low,mosh,ps aux,6,552.903472
+low,mosh,ps aux,7,527.918572
+low,mosh,ps aux,8,614.156413
+low,mosh,ps aux,9,541.790677
+low,mosh,ps aux,10,567.900772
+low,mosh,grep -rn root /etc/,1,789.347951
+low,mosh,grep -rn root /etc/,2,631.968464
+low,mosh,grep -rn root /etc/,3,549.811532
+low,mosh,grep -rn root /etc/,4,581.748595
+low,mosh,grep -rn root /etc/,5,594.777359
+low,mosh,grep -rn root /etc/,6,554.973494
+low,mosh,grep -rn root /etc/,7,610.582983
+low,mosh,grep -rn root /etc/,8,638.579231
+low,mosh,grep -rn root /etc/,9,622.331670
+low,mosh,grep -rn root /etc/,10,611.568837
+low,mosh,cat /proc/meminfo,1,765.529840
+low,mosh,cat /proc/meminfo,2,625.790411
+low,mosh,cat /proc/meminfo,3,583.036531
+low,mosh,cat /proc/meminfo,4,580.566524
+low,mosh,cat /proc/meminfo,5,580.057350
+low,mosh,cat /proc/meminfo,6,607.978922
+low,mosh,cat /proc/meminfo,7,545.506056
+low,mosh,cat /proc/meminfo,8,556.868021
+low,mosh,cat /proc/meminfo,9,644.682000
+low,mosh,cat /proc/meminfo,10,551.465399
+low,mosh,find /usr -maxdepth 3,1,611.008819
+low,mosh,find /usr -maxdepth 3,2,614.023258
+low,mosh,find /usr -maxdepth 3,3,543.903050
+low,mosh,find /usr -maxdepth 3,4,616.243995
+low,mosh,find /usr -maxdepth 3,5,613.535774
+low,mosh,find /usr -maxdepth 3,6,559.228974
+low,mosh,find /usr -maxdepth 3,7,557.465903
+low,mosh,find /usr -maxdepth 3,8,578.299177
+low,mosh,find /usr -maxdepth 3,9,567.500198
+low,mosh,find /usr -maxdepth 3,10,597.014955

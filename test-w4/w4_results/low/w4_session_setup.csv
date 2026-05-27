@@ -1,46 +1,91 @@
 scenario,protocol,command,trial_id,session_setup_ms
-low,ssh,cat /tmp/w4_paths_small.txt,1,429.369565
-low,ssh,cat /tmp/w4_paths_small.txt,2,437.955356
-low,ssh,cat /tmp/w4_paths_small.txt,3,434.063974
-low,ssh,cat /tmp/w4_paths_small.txt,4,442.450573
-low,ssh,cat /tmp/w4_paths_small.txt,5,424.814464
-low,ssh,cat /tmp/w4_paths_medium.txt,1,428.537743
-low,ssh,cat /tmp/w4_paths_medium.txt,2,430.620121
-low,ssh,cat /tmp/w4_paths_medium.txt,3,429.334196
-low,ssh,cat /tmp/w4_paths_medium.txt,4,462.336812
-low,ssh,cat /tmp/w4_paths_medium.txt,5,456.091148
-low,ssh,cat /tmp/w4_paths_large.txt,1,428.976945
-low,ssh,cat /tmp/w4_paths_large.txt,2,446.354539
-low,ssh,cat /tmp/w4_paths_large.txt,3,435.715734
-low,ssh,cat /tmp/w4_paths_large.txt,4,424.524565
-low,ssh,cat /tmp/w4_paths_large.txt,5,456.392593
-low,ssh3,cat /tmp/w4_paths_small.txt,1,119.017489
-low,ssh3,cat /tmp/w4_paths_small.txt,2,114.602464
-low,ssh3,cat /tmp/w4_paths_small.txt,3,120.543618
-low,ssh3,cat /tmp/w4_paths_small.txt,4,119.445093
-low,ssh3,cat /tmp/w4_paths_small.txt,5,120.086690
-low,ssh3,cat /tmp/w4_paths_medium.txt,1,115.800859
-low,ssh3,cat /tmp/w4_paths_medium.txt,2,124.468155
-low,ssh3,cat /tmp/w4_paths_medium.txt,3,115.973770
-low,ssh3,cat /tmp/w4_paths_medium.txt,4,113.471915
-low,ssh3,cat /tmp/w4_paths_medium.txt,5,117.649649
-low,ssh3,cat /tmp/w4_paths_large.txt,1,121.591418
-low,ssh3,cat /tmp/w4_paths_large.txt,2,121.255870
-low,ssh3,cat /tmp/w4_paths_large.txt,3,113.606269
-low,ssh3,cat /tmp/w4_paths_large.txt,4,129.675514
-low,ssh3,cat /tmp/w4_paths_large.txt,5,115.762784
-low,mosh,cat /tmp/w4_paths_small.txt,1,680.713849
-low,mosh,cat /tmp/w4_paths_small.txt,2,615.804955
-low,mosh,cat /tmp/w4_paths_small.txt,3,532.884824
-low,mosh,cat /tmp/w4_paths_small.txt,4,554.843383
-low,mosh,cat /tmp/w4_paths_small.txt,5,598.606591
-low,mosh,cat /tmp/w4_paths_medium.txt,1,605.605439
-low,mosh,cat /tmp/w4_paths_medium.txt,2,604.140868
-low,mosh,cat /tmp/w4_paths_medium.txt,3,552.748982
-low,mosh,cat /tmp/w4_paths_medium.txt,4,595.816475
-low,mosh,cat /tmp/w4_paths_medium.txt,5,593.254232
-low,mosh,cat /tmp/w4_paths_large.txt,1,563.089453
-low,mosh,cat /tmp/w4_paths_large.txt,2,656.150507
-low,mosh,cat /tmp/w4_paths_large.txt,3,527.510702
-low,mosh,cat /tmp/w4_paths_large.txt,4,541.390084
-low,mosh,cat /tmp/w4_paths_large.txt,5,542.974198
+low,ssh,find /etc /var/log -type f 2>/dev/null,1,242.906726
+low,ssh,find /etc /var/log -type f 2>/dev/null,2,231.200573
+low,ssh,find /etc /var/log -type f 2>/dev/null,3,247.504099
+low,ssh,find /etc /var/log -type f 2>/dev/null,4,253.398190
+low,ssh,find /etc /var/log -type f 2>/dev/null,5,234.268740
+low,ssh,find /etc /var/log -type f 2>/dev/null,6,229.827494
+low,ssh,find /etc /var/log -type f 2>/dev/null,7,233.880704
+low,ssh,find /etc /var/log -type f 2>/dev/null,8,240.516233
+low,ssh,find /etc /var/log -type f 2>/dev/null,9,237.099208
+low,ssh,find /etc /var/log -type f 2>/dev/null,10,273.099859
+low,ssh,find /usr/share -type f 2>/dev/null,1,233.814601
+low,ssh,find /usr/share -type f 2>/dev/null,2,251.082073
+low,ssh,find /usr/share -type f 2>/dev/null,3,272.517401
+low,ssh,find /usr/share -type f 2>/dev/null,4,256.970317
+low,ssh,find /usr/share -type f 2>/dev/null,5,245.367598
+low,ssh,find /usr/share -type f 2>/dev/null,6,266.107761
+low,ssh,find /usr/share -type f 2>/dev/null,7,247.067509
+low,ssh,find /usr/share -type f 2>/dev/null,8,244.720232
+low,ssh,find /usr/share -type f 2>/dev/null,9,232.407491
+low,ssh,find /usr/share -type f 2>/dev/null,10,260.827641
+low,ssh,find /usr -type f 2>/dev/null,1,285.902978
+low,ssh,find /usr -type f 2>/dev/null,2,239.183334
+low,ssh,find /usr -type f 2>/dev/null,3,253.764410
+low,ssh,find /usr -type f 2>/dev/null,4,239.253424
+low,ssh,find /usr -type f 2>/dev/null,5,242.147389
+low,ssh,find /usr -type f 2>/dev/null,6,232.879496
+low,ssh,find /usr -type f 2>/dev/null,7,242.289428
+low,ssh,find /usr -type f 2>/dev/null,8,237.669559
+low,ssh,find /usr -type f 2>/dev/null,9,267.124842
+low,ssh,find /usr -type f 2>/dev/null,10,255.181446
+low,ssh3,find /etc /var/log -type f 2>/dev/null,1,62.117301
+low,ssh3,find /etc /var/log -type f 2>/dev/null,2,57.638380
+low,ssh3,find /etc /var/log -type f 2>/dev/null,3,75.737555
+low,ssh3,find /etc /var/log -type f 2>/dev/null,4,58.493133
+low,ssh3,find /etc /var/log -type f 2>/dev/null,5,57.976313
+low,ssh3,find /etc /var/log -type f 2>/dev/null,6,62.119757
+low,ssh3,find /etc /var/log -type f 2>/dev/null,7,64.168209
+low,ssh3,find /etc /var/log -type f 2>/dev/null,8,63.881879
+low,ssh3,find /etc /var/log -type f 2>/dev/null,9,57.611115
+low,ssh3,find /etc /var/log -type f 2>/dev/null,10,72.964657
+low,ssh3,find /usr/share -type f 2>/dev/null,1,72.646415
+low,ssh3,find /usr/share -type f 2>/dev/null,2,65.024024
+low,ssh3,find /usr/share -type f 2>/dev/null,3,63.774879
+low,ssh3,find /usr/share -type f 2>/dev/null,4,59.632669
+low,ssh3,find /usr/share -type f 2>/dev/null,5,68.664152
+low,ssh3,find /usr/share -type f 2>/dev/null,6,61.988055
+low,ssh3,find /usr/share -type f 2>/dev/null,7,68.922332
+low,ssh3,find /usr/share -type f 2>/dev/null,8,67.930506
+low,ssh3,find /usr/share -type f 2>/dev/null,9,74.178682
+low,ssh3,find /usr/share -type f 2>/dev/null,10,66.502775
+low,ssh3,find /usr -type f 2>/dev/null,1,61.344416
+low,ssh3,find /usr -type f 2>/dev/null,2,63.031900
+low,ssh3,find /usr -type f 2>/dev/null,3,62.163074
+low,ssh3,find /usr -type f 2>/dev/null,4,59.908125
+low,ssh3,find /usr -type f 2>/dev/null,5,61.556056
+low,ssh3,find /usr -type f 2>/dev/null,6,65.836672
+low,ssh3,find /usr -type f 2>/dev/null,7,61.893245
+low,ssh3,find /usr -type f 2>/dev/null,8,59.647816
+low,ssh3,find /usr -type f 2>/dev/null,9,67.003997
+low,ssh3,find /usr -type f 2>/dev/null,10,64.236785
+low,mosh,find /etc /var/log -type f 2>/dev/null,1,344.219824
+low,mosh,find /etc /var/log -type f 2>/dev/null,2,351.939168
+low,mosh,find /etc /var/log -type f 2>/dev/null,3,380.581053
+low,mosh,find /etc /var/log -type f 2>/dev/null,4,337.837524
+low,mosh,find /etc /var/log -type f 2>/dev/null,5,324.552896
+low,mosh,find /etc /var/log -type f 2>/dev/null,6,344.699290
+low,mosh,find /etc /var/log -type f 2>/dev/null,7,384.605871
+low,mosh,find /etc /var/log -type f 2>/dev/null,8,398.232877
+low,mosh,find /etc /var/log -type f 2>/dev/null,9,336.755897
+low,mosh,find /etc /var/log -type f 2>/dev/null,10,370.988822
+low,mosh,find /usr/share -type f 2>/dev/null,1,341.285451
+low,mosh,find /usr/share -type f 2>/dev/null,2,420.498314
+low,mosh,find /usr/share -type f 2>/dev/null,3,366.157722
+low,mosh,find /usr/share -type f 2>/dev/null,4,342.240080
+low,mosh,find /usr/share -type f 2>/dev/null,5,373.402542
+low,mosh,find /usr/share -type f 2>/dev/null,6,327.245748
+low,mosh,find /usr/share -type f 2>/dev/null,7,337.796279
+low,mosh,find /usr/share -type f 2>/dev/null,8,400.850541
+low,mosh,find /usr/share -type f 2>/dev/null,9,372.322620
+low,mosh,find /usr/share -type f 2>/dev/null,10,332.929783
+low,mosh,find /usr -type f 2>/dev/null,1,352.722962
+low,mosh,find /usr -type f 2>/dev/null,2,360.071745
+low,mosh,find /usr -type f 2>/dev/null,3,327.801695
+low,mosh,find /usr -type f 2>/dev/null,4,373.783520
+low,mosh,find /usr -type f 2>/dev/null,5,367.471824
+low,mosh,find /usr -type f 2>/dev/null,6,344.717081
+low,mosh,find /usr -type f 2>/dev/null,7,337.949825
+low,mosh,find /usr -type f 2>/dev/null,8,347.603626
+low,mosh,find /usr -type f 2>/dev/null,9,368.342639
+low,mosh,find /usr -type f 2>/dev/null,10,362.026629

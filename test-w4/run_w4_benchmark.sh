@@ -1,142 +1,100 @@
 #!/usr/bin/env bash
-# run_w4_benchmark.sh — One-scenario W4 (large output delivery) run.
-#
-# Usage:
-#   ./run_w4_benchmark.sh <scenario>
-#
-# <scenario> is a label (low / medium / high) used for output scoping and
-# recorded into w4_line_log.csv / w4_session_setup.csv / w4_meta.json.
-#
-# Does NOT touch tc netem — apply the netem profile on both endpoints first
-# (or let run_all_scenarios.sh orchestrate).
 set -euo pipefail
 
-SCENARIO="${1:?usage: $0 <scenario-label, e.g. low|medium|high>}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
 
-# HOST="100.66.79.93"
-HOST="10.42.0.206"
-USER_NAME="pi"
-# SOURCE_IP="100.70.166.91"
-SOURCE_IP="10.42.0.1"
-IDENTITY_FILE="$HOME/.ssh/id_ed25519"
+# HOST="${HOST:-192.168.8.102}"
+HOST="${HOST:-100.106.17.78}"
+USER_NAME="${USER_NAME:-trungnt}"
+SOURCE_IP="${SOURCE_IP:-100.70.166.91}"
+# SOURCE_IP="${SOURCE_IP:-192.168.8.100}"
+IDENTITY_FILE="${IDENTITY_FILE:-$HOME/.ssh/id_ed25519}"
 
-PROTOCOLS="ssh ssh3 mosh"
-WORKLOADS="large_output"
+PROTOCOLS="${PROTOCOLS:-ssh ssh3 mosh}"
 
-# Pre-generated fixture files containing real filesystem paths from `find /`.
-# Generate once on the server with: ssh pi@HOST 'bash -s' < setup_w4_fixtures.sh
-# Content: real paths (~4:1 gzip ratio vs ~1000:1 for base64-of-zeros).
-# server_exec_time ≈ <5ms (cat from page cache after warmup iterations).
 COMMANDS=(
-  "cat /tmp/w4_paths_small.txt"    # ~512 KiB of real filesystem paths
-  "cat /tmp/w4_paths_medium.txt"   # ~2.5 MiB
-  "cat /tmp/w4_paths_large.txt"    # ~10 MiB
+  "find /etc /var/log -type f 2>/dev/null"
+  'cid=$(docker ps -q | head -n 1); [ -n "$cid" ] && docker logs "$cid" 2>/dev/null || true'
+  "git log --oneline -500 2>/dev/null"
 )
 
-# For high-loss / bandwidth-constrained links, each 11 MiB sample over 10 Mbps
-# takes ~9s. Keep ITERATIONS modest so the whole matrix (3 proto x 3 cmd x
-# TRIALS x ITERATIONS) finishes in a reasonable time. Tune as needed.
-ITERATIONS=10
-WARMUP=2
-TRIALS=5
-TIMEOUT=300
-COMMAND_IDLE_TIMEOUT=30
-MAXREAD=65535
-SEARCH_WINDOW_SIZE=8192
-SEED=42
+ITERATIONS="${ITERATIONS:-50}"
+TRIALS="${TRIALS:-10}"
+TIMEOUT="${TIMEOUT:-20}"
+SAMPLE_TIMEOUT="${SAMPLE_TIMEOUT:-60}"
+COMMAND_IDLE_TIMEOUT="${COMMAND_IDLE_TIMEOUT:-15}"
+MAX_OUTPUT_LINES="${MAX_OUTPUT_LINES:-1000}"
+MAXREAD="${MAXREAD:-65535}"
+SEED="${SEED:-42}"
 
-OUTPUT_DIR="w4_results/${SCENARIO}"
-PROMPT="W4PROMPT# "
+OUTPUT_DIR="${OUTPUT_DIR:-w4_results}"
+PROMPT="${PROMPT:-__W4_PROMPT__# }"
 
-SSH3_PATH=":4433/ssh3-term"
-SSH3_INSECURE=true
+SSH3_PATH="${SSH3_PATH:-/ssh3-term}"
+SSH3_INSECURE="${SSH3_INSECURE:-true}"
+BATCH_MODE="${BATCH_MODE:-false}"
+STRICT_HOST_KEY="${STRICT_HOST_KEY:-false}"
+MOSH_PREDICT="${MOSH_PREDICT:-always}"
+SHUFFLE_PAIRS="${SHUFFLE_PAIRS:-false}"
+REOPEN_ON_FAILURE="${REOPEN_ON_FAILURE:-true}"
 
-BATCH_MODE=false
-STRICT_HOST_KEY=false
-MOSH_PREDICT="never"
+PYTHON_BIN="${PYTHON_BIN:-python3}"
+if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
+  PYTHON_BIN="python"
+fi
 
-SHUFFLE_PAIRS=true
-REOPEN_ON_FAILURE=true
-
-mkdir -p "$OUTPUT_DIR"
-
-BASELINE_FILE="$OUTPUT_DIR/baseline.txt"
-echo "=== W4 Benchmark | scenario=$SCENARIO ==="
-echo "=== Collecting baseline snapshot -> $BASELINE_FILE"
-
-{
-  echo "# Baseline snapshot for scenario=$SCENARIO"
-  echo "# Captured at: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  echo "# Client -> $USER_NAME@$HOST (source $SOURCE_IP)"
-  echo
-  echo "## uname -a (client)"
-  uname -a || true
-  echo
-  echo "## ssh version"
-  ssh -V 2>&1 || true
-  echo
-  echo "## ssh3 version"
-  (ssh3 --version 2>&1 || ssh3 -version 2>&1 || echo "ssh3 not found") | head -5
-  echo
-  echo "## mosh version"
-  mosh --version 2>&1 | head -3 || true
-  echo
-  echo "## ping RTT (20 x 200ms)"
-  ping -c 20 -i 0.2 -W 2 "$HOST" | tail -4 || true
-  echo
-  echo "## tc qdisc (server side, via ssh)"
-  ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i "$IDENTITY_FILE" \
-      "$USER_NAME@$HOST" \
-      "PATH=/usr/sbin:/sbin:/usr/bin:/bin:\$PATH tc qdisc show" 2>&1 \
-      || echo "(tc show on server failed)"
-  echo
-  echo "## uptime (client)"
-  uptime || true
-} >"$BASELINE_FILE" 2>&1
-
-echo "=== Baseline done. Head of $BASELINE_FILE:"
-head -20 "$BASELINE_FILE" || true
-echo "..."
-echo
+if [[ ! -f w4_large_output_benchmark.py ]]; then
+  echo "ERROR: w4_large_output_benchmark.py not found in $SCRIPT_DIR" >&2
+  exit 1
+fi
 
 CMD=(
-  python w4_large_output_benchmark.py
+  "$PYTHON_BIN" w4_large_output_benchmark.py
   --host "$HOST"
   --user "$USER_NAME"
   --source-ip "$SOURCE_IP"
   --identity-file "$IDENTITY_FILE"
   --protocols $PROTOCOLS
-  --workloads $WORKLOADS
   --commands "${COMMANDS[@]}"
   --iterations "$ITERATIONS"
-  --warmup "$WARMUP"
   --trials "$TRIALS"
   --timeout "$TIMEOUT"
+  --sample-timeout "$SAMPLE_TIMEOUT"
   --command-idle-timeout "$COMMAND_IDLE_TIMEOUT"
+  --max-output-lines "$MAX_OUTPUT_LINES"
   --maxread "$MAXREAD"
-  --search-window-size "$SEARCH_WINDOW_SIZE"
   --seed "$SEED"
   --output-dir "$OUTPUT_DIR"
-  --scenario "$SCENARIO"
   --prompt "$PROMPT"
   --ssh3-path "$SSH3_PATH"
   --mosh-predict "$MOSH_PREDICT"
 )
 
-$SSH3_INSECURE     && CMD+=(--ssh3-insecure)
-$BATCH_MODE        && CMD+=(--batch-mode)
-$STRICT_HOST_KEY   && CMD+=(--strict-host-key-checking)
-$SHUFFLE_PAIRS     && CMD+=(--shuffle-pairs)
-$REOPEN_ON_FAILURE && CMD+=(--reopen-on-failure)
+[[ "$SSH3_INSECURE" == "true" ]] && CMD+=(--ssh3-insecure)
+[[ "$BATCH_MODE" == "true" ]] && CMD+=(--batch-mode)
+[[ "$STRICT_HOST_KEY" == "true" ]] && CMD+=(--strict-host-key-checking)
+[[ "$SHUFFLE_PAIRS" == "true" ]] && CMD+=(--shuffle-pairs)
+[[ "$REOPEN_ON_FAILURE" == "true" ]] && CMD+=(--reopen-on-failure)
 
-echo "=== W4 Large Output Benchmark | scenario=$SCENARIO ==="
+echo "=== W4 Real Large Output Benchmark ==="
+echo "Host      : $USER_NAME@$HOST"
+echo "Protocols : $PROTOCOLS"
+echo "Max lines : $MAX_OUTPUT_LINES per command sample"
+echo "Commands  :"
+for command in "${COMMANDS[@]}"; do
+  printf '  - %s\n' "$command"
+done
 echo "Command:"
-printf '  %s \\\n' "${CMD[@]}"
-echo ""
+printf '  %q' "${CMD[@]}"
+echo
+echo
 
 "${CMD[@]}"
 
-python plot_trend.py \
-  --output-dir "$OUTPUT_DIR" \
-  --prefix "w4" \
-  --group-fields protocol workload command
+if [[ -f plot_trend.py ]]; then
+  "$PYTHON_BIN" plot_trend.py \
+    --output-dir "$OUTPUT_DIR" \
+    --prefix "w4" \
+    --group-fields protocol workload
+fi

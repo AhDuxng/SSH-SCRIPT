@@ -1,0 +1,181 @@
+scenario,protocol,command,trial_id,session_setup_ms
+medium,ssh,ls,1,1575.313777
+medium,ssh,ls,2,1345.441685
+medium,ssh,ls,3,1647.542613
+medium,ssh,ls,4,1434.895910
+medium,ssh,ls,5,1660.719429
+medium,ssh,ls,6,1691.609563
+medium,ssh,ls,7,1352.264100
+medium,ssh,ls,8,1343.601716
+medium,ssh,ls,9,1944.083654
+medium,ssh,ls,10,1341.962584
+medium,ssh,df -h,1,1573.727960
+medium,ssh,df -h,2,1362.372258
+medium,ssh,df -h,3,1344.403348
+medium,ssh,df -h,4,1325.994453
+medium,ssh,df -h,5,1430.186372
+medium,ssh,df -h,6,1360.710950
+medium,ssh,df -h,7,1343.663819
+medium,ssh,df -h,8,1385.781291
+medium,ssh,df -h,9,1579.545736
+medium,ssh,df -h,10,1322.186273
+medium,ssh,ps aux,1,1591.367773
+medium,ssh,ps aux,2,1342.891349
+medium,ssh,ps aux,3,1333.013003
+medium,ssh,ps aux,4,1656.008590
+medium,ssh,ps aux,5,1378.286374
+medium,ssh,ps aux,6,1347.704400
+medium,ssh,ps aux,7,1612.850488
+medium,ssh,ps aux,8,1639.346422
+medium,ssh,ps aux,9,2362.147584
+medium,ssh,ps aux,10,1335.770736
+medium,ssh,grep -n root /etc/passwd,1,1643.479752
+medium,ssh,grep -n root /etc/passwd,2,1636.513484
+medium,ssh,grep -n root /etc/passwd,3,1333.578867
+medium,ssh,grep -n root /etc/passwd,4,1372.070369
+medium,ssh,grep -n root /etc/passwd,5,1361.094766
+medium,ssh,grep -n root /etc/passwd,6,1514.090810
+medium,ssh,grep -n root /etc/passwd,7,1361.070551
+medium,ssh,grep -n root /etc/passwd,8,1349.267878
+medium,ssh,grep -n root /etc/passwd,9,1355.294809
+medium,ssh,grep -n root /etc/passwd,10,1686.873306
+medium,ssh,cat /proc/meminfo,1,1477.521462
+medium,ssh,cat /proc/meminfo,2,1387.738486
+medium,ssh,cat /proc/meminfo,3,1449.534639
+medium,ssh,cat /proc/meminfo,4,1635.528503
+medium,ssh,cat /proc/meminfo,5,1672.224212
+medium,ssh,cat /proc/meminfo,6,1609.279268
+medium,ssh,cat /proc/meminfo,7,1352.927965
+medium,ssh,cat /proc/meminfo,8,1357.949517
+medium,ssh,cat /proc/meminfo,9,1656.481070
+medium,ssh,cat /proc/meminfo,10,1356.166802
+medium,ssh,find /usr -maxdepth 3,1,1551.808257
+medium,ssh,find /usr -maxdepth 3,2,1350.183651
+medium,ssh,find /usr -maxdepth 3,3,1349.680031
+medium,ssh,find /usr -maxdepth 3,4,1664.513182
+medium,ssh,find /usr -maxdepth 3,5,1649.269749
+medium,ssh,find /usr -maxdepth 3,6,1351.935175
+medium,ssh,find /usr -maxdepth 3,7,1389.259887
+medium,ssh,find /usr -maxdepth 3,8,1361.222128
+medium,ssh,find /usr -maxdepth 3,9,1367.143770
+medium,ssh,find /usr -maxdepth 3,10,2393.269501
+medium,ssh3,ls,1,582.291347
+medium,ssh3,ls,2,362.246815
+medium,ssh3,ls,3,347.559056
+medium,ssh3,ls,4,369.476509
+medium,ssh3,ls,5,549.409485
+medium,ssh3,ls,6,341.297011
+medium,ssh3,ls,7,341.604851
+medium,ssh3,ls,8,545.186048
+medium,ssh3,ls,9,372.630505
+medium,ssh3,ls,10,365.529179
+medium,ssh3,df -h,1,389.108041
+medium,ssh3,df -h,2,354.676002
+medium,ssh3,df -h,3,364.262533
+medium,ssh3,df -h,4,367.268692
+medium,ssh3,df -h,5,367.629258
+medium,ssh3,df -h,6,367.566433
+medium,ssh3,df -h,7,356.370054
+medium,ssh3,df -h,8,376.604036
+medium,ssh3,df -h,9,386.628273
+medium,ssh3,df -h,10,368.984002
+medium,ssh3,ps aux,1,353.355553
+medium,ssh3,ps aux,2,350.737065
+medium,ssh3,ps aux,3,349.529049
+medium,ssh3,ps aux,4,370.699743
+medium,ssh3,ps aux,5,379.838545
+medium,ssh3,ps aux,6,393.238177
+medium,ssh3,ps aux,7,339.955339
+medium,ssh3,ps aux,8,628.839372
+medium,ssh3,ps aux,9,359.619466
+medium,ssh3,ps aux,10,364.255324
+medium,ssh3,grep -n root /etc/passwd,1,402.378438
+medium,ssh3,grep -n root /etc/passwd,2,346.067823
+medium,ssh3,grep -n root /etc/passwd,3,596.357295
+medium,ssh3,grep -n root /etc/passwd,4,367.937847
+medium,ssh3,grep -n root /etc/passwd,5,353.743046
+medium,ssh3,grep -n root /etc/passwd,6,347.688714
+medium,ssh3,grep -n root /etc/passwd,7,385.982409
+medium,ssh3,grep -n root /etc/passwd,8,364.029993
+medium,ssh3,grep -n root /etc/passwd,9,353.380651
+medium,ssh3,grep -n root /etc/passwd,10,362.082026
+medium,ssh3,cat /proc/meminfo,1,342.994568
+medium,ssh3,cat /proc/meminfo,2,356.771499
+medium,ssh3,cat /proc/meminfo,3,348.591587
+medium,ssh3,cat /proc/meminfo,4,371.920056
+medium,ssh3,cat /proc/meminfo,5,367.818458
+medium,ssh3,cat /proc/meminfo,6,323.106298
+medium,ssh3,cat /proc/meminfo,7,587.283068
+medium,ssh3,cat /proc/meminfo,8,359.616191
+medium,ssh3,cat /proc/meminfo,9,361.680601
+medium,ssh3,cat /proc/meminfo,10,348.583273
+medium,ssh3,find /usr -maxdepth 3,1,352.179821
+medium,ssh3,find /usr -maxdepth 3,2,348.645861
+medium,ssh3,find /usr -maxdepth 3,3,363.098954
+medium,ssh3,find /usr -maxdepth 3,4,680.266312
+medium,ssh3,find /usr -maxdepth 3,5,349.133758
+medium,ssh3,find /usr -maxdepth 3,6,354.291487
+medium,ssh3,find /usr -maxdepth 3,7,353.748793
+medium,ssh3,find /usr -maxdepth 3,8,366.748850
+medium,ssh3,find /usr -maxdepth 3,9,344.681255
+medium,ssh3,find /usr -maxdepth 3,10,355.857110
+medium,mosh,ls,1,1565.872239
+medium,mosh,ls,2,1956.907811
+medium,mosh,ls,3,2654.623933
+medium,mosh,ls,4,1705.858715
+medium,mosh,ls,5,1743.333783
+medium,mosh,ls,6,1817.933820
+medium,mosh,ls,7,1684.270700
+medium,mosh,ls,8,1710.744022
+medium,mosh,ls,9,1544.835400
+medium,mosh,ls,10,1726.917016
+medium,mosh,df -h,1,1652.028759
+medium,mosh,df -h,2,1542.132928
+medium,mosh,df -h,3,1568.126681
+medium,mosh,df -h,4,2177.168363
+medium,mosh,df -h,5,2321.548514
+medium,mosh,df -h,6,1833.151959
+medium,mosh,df -h,7,1678.734353
+medium,mosh,df -h,8,1852.299905
+medium,mosh,df -h,9,1900.500227
+medium,mosh,df -h,10,2215.598739
+medium,mosh,ps aux,1,1611.164996
+medium,mosh,ps aux,2,2111.756016
+medium,mosh,ps aux,3,1563.301935
+medium,mosh,ps aux,4,1538.761442
+medium,mosh,ps aux,5,1878.785700
+medium,mosh,ps aux,6,1681.517983
+medium,mosh,ps aux,7,2048.423538
+medium,mosh,ps aux,8,2096.612880
+medium,mosh,ps aux,9,1551.145326
+medium,mosh,ps aux,10,1592.609210
+medium,mosh,grep -n root /etc/passwd,1,1881.567992
+medium,mosh,grep -n root /etc/passwd,2,1958.651937
+medium,mosh,grep -n root /etc/passwd,3,1790.395322
+medium,mosh,grep -n root /etc/passwd,4,2016.729262
+medium,mosh,grep -n root /etc/passwd,5,2167.528653
+medium,mosh,grep -n root /etc/passwd,6,5124.403232
+medium,mosh,grep -n root /etc/passwd,7,1681.012369
+medium,mosh,grep -n root /etc/passwd,8,1709.636395
+medium,mosh,grep -n root /etc/passwd,9,1520.257600
+medium,mosh,grep -n root /etc/passwd,10,1722.816179
+medium,mosh,cat /proc/meminfo,1,1740.567441
+medium,mosh,cat /proc/meminfo,2,1715.425632
+medium,mosh,cat /proc/meminfo,3,2183.456196
+medium,mosh,cat /proc/meminfo,4,1552.444433
+medium,mosh,cat /proc/meminfo,5,1961.546972
+medium,mosh,cat /proc/meminfo,6,1700.588213
+medium,mosh,cat /proc/meminfo,7,1873.323347
+medium,mosh,cat /proc/meminfo,8,1849.593213
+medium,mosh,cat /proc/meminfo,9,1964.687974
+medium,mosh,cat /proc/meminfo,10,1673.267281
+medium,mosh,find /usr -maxdepth 3,1,1664.304261
+medium,mosh,find /usr -maxdepth 3,2,1603.005949
+medium,mosh,find /usr -maxdepth 3,3,1863.869467
+medium,mosh,find /usr -maxdepth 3,4,1576.137353
+medium,mosh,find /usr -maxdepth 3,5,2063.264983
+medium,mosh,find /usr -maxdepth 3,6,1862.731366
+medium,mosh,find /usr -maxdepth 3,7,1586.715719
+medium,mosh,find /usr -maxdepth 3,8,1935.521885
+medium,mosh,find /usr -maxdepth 3,9,1704.704369
+medium,mosh,find /usr -maxdepth 3,10,1684.207954

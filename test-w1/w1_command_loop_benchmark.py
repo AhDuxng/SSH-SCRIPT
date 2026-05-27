@@ -54,6 +54,7 @@ class SampleRecord:
     command: str
     latency_ms: float
     received_pct: float = 100.0
+    residual_bytes: int = 0
     warmup: bool = False
 
 
@@ -115,7 +116,7 @@ class W1Benchmark:
         self.session_setups: Dict[str, Dict[str, List[float]]] = {
             p: {c: [] for c in args.commands} for p in args.protocols
         }
-        self.ref_line_counts: Dict[str, int] = self._collect_reference_outputs()
+        self.ref_output_bytes: Dict[str, int] = self._collect_reference_outputs()
 
     def _expect_prompt(self, child: pexpect.spawn) -> None:
         child.expect(self.prompt_re, timeout=self.args.timeout)
@@ -134,34 +135,39 @@ class W1Benchmark:
     def _collect_reference_outputs(self) -> Dict[str, int]:
         ref: Dict[str, List[int]] = {cmd: [] for cmd in self.args.commands}
         n_runs = 3
-        print("=== Collecting reference line counts (via SSH PTY session) ===", flush=True)
-        try:
-            for run_idx in range(1, n_runs + 1):
-                for cmd in self.args.commands:
-                    child, _ = self._open_session("ssh")
-                    self._drain_pending_output(child)
-                    child.sendline(cmd)
-                    self._expect_prompt(child)
-                    raw_output = child.before or ""
-                    lines = self._extract_output_lines(raw_output, cmd)
-                    ref[cmd].append(len(lines))
-                    self._close_session(child)
-                print(f"  run {run_idx}/{n_runs} done", flush=True)
-        except Exception as exc:
-            print(f"  Reference collection FAILED: {exc}", flush=True)
+        ssh_cmd = [
+            "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
+            "-o", "BatchMode=yes",
+        ]
+        if self.args.identity_file:
+            ssh_cmd += ["-i", self.args.identity_file]
+        ssh_cmd.append(self.target)
 
-        result = {}
+        print("=== Collecting reference output bytes (via SSH exec, no PTY) ===", flush=True)
+        for run_idx in range(1, n_runs + 1):
+            for cmd in self.args.commands:
+                try:
+                    import subprocess
+                    result = subprocess.run(
+                        ssh_cmd + [cmd],
+                        capture_output=True, timeout=60,
+                    )
+                    ref[cmd].append(len(result.stdout))
+                except Exception as exc:
+                    print(f"  ref[{cmd}] run {run_idx} FAILED: {exc}", flush=True)
+            print(f"  run {run_idx}/{n_runs} done", flush=True)
+
+        result_dict = {}
         for cmd in self.args.commands:
-            counts = ref[cmd]
-            if counts:
-                counts.sort()
-                median_count = counts[len(counts) // 2]
-                result[cmd] = median_count
+            sizes = ref[cmd]
+            if sizes:
+                sizes.sort()
+                result_dict[cmd] = sizes[len(sizes) // 2]
             else:
-                result[cmd] = 0
-            print(f"  ref[{cmd}] = {result[cmd]} lines (samples: {counts})", flush=True)
+                result_dict[cmd] = 0
+            print(f"  ref[{cmd}] = {result_dict[cmd]} bytes (samples: {sizes})", flush=True)
         print("", flush=True)
-        return result
+        return result_dict
 
     @staticmethod
     def _build_prompt_re(prompt_marker: str) -> re.Pattern[str]:
@@ -169,12 +175,25 @@ class W1Benchmark:
         return re.compile("".join(parts) + rf"(?:{_ANSI_SEQ}|\s)*")
 
     @staticmethod
-    def _drain_pending_output(child: pexpect.spawn, max_reads: int = 8) -> None:
+    def _drain_pending_output(child: pexpect.spawn, max_reads: int = 64) -> None:
         for _ in range(max_reads):
             try:
                 child.read_nonblocking(size=4096, timeout=0)
             except (pexpect.TIMEOUT, pexpect.EOF):
                 break
+
+    @staticmethod
+    def _measure_residual_bytes(child: pexpect.spawn, settle_ms: float = 100.0) -> int:
+        """Read bytes that arrive AFTER prompt was matched (output still in-flight)."""
+        total = 0
+        deadline = time.perf_counter() + settle_ms / 1000.0
+        while time.perf_counter() < deadline:
+            try:
+                chunk = child.read_nonblocking(size=4096, timeout=0.01)
+                total += len(chunk.encode("utf-8", errors="ignore")) if isinstance(chunk, str) else len(chunk)
+            except (pexpect.TIMEOUT, pexpect.EOF):
+                break
+        return total
 
     def _session_command(self, protocol: str) -> str:
         target = self.target
@@ -220,12 +239,17 @@ class W1Benchmark:
             codec_errors="ignore",
             timeout=self.args.timeout,
         )
+        # Set PTY window size so programs using ioctl(TIOCGWINSZ) (e.g. ps aux)
+        # report the same column width as the no-PTY reference measurement.
+        child.setwinsize(50, 200)
 
         start_ns = time.perf_counter_ns()
         child.expect(_INITIAL_PROMPT_RE, timeout=self.args.timeout)
         setup_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
 
         child.sendline(f"export PS1={shlex.quote(self.args.prompt)}")
+        self._expect_prompt(child)
+        child.sendline("export COLUMNS=200")
         self._expect_prompt(child)
         return child, setup_ms
 
@@ -246,7 +270,7 @@ class W1Benchmark:
         self,
         child: pexpect.spawn,
         command: str,
-    ) -> tuple[float, float]:
+    ) -> tuple[float, float, int]:
         self._drain_pending_output(child)
         start_ns = time.perf_counter_ns()
         child.sendline(command)
@@ -255,16 +279,18 @@ class W1Benchmark:
         latency_ms = (end_ns - start_ns) / 1_000_000.0
 
         raw_output = child.before or ""
-        received_lines = self._extract_output_lines(raw_output, command)
-        received_count = len(received_lines)
+        cleaned = self._strip_ansi(raw_output)
+        received_bytes = len(cleaned.encode("utf-8", errors="ignore"))
 
-        ref_count = self.ref_line_counts.get(command, 0)
-        if ref_count > 0:
-            received_pct = min(100.0, received_count / ref_count * 100.0)
+        ref_bytes = self.ref_output_bytes.get(command, 0)
+        if ref_bytes > 0:
+            received_pct = min(100.0, received_bytes / ref_bytes * 100.0)
         else:
             received_pct = 100.0
 
-        return latency_ms, received_pct
+        residual_bytes = self._measure_residual_bytes(child)
+
+        return latency_ms, received_pct, residual_bytes
 
     # def _run_trial(
     #     self,
@@ -354,19 +380,31 @@ class W1Benchmark:
                     while sample_id <= self.args.iterations:
                         is_warmup = sample_id <= self.warmup
 
-                        lat, received_pct = self._measure_command_completion(child, command)
+                        lat, received_pct, residual_bytes = self._measure_command_completion(child, command)
+
+                        if self.args.min_recv_pct > 0 and received_pct < self.args.min_recv_pct:
+                            tag = "WARM-SKIP" if is_warmup else "SKIP"
+                            print(
+                                f"[{protocol:>4}/{command:<18}] trial {trial_id:>2}/{self.args.trials}"
+                                f" {tag} {sample_id:>3}/{self.args.iterations}: {lat:.2f} ms | recv {received_pct:.1f}% < {self.args.min_recv_pct}% (residual {residual_bytes}B)",
+                                flush=True,
+                            )
+                            sample_id += 1
+                            continue
+
                         if not is_warmup:
                             self.results[protocol][command].append(lat)
                         self.records.append(
                             SampleRecord(
                                 protocol, workload, trial_id, sample_id,
-                                command_id, command, lat, received_pct=received_pct, warmup=is_warmup,
+                                command_id, command, lat, received_pct=received_pct,
+                                residual_bytes=residual_bytes, warmup=is_warmup,
                             )
                         )
                         tag = "WARM" if is_warmup else "meas"
                         print(
                             f"[{protocol:>4}/{command:<18}] trial {trial_id:>2}/{self.args.trials}"
-                            f" {tag} {sample_id:>3}/{self.args.iterations}: {lat:.2f} ms | recv {received_pct:.1f}%",
+                            f" {tag} {sample_id:>3}/{self.args.iterations}: {lat:.2f} ms | recv {received_pct:.1f}% | residual {residual_bytes}B",
                             flush=True,
                         )
                         sample_id += 1
@@ -558,6 +596,7 @@ class W1Benchmark:
                     "command",
                     "latency_ms",
                     "received_pct",
+                    "residual_bytes",
                     "status",
                     "warmup",
                     "error_type",
@@ -576,6 +615,7 @@ class W1Benchmark:
                         r.command,
                         f"{r.latency_ms:.6f}",
                         f"{r.received_pct:.2f}",
+                        r.residual_bytes,
                         "ok",
                         "1" if r.warmup else "0",
                         "",
@@ -592,6 +632,7 @@ class W1Benchmark:
                         r.sample_id,
                         r.command_id,
                         r.command,
+                        "",
                         "",
                         "",
                         "fail",
@@ -628,6 +669,7 @@ class W1Benchmark:
             "random_seed": self.args.seed,
             "shuffle_pairs": bool(self.args.shuffle_pairs),
             "reopen_on_failure": bool(self.args.reopen_on_failure),
+            "min_recv_pct": self.args.min_recv_pct,
             "mosh_predict": self.args.mosh_predict,
             "summary": [asdict(row) for row in self.summaries()],
             "session_setup": {
@@ -666,6 +708,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--mosh-predict", default="adaptive", choices=["adaptive", "always", "never"], help="Mosh prediction mode")
     p.add_argument("--shuffle-pairs", action="store_true", help="Shuffle protocol/workload execution order")
     p.add_argument("--reopen-on-failure", action="store_true", help="Reopen session after failure")
+    p.add_argument("--min-recv-pct", type=float, default=0.0, help="Discard samples with received_pct below this threshold (0=disabled). Use 95.0 to ensure output completeness.")
     p.add_argument("--log-pexpect", action="store_true", help="Deprecated compatibility flag (no-op): pexpect logs are disabled")
     return p
 

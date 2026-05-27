@@ -54,10 +54,10 @@ apply_client() {
 apply_server() {
   local profile="$1"
   log "server($USER_NAME@$HOST, iface=$SERVER_IFACE) -> $profile"
-  # -t for sudo password prompt if NOPASSWD is not configured.
+  # Requires NOPASSWD for tc on the Pi (see /etc/sudoers.d/tc-nopasswd).
   # Prepend sbin paths because `tc` (iproute2) is typically under /sbin
   # and non-login ssh shells often don't include it in PATH.
-  ssh -t -o StrictHostKeyChecking=no -i "$IDENTITY_FILE" \
+  ssh -o StrictHostKeyChecking=no -o BatchMode=yes -i "$IDENTITY_FILE" \
     "$USER_NAME@$HOST" \
     "PATH=/usr/sbin:/sbin:/usr/bin:/bin:\$PATH bash $REMOTE_SET_NETWORK $SERVER_IFACE $profile"
 }
@@ -102,7 +102,12 @@ done
 
 # Install final-cleanup trap ONLY after validation passes, so a bad invocation
 # does not poke tc on the remote host unnecessarily.
-trap final_cleanup EXIT
+
+# Prime local sudo and keep it alive for the entire run
+sudo -v
+while true; do sudo -v; sleep 240; done &
+SUDO_KEEPALIVE_PID=$!
+trap 'kill $SUDO_KEEPALIVE_PID 2>/dev/null; final_cleanup' EXIT
 
 log "=== W1 orchestrator ==="
 log "Scenarios: ${SCENARIOS[*]}"

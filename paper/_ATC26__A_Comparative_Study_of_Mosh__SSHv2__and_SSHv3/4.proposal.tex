@@ -1,125 +1,96 @@
-%\section{Design of MuLeS}
-\section{MuLeS's Design and Implementation}
+\section{Methodology}
 \label{sec:proposal}
 
-In the following, Section \ref{subsec:networkmodel} describes the network model. We then formulate our targeted problem in Section \ref{subsec:proposeddesign}, and provide our implementation in Section \ref{subsec:implement}.
-
-
-\subsection{Network model}
-\label{subsec:networkmodel}
-
-\begin{figure}[t]
-\centering
-\includegraphics[width=9cm]{figs/ccnc-networkmodel2.pdf}
-\caption{\textbf{The multi-client network model.} A server simultaneously transmits data to clients equipped with multiple network interfaces.} \label{fig:networkmodel}
-%\vspace{-0.6cm}
-\end{figure}
-
-% Le &Trung's text
-%\figureref{fig:networkmodel} depicts our network model, where MPQUIC mobile clients connect to an MPQUIC server through two network interfaces (e.g., Wi-Fi and LTE/5G), each forms a path with certain level of dynamicity. 
-%Kien's text 2023 Sep. 3
-\figureref{fig:networkmodel} depicts our network model, where several MPQUIC clients connect to an MPQUIC server. A client has two network interfaces (e.g., Wi-Fi and LTE/5G), each forming a path with a certain level of dynamicity. We consider a download scenario at the server in which the scheduler determines the optimal path for transmitting each subsequent packet upon receiving a download request. A successfully connected client $j$ is managed by the server by a session, denoted as \textbf{session $c_j$}. In this session, a path is characterized by the following parameters: 
-\begin{itemize}
-    \item \textbf{sRTT}: stands for Smooth Round Trip Time, which is defined by $\frac{1}{8}$lRTT + $\frac{7}{8}$sRTT \cite{rfc9002}, where lRTT depicts the latest Round Trip Time up to the current time step $t$.
-    \item \textbf{RTT variation}: refers to the fluctuation or inconsistency of RTT over time. %In the context of path scheduling algorithms in MPQUIC, RTT variation serves as a fundamental parameter.
-    \item \textbf{Packet loss}: represents the ratio of the number of lost packets, including retransmission packets, to the total number of packets sent during data transmission. A sent packet is marked as lost if the sender has not received the acknowledgment packet (ACK) within a specified period.   
-    %The time threshold is $k_{TimeThreshold} * max(sRTT, lRTT)$. The loss rate refers to the ratio of the number of lost packets, including retransmission packets, to the total number of packets sent during data transmission.
-    \item \textbf{Congestion window (CWND)}: determines the amount of data that can be sent before receiving an ACK. 
-\end{itemize}
-% Kieh changed the heading
-\subsection{Multi-client Learning-based MPQUIC scheduler}
-\label{subsec:proposeddesign}
-In the following, we first define agents, states, and actions. We then propose the reward function and path selection policy.
-\noindent \textbf{Agent:}
-In the reinforcement learning paradigm, an agent is an entity that interacts with the environment to learn and execute actions to achieve the goal. In the packet scheduling context, we consider the server an agent and offer a scheduling strategy to minimize the average download time of all packets. 
-
-\noindent \textbf{States and actions:} A state should contain all the information that supports the agent in deciding the action. However, incorporating excessive information in the state may result in a large Q-table, leading to extra training time. Therefore, it is crucial to include only essential information. In MPQUIC scheduling, the agent's ultimate goal is to determine appropriate paths to transmit the upcoming packets. We observe that CWND and RTT are the most valuable indicators of a path's accessibility. Therefore, we suggest a state comprising information related to CWND and RTT. 
-
-Suppose at the time step \textit{t}, there are \textit{m} packets $\{p_1, \ldots p_m\}$ to transmit. Without loss of generality, we suppose that these \textit{m} packets belong to sessions $\{c_1, c_2, \dots, c_m\}$, respectively.
-%Hai 
-For each session $c_j$, we define its corresponding state as a tuple $S^t_{j} = \{s^t_{j}, \overbar{s^t_{j}}\}$, where $s^t_{j}$ represents state of current session $c_j$ and $\overbar{s^t_{j}}$ is the state of remaining sessions. 
-%Hai
-$s^t_{j}$ and $\overbar{s^t_{j}}$ are $n$ dimensional vectors, whose $i$-th element presents information related to the $i$-th path.  
-Specifically, the $i$-th element of $s^t_{j}$ (resp. $\overbar{s^t_{j}}$), denoted as $s^t_{i,j}$ (resp. $\overbar{s^t_{i,j}}$), is defined as follows:
-\begin{eqnarray}
-\label{eq:state_r}
-%\begin{split}
-    s^t_{i,j} &= &\frac{\frac{CWND_{i,j}}{{lRTT_{i,j}}}}{\sum_{k=1}^{n} \frac{CWND_{k,j}}{{lRTT_{k,j}}}}, \\
-    \overbar{s^t_{i,j}} &= & \frac{1}{m-1}\left (\sum_{j=1}^{m} \frac{\frac{CWND_{i,j}}{{lRTT_{i,j}}}}{\sum_{k=1}^{n} \frac{CWND_{k,j}}{{lRTT_{k,j}}}} - s^t_{i,j} \right ),
-%\end{split}
-\end{eqnarray}
-where $CWND_{i,j}$ and $lRTT_{i,j}$ depict CWND size and latest RTT up to the current time of path $i$-th at session $c_j$, respectively. Since $s^t_{i,j}$ is a continuous value in the range [0,1], we discretize the value of $s^t_{i,j}$ into five values, including [0,0.3), [0.3,0.4), [0.4,0.5), [0.5,0.6), and [0.6,1] to create state-action pairs. For each packet $p_j$, the agent takes its state vector $S^{t}_j$ and uses the scheduling policy (described later) to decide the action, which is choosing the path for transmission.
-
-% Trung & Le's text
-%\noindent \textbf{Reward function:} The reward function plays a crucial role in guiding the agent's actions. In the case of the MPQUIC scheduling, the ultimate goal is to minimize all flows' download time. Consequently, the selected paths should prioritize minimizing the RTT and reducing the loss rate. With this in mind, we design a simple yet effective reward function that incorporates two key factors as below:
-
-% Kien's text
-\noindent \textbf{Reward function:} The reward function is crucial in guiding the agent's actions. In MPQUIC scheduling, the ultimate goal is to minimize all flows' download time. Consequently, the selected paths should prioritize shortening RTT and reducing the loss rate. With this in mind, we design a simple yet effective reward function that incorporates two key factors:
-\begin{align}
-\label{eq:reward}
-\begin{split}
-R{(S^t_{j}, a^t)}=
-\begin{cases}
-   - lRTT_{j} & \text{, if received ACK} \\
-  - \beta & \text{, if packet loss},
-  % & n>1
-\end{cases}
-\end{split}
-\end{align}
-where $lRTT_{j}$ is the value of the latest RTT at session $c_j$, and $\beta > 0$ is a tunable parameter. 
-We prioritize actions that minimize the packet transmission delay by penalizing $lRTT_{t,j}$. Moreover, by introducing the term $-\beta$, we encourage the agent to alleviate packet loss.
-
-\noindent \textbf{Q-table and policy:} 
-The Q-table stores the estimated values of actions with respect to different states. Specifically, $q(i,j)$ demonstrates the goodness of performing action $a_i$ at state $S_j$. We leverage the $\epsilon$-greedy-based policy to decide the action (see Algorithm \ref{algo:qlearning}). At each time step $t$, for each packet $p_j$, we choose the path with the highest Q-value with a probability of $1-\epsilon$ and choose a path with minimal RTT with a probability of $\epsilon$. After taking action, the agent uses the equation (\ref{eq:bellman}) to update Q-learning's elements related to state $S_{j}^t$.
-% Initially, we initialize all elements of the Q-table with zeros. 
-% \textcolor{blue}{At each time step $t$, after taking action, the agent uses the Bellman Equation (~\ref{eq:bellman}) to update Q-learning's elements related to state $S_{j}^t$.
-% }
-% In the learning stage, MuLeS updates the values of state $S_{j}^t$ in the Q-table according to Equation~\ref{eq:bellman}. Where $S_{j}^t$ is determined by the Equation~\ref{eq:state_r}, consisting of pairs of vectors $\{s_j^t, \overbar{s_j^t}\}$ reflecting the state at session $c_j$ (which receives the reward) and at the remaining available sessions in the network, respectively.
-
-% \noindent \textbf{Policy-based scheduling decision}: MuLeS selects a path based on the action value, that is, the path with a higher Q value, as presented in Algorithm \ref{algo:qlearning}. In addition, MuLeS defines an epsilon value ($\varepsilon$) to balance between exploiting current knowledge (choosing actions with the highest Q-values) and exploring new actions (based on minRTT logic) to discover better strategies.
-
-%\noindent \textbf{Path selection policy:}
-%The server selects a path based on the action value, that is, the path with a higher Q value is chosen as the \textit{prioritized path}, as is presented in Algorithm \ref{algo:qlearning}. If the \textit{ priority path} is available (that is $\frac{BiF}{CWND} < 1$), it is chosen to transmit the upcoming packet. Otherwise, if the remaining path is available and has an sRTT lower than that of the \textit{prioritized path}, then the remaining path is chosen instead. If all of these conditions are not satisfied, the server waits until the next time step. 
-\begin{algorithm}
-\caption{MuLeS's scheduling for $j$}\label{algo:qlearning}
- % Sessions $\mathcal{SS} = \{ss_1, ss_2, \dots, ss_m\}$\\
- Paths $\mathcal{P} = \{a_1, a_2, \dots, a_n\}$\\
- States $\mathcal{S} = \{S_j^t = \{s_j^t, \overbar{s_j^t}\}\}$\\ 
- Actions $\mathcal{A} = \mathcal{P}$\\
- Q-table $Q: \mathcal{S} \times \mathcal{A} \rightarrow \mathbb{R}$\\
- Epsilon $\varepsilon \in [0, 1]$\\
-\small
-\SetAlgoLined
-% \Input{number of state;}
-\Begin{$t \gets 0$, Let $Q(s,a)=0 ~ \forall (s,a) \in \mathcal{S} \times \mathcal{A}$\\
-    % \emph{// calculate the priority of each experience $(S_{t,j}, S_{t+1,j}, a_t)$};\\
-    \For{$t$}{
-        \eIf{$random(0,1) > \varepsilon$}{
-            Observe state $S_{j}^t \in \mathcal{S}$\\
-            $p_t \gets argmax(Q \mid S=S_{j}^t)$
-        }{
-        $p_t \gets$  minRTT scheduler;
-        }
-    }
-}
-
-\end{algorithm}
-
-\subsection{Implementation}
-\label{subsec:implement}
-We implement MuLeS as an MPQUIC scheduler using the Golang code base introduced in~\cite{mpquic}. MuLeS includes three primary modules: MuLeS Controller, Path selector, and Handler, as shown in \figref{fig:fqsatimplement}.\\
-\noindent \textbf{MuLeS Controller:} stores a \textit{Q-table} and serves as a central module outside structures that manage sessions. Hence, the controller can gather all sessions' information and make a scheduling decision for all clients. Whenever the server has a packet for transmission, it collects states of the corresponding sessions, utilizes the algorithm described in Section \ref{subsec:proposeddesign}, then chooses a path that is supposed to maximize reward. Notably, after sending the packet, the agent can not observe the reward immediately and must wait for an ACK instead. At that moment, the network state will be very different; thereby, it's essential to build a \textit{map that stores state information} for reward calculating and Q-table updating in the future. \\
-\noindent \textbf{Path selector} and \textbf{Handler:} are two modules incorporated in each session. Path selector receives the Q-values from the controller and selects the appropriate path using the policy described in Section~\ref{subsec:proposeddesign}.
-At the same time, Handler is responsible for calculating the reward value whenever receiving an ACK or detecting a packet loss.
-
-% The former receives the 
-% decision from the Controller and assigns the selected path to the flow.
-% In the the state of the network at that session and making policy-based scheduling decisions as described in Section~\ref{subsec:proposeddesign}. At the same time, the \textbf{Handler} module is used to calculate the value of the reward function, whenever receiving an ACK or a packet lost.
-
-\begin{figure}[t]
+\begin{figure*}[t]
     \centering
-    \includegraphics[width=8.8cm]{figs/ccnc-newdesign.pdf}
-    \caption{MuLeS implementation in quic-go framework.}
-    \label{fig:fqsatimplement}
-\end{figure}
+    \includegraphics[width=\textwidth]{figs/measurement_framework.pdf}
+    \caption{Measurement framework for SSHv2, Mosh, and SSH3 under interactive AI agent workloads.}
+    \label{fig:measurement-framework}
+\end{figure*}
 
+This section presents the experimental methodology used to evaluate SSHv2, Mosh, and SSH3 under interactive AI agent terminal workloads. We quantify protocol behavior using terminal events observable at the benchmark client rather than relying only on network-level indicators such as round-trip time or throughput.
+
+\subsection{Measurement Framework}
+\label{subsec:measurement-framework}
+
+Figure~\ref{fig:measurement-framework} illustrates the measurement framework. It consists of a benchmark client, a network environment, a remote server, workload generation logic, and a data-analysis process. The benchmark client establishes remote sessions, generates workloads, sends commands or probe characters, observes terminal output, and records timestamps for each measurement event. The same workload suite is executed over SSHv2, Mosh, and SSH3. Traffic then traverses either a controlled LAN environment with tc/netem-based emulation or a VPN-based environment.
+
+On the remote server, sshd, mosh-server, and ssh3-server are installed and listen concurrently. However, only one protocol is active in each experimental run. This design avoids cross-protocol interference during measurement while keeping the server hardware, operating system, account configuration, and workload content consistent across protocols. The controlled LAN environment isolates the effect of configured network impairments, whereas the VPN-based environment captures behavior over a practical overlay deployment path.
+
+\subsection{Experimental Setup and Tools}
+\label{subsec:experimental-setup-tools}
+
+The experiments are conducted in two environments: a controlled LAN environment and a VPN-based environment. In the controlled environment, two devices are connected through a LAN, and network impairments are configured on eth0 using Linux tc/netem. In the VPN-based environment, the benchmark client runs on a laptop and connects to the Pi2 server through a VPN tunnel; no tc/netem configuration is applied.
+
+In the controlled environment, the benchmark client is denoted as Pi1, and the remote server is denoted as Pi2. The two devices are connected through the LAN and use eth0 as the measurement interface. In the VPN-based environment, the laptop serves as the benchmark client and connects to the same Pi2 server through the VPN tunnel.
+
+The benchmark client runs Python scripts based on pexpect to establish sessions, issue commands or probes, observe terminal output, and write CSV logs. Each measurement record is associated with protocol, scenario, workload, command or probe type, session ID, sample ID, timestamp information, and success or failure status.
+
+The controlled environment uses three impairment profiles, shown in Table~\ref{tab:network-scenarios}: Low, Medium, and High. These labels indicate increasing network degradation rather than absolute worst-case Internet conditions. Low represents a stable LAN-like setting, Medium introduces noticeable delay, jitter, and packet loss, and High stresses the protocols with lower bandwidth, higher delay, and higher loss.
+
+Because Linux netem applies impairments only to the egress direction, the same configuration is applied on both the client and the server to emulate bidirectional degradation. Thus, when the configured one-way delay is $D$ ms per side, the expected round-trip time is approximately $2D$ ms, excluding jitter and host-processing overhead. The loss values in Table~\ref{tab:network-scenarios} are also per-egress values. If packet loss $p$ is applied in both directions, the approximate bidirectional loss exposure for a request-response exchange is $1-(1-p)^2$.
+
+\begin{table}[t]
+\centering
+\caption{Per-egress network scenarios used in the controlled environment.}
+\label{tab:network-scenarios}
+\begin{tabular}{lcccc}
+\toprule
+Scenario & Bandwidth & OWD & Jitter & Loss/egress \\
+\midrule
+Low & 100 Mbps & 10 ms & 0 ms & 0\% \\
+Medium & 40 Mbps & 50 ms & 4 ms & 1.5\% \\
+High & 10 Mbps & 100 ms & 16 ms & 3\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Protocol Implementations and Measurement Semantics}
+\label{subsec:protocol-implementations-measurement-semantics}
+
+We evaluate concrete protocol implementations rather than abstract protocol models. SSHv2 is implemented with OpenSSH 9.2p1 and OpenSSL 3.0.17. Mosh is implemented with Mosh 1.4.0 and uses the standard SSH bootstrap procedure before switching to its interactive UDP channel. SSH3 is implemented using francoismichel/ssh3 version 0.1.7 and connects to the /ssh3-term server endpoint.
+
+All protocols use the same remote account, SSH key material, server host, terminal environment, and workload content. SSHv2 is invoked through OpenSSH with pseudo-terminal allocation enabled. Mosh is invoked through the Mosh client using the same SSH bootstrap command, with local input prediction consistently enabled across Mosh trials. SSH3 is invoked through the SSH3 client with the corresponding private key and endpoint configuration. Runtime options, including source IP, identity file, host-key policy, SSH3 mode, and Mosh prediction mode, are recorded in the experiment metadata or run scripts.
+
+Because the evaluated protocols do not expose identical terminal semantics, all metrics are defined using events observable at the benchmark client, including prompt arrival, completion-marker visibility, and character visibility. The interpretation of Mosh measurements follows the protocol-level trade-off discussed in Section~\ref{subsec:protocols}: input latency reflects visible terminal responsiveness, while large-output latency reflects observable terminal completion rather than byte-complete delivery.
+
+\subsection{Application Workloads}
+\label{subsec:application-workloads}
+
+The benchmark includes four workloads: command loop, large-output commands, basic interactive editing, and 5-pane interactive editing. These workloads represent common interaction patterns of interactive AI agents operating through a remote terminal: issuing short commands, receiving large outputs, typing interactively, and typing under concurrent redraw pressure. The benchmark uses prompt markers, completion markers, or client-side echo observations to identify the start and end of each measurement.
+
+Each network scenario uses the same repetition structure. For each protocol, workload, and command or probe combination, the experiment opens 10 independent sessions, and each session collects 100 measured samples unless otherwise noted in the dataset metadata.
+
+The workloads are executed using a blocked randomized design. For each scenario, protocol--workload--command combinations are shuffled using a fixed seed of 42 before execution. This reduces order effects caused by cache state, device temperature, run order, or background variation. The seed and shuffle state are stored with the metadata so that the experiment order can be reconstructed.
+
+The command-loop workload consists of four short commands: ls, df -h, ps aux, and grep -n root /etc/passwd. The large-output workload consists of find /, git status, and docker logs, with a per-sample timeout. The basic interactive-editing workload performs 10 warm-up probes, which are excluded from the summary, followed by 100 measured probes in interactive\_shell, vim, and nano. The 5-pane interactive-editing workload uses a tmux session, where pane 0 receives the probe stream and panes 1--4 generate background output and redraw load. Failures, timeouts, and invalid samples are logged instead of being silently discarded.
+
+\subsection{Measurement Metrics}
+\label{subsec:measurement-metrics}
+
+All local timestamps are recorded with nanosecond resolution and converted to milliseconds during preprocessing. Since all latency metrics follow the same event-difference structure, we define a general latency metric as
+
+\begin{equation}
+L_m = t_{\mathrm{obs}}^{m} - t_{\mathrm{init}}^{m}.
+\end{equation}
+
+Here, $m$ denotes the measurement type, $t_{\mathrm{init}}^{m}$ is the client-side timestamp at which the measured action is initiated, and $t_{\mathrm{obs}}^{m}$ is the client-side timestamp at which the corresponding terminal event is observed. The specific meaning of these two timestamps depends on the workload being measured.
+
+For session setup latency, denoted by $L_{\mathrm{setup}}$, $t_{\mathrm{init}}^{m}$ is the time when the benchmark client launches the protocol command, and $t_{\mathrm{obs}}^{m}$ is the time when the first remote shell prompt is observed at the client side. This metric captures the delay before the agent can start issuing commands in a newly established remote session.
+
+For the command-loop workload, the same formulation is reported as command completion latency, denoted by $L_{\mathrm{cmd}}$. In this case, $t_{\mathrm{init}}^{m}$ is the time when the client sends a short command, and $t_{\mathrm{obs}}^{m}$ is the time when the command completion marker is observed on the terminal. This metric captures the latency of short request-response interactions that frequently appear in agent command loops.
+
+For the large-output workload, the same formulation is reported as output completion latency, denoted by $L_{\mathrm{out}}$. Here, $t_{\mathrm{init}}^{m}$ is the time when the large-output command is sent, and $t_{\mathrm{obs}}^{m}$ is the time when the completion marker becomes visible at the client side. The interpretation of this metric follows the protocol semantics described in Section~\ref{subsec:protocol-implementations-measurement-semantics}. In particular, for Mosh, $L_{\mathrm{out}}$ reflects observable terminal completion rather than byte-complete delivery.
+
+For the basic interactive-editing workload, the same formulation is reported as input-to-visible latency, denoted by $L_{\mathrm{input}}$. In this case, $t_{\mathrm{init}}^{m}$ is the time when the probe character is sent, and $t_{\mathrm{obs}}^{m}$ is the time when that character becomes visible at the client side. This metric is measured in interactive shell, vim, and nano contexts.
+
+For the 5-pane interactive-editing workload, the metric is denoted by $L_{\mathrm{input}}^{\mathrm{5pane}}$ and uses the same definition as $L_{\mathrm{input}}$. The difference is that the probe stream is sent to pane 0 of a tmux session, while panes 1--4 generate background output and redraw load. This setting captures input visibility under concurrent terminal activity.
+
+\subsection{Data Collection and Statistical Analysis}
+\label{subsec:data-collection-statistical-analysis}
+
+All measurement records are stored at the sample level. Each record includes the protocol, scenario, workload, command or probe type, session ID, sample ID, measured latency, success or failure status, and error information when applicable. Timeouts and samples that do not match the expected marker are logged separately instead of being discarded, so that both latency and protocol robustness are reflected in the analysis.
+
+For each protocol, scenario, and workload combination, we report the number of valid samples $N$, failures, success rate, and latency statistics. The summary includes mean, median, standard deviation, the 95\% confidence interval of the mean, minimum, maximum, 95th percentile, and 99th percentile. The median represents typical behavior, while the 95th and 99th percentiles capture tail latency that an interactive AI agent may experience during long terminal interaction loops.
+
+The results are interpreted according to the protocol semantics defined in Section~\ref{subsec:protocol-implementations-measurement-semantics}. This keeps the analysis aligned with what the agent actually observes at the terminal and avoids attributing unsupported stream semantics to protocols such as Mosh.

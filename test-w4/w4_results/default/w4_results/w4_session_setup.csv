@@ -1,0 +1,91 @@
+protocol,command,trial_id,session_setup_ms
+ssh,find /,1,279.769341
+ssh,find /,2,281.939077
+ssh,find /,3,239.624843
+ssh,find /,4,239.033504
+ssh,find /,5,247.615050
+ssh,find /,6,241.547018
+ssh,find /,7,240.108446
+ssh,find /,8,234.244001
+ssh,find /,9,273.508101
+ssh,find /,10,281.899516
+ssh,git status,1,269.954583
+ssh,git status,2,236.691950
+ssh,git status,3,253.021710
+ssh,git status,4,279.208444
+ssh,git status,5,278.468344
+ssh,git status,6,241.174133
+ssh,git status,7,236.801691
+ssh,git status,8,245.775750
+ssh,git status,9,248.892974
+ssh,git status,10,256.490612
+ssh,docker logs $(docker ps -q | head -n 1),1,235.034083
+ssh,docker logs $(docker ps -q | head -n 1),2,242.493224
+ssh,docker logs $(docker ps -q | head -n 1),3,234.144405
+ssh,docker logs $(docker ps -q | head -n 1),4,282.393749
+ssh,docker logs $(docker ps -q | head -n 1),5,276.162314
+ssh,docker logs $(docker ps -q | head -n 1),6,239.201098
+ssh,docker logs $(docker ps -q | head -n 1),7,251.485476
+ssh,docker logs $(docker ps -q | head -n 1),8,231.435937
+ssh,docker logs $(docker ps -q | head -n 1),9,257.877584
+ssh,docker logs $(docker ps -q | head -n 1),10,253.216277
+ssh3,find /,1,65.509204
+ssh3,find /,2,69.880480
+ssh3,find /,3,61.573753
+ssh3,find /,4,65.512196
+ssh3,find /,5,60.911137
+ssh3,find /,6,60.889825
+ssh3,find /,7,66.012664
+ssh3,find /,8,61.093385
+ssh3,find /,9,61.184229
+ssh3,find /,10,68.828447
+ssh3,git status,1,69.008872
+ssh3,git status,2,61.927533
+ssh3,git status,3,72.468940
+ssh3,git status,4,58.343830
+ssh3,git status,5,59.543916
+ssh3,git status,6,61.231932
+ssh3,git status,7,61.717872
+ssh3,git status,8,60.066950
+ssh3,git status,9,58.451520
+ssh3,git status,10,57.818307
+ssh3,docker logs $(docker ps -q | head -n 1),1,66.086007
+ssh3,docker logs $(docker ps -q | head -n 1),2,66.956126
+ssh3,docker logs $(docker ps -q | head -n 1),3,57.576393
+ssh3,docker logs $(docker ps -q | head -n 1),4,66.796084
+ssh3,docker logs $(docker ps -q | head -n 1),5,57.268121
+ssh3,docker logs $(docker ps -q | head -n 1),6,69.422478
+ssh3,docker logs $(docker ps -q | head -n 1),7,56.513815
+ssh3,docker logs $(docker ps -q | head -n 1),8,58.080931
+ssh3,docker logs $(docker ps -q | head -n 1),9,64.231280
+ssh3,docker logs $(docker ps -q | head -n 1),10,67.213854
+mosh,find /,1,349.028577
+mosh,find /,2,399.034841
+mosh,find /,3,388.130564
+mosh,find /,4,346.590285
+mosh,find /,5,417.303195
+mosh,find /,6,344.059325
+mosh,find /,7,374.328710
+mosh,find /,8,394.842950
+mosh,find /,9,371.110556
+mosh,find /,10,343.210497
+mosh,git status,1,394.223350
+mosh,git status,2,351.384151
+mosh,git status,3,344.357776
+mosh,git status,4,416.246068
+mosh,git status,5,383.431435
+mosh,git status,6,400.356834
+mosh,git status,7,361.230620
+mosh,git status,8,380.045905
+mosh,git status,9,385.793710
+mosh,git status,10,387.054884
+mosh,docker logs $(docker ps -q | head -n 1),1,343.886605
+mosh,docker logs $(docker ps -q | head -n 1),2,330.532238
+mosh,docker logs $(docker ps -q | head -n 1),3,349.053429
+mosh,docker logs $(docker ps -q | head -n 1),4,338.227637
+mosh,docker logs $(docker ps -q | head -n 1),5,385.197779
+mosh,docker logs $(docker ps -q | head -n 1),6,383.806770
+mosh,docker logs $(docker ps -q | head -n 1),7,353.560839
+mosh,docker logs $(docker ps -q | head -n 1),8,424.077183
+mosh,docker logs $(docker ps -q | head -n 1),9,388.763323
+mosh,docker logs $(docker ps -q | head -n 1),10,338.758211

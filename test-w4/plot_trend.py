@@ -65,11 +65,6 @@ def build_metric_maps(
         if status and status != "ok":
             continue
 
-        # Drop warmup samples from trend aggregation (present when --warmup > 0
-        # was passed to the benchmark). Column is optional for backward compat.
-        if row.get("warmup", "").strip() == "1":
-            continue
-
         latency_raw = row.get("latency_ms", "").strip()
         trial_raw = row.get("round_id", "").strip()
         if not latency_raw or not trial_raw:

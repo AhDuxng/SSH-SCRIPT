@@ -1,147 +1,168 @@
-\section{Performance evaluation}
+\section{Performance Evaluation}
 \label{sec:evaluation}
-% Trung & Le's text
-%In this section, we perform experiments to evaluate the performance of MuLeS and compare it with four baselines, namely minRTT, BLEST, ECF, and Peekaboo.
 
-% Kien 's text
-In this section, we evaluate the performance of MuLeS in comparison to four baselines (i.e., minRTT, BLEST, ECF, and Peekaboo).
+\subsection{Session Establishment Latency}
+\label{subsec:session-setup}
 
-
-\subsection{Settings}
-\label{subsec:experiment}
-%We use Mininet-WiFi~\cite{mininetwifi} to emulate a multipath environment, which follows the topology illustrated in~\figref{fig:networkmodel}. The network includes an MPQUIC server connecting to network devices (including Access Point and Base Station) via wired links, three MPQUIC clients via Wi-Fi, and LTE/5G interfaces. The bandwidth of the wired links is set in the range of 30-80Mbps to match current connections, according to Ookla's Speedtest Global Index~\cite{speedtest}. The average latency, latency variability, and data loss rates are based on a study by Microsoft~\cite{microsoft}. We summarize wired link parameters in Table \ref{tab1}. Moreover, we use \textit{wmediumd} with the Log Distance Propagation Loss Model to create wireless links~\cite{10.1145/3568562.3568654}. We run 100 experiments per scenario for each scheduler on an Ubuntu 22.04 (4-core CPU, 8G RAM). We consider download time in different file download scenarios as a metric to evaluate the performance of five schedulers. In all of our experiments, we set the file size to 4MB. We conduct four main experiments to evaluate (i) efficiency of MuLeS in dealing with the selfish scheduling phenomenon, (ii) impacts of packet loss rate, (iii) impacts of RTT variation, and (iv) impacts of network dynamicity level.
-
-%  Kien slighlty modified Sep. 3
-We use Mininet-WiFi~\cite{mininetwifi} to emulate a multipath environment following the model in~\figref{fig:networkmodel}. The network includes an MPQUIC server connecting to a simulated Access Point and a Base Station via wired links. Moreover, three MPQUIC clients use their Wi-Fi and LTE interfaces to connect to the wireless networks. The wired links' bandwidth is set in the range of 30-80Mbps to match current connections, according to Ookla's Speedtest Global Index~\cite{speedtest}. The average latency, latency variability, and data loss rates are based on the previous studies~\cite{microsoft,wifi,4g}. We summarize wired link parameters in Table \ref{tab1}. Moreover, we use \textit{wmediumd} with the Log Distance Propagation Loss Model to create wireless links~\cite{10.1145/3568562.3568654}. We run 100 experiments per scenario for each scheduler on an Ubuntu 22.04 (4-core CPU, 8G RAM). We consider download time in different file download scenarios as a metric to evaluate the performance of five schedulers. 
-In all of our experiments, we set the file size to 4MB. We conduct four main experiments to evaluate (i) efficiency of MuLeS in dealing with the rush scheduling phenomenon; (ii) impacts of packet loss rate; (iii) impacts of RTT variation; and (iv) impacts of network dynamicity level.
+Table~\ref{tab:session-setup} reports the session establishment latency across all three protocols and network scenarios. Session setup time is measured from process spawn to the first shell prompt, captured before any background tasks or workload iterations begin, isolating pure transport and authentication overhead.
 
 \begin{table}[t]
-\begin{center}
-\caption{Path parameters.}
-\label{tab1}
-\begin{tabular}{|c|c|c|}
+\centering
+\caption{Session establishment latency (ms). $N=18$ per cell.}
+\label{tab:session-setup}
+\begin{tabular}{llrrrrr}
 \hline
-% \textbf{}&\multicolumn{2}{c|}{\textbf{Server} (and)} \\
-% \cline{2-3} 
-\textbf{} & \textbf{Base Station}& \textbf{Access Point} \\
+\textbf{Scenario} & \textbf{Protocol} & \textbf{Mean} & \textbf{Median} & \textbf{Std} & \textbf{P95} & \textbf{Max} \\
 \hline
-Bandwidth (Mbps)& 30 (up to 35)& 55 (up to 60)   \\
+\multirow{3}{*}{Low}
+ & SSHv2 & 811 & 816 & 49  & 879  & 879  \\
+ & SSH3  & 362 & 376 & 50  & 430  & 433  \\
+ & Mosh  & 1166 & 1171 & 36 & 1205 & 1219 \\
 \hline
-RTT (ms)& 20& 30  \\
+\multirow{3}{*}{Medium}
+ & SSHv2 & 1796 & 1772 & 137 & 2080 & 2105 \\
+ & SSH3  & 645  & 637  & 88  & 796  & 918  \\
+ & Mosh  & 2366 & 2258 & 283 & 2917 & 3282 \\
+\hline
+\multirow{3}{*}{High}
+ & SSHv2 & 3565 & 3527 & 706 & 4749 & 5184 \\
+ & SSH3  & 1042 & 954  & 202 & 1459 & 1611 \\
+ & Mosh  & 3856 & 3813 & 353 & 4523 & 4705 \\
 \hline
 \end{tabular}
-\end{center}
-%\vspace{-0.3cm}
 \end{table}
 
+SSH3 achieves the fastest session setup across all scenarios, completing 2.2--3.4$\times$ faster than SSHv2 and 3.2--3.7$\times$ faster than Mosh. Under the Low scenario (RTT $\approx$ 20\,ms), SSH3 establishes a session in 362\,ms (median 376\,ms), compared to 811\,ms for SSHv2 and 1166\,ms for Mosh.
 
-\subsection{Experimental results}
-\label{subsec:numerical}
-\begin{figure}[ht!]
-\centering
-\hspace{2em}
-\includegraphics[width=0.45
-\linewidth]{figs/leg.eps}
-   \subfloat[minRTT.\label{fig:selfishrtt} ]{%
-      \includegraphics[ width=\linewidth]{figs/RTT.eps}}\\
-   \subfloat[MuLeS.\label{fig:selfishmules}]{%
-      \includegraphics[width=0.98\linewidth]{figs/MuLeS.eps}}\\
-\caption{\textbf{Comparison of path utilization between minRTT and MuLeS.} minRTT tends to choose the lower-RTT path, resulting in congestion in this path, while leaving the other path unused (\textcolor{red}{red rectangle areas}). MuLeS, on the other hand, leverages the advantage of both paths for all sessions, thereby eliminating biased usage.}
-    \label{fig:Selfish2}
-\end{figure}
+This difference stems from the handshake design. SSH3 uses QUIC's 1-RTT handshake, which combines transport and cryptographic setup in a single round trip. SSHv2 requires a TCP three-way handshake followed by key exchange and authentication (2--3 RTTs). Mosh incurs the highest cost because it first completes a full SSH session to bootstrap its UDP-based SSP channel, adding an extra round trip on top of the SSH handshake.
 
-\begin{figure*}[ht!]
-\centering
-\hspace{2em}
-\includegraphics[width=0.4
-\textwidth]{figs/loss_leg.eps}\linebreak
-   \subfloat[Impacts of loss rate \label{fig:loss_rate}]{%
-      \includegraphics[ width=0.31\textwidth]{figs/loss.eps}}
-\hspace{1em}
-   \subfloat[Impacts of RTT variation \label{fig:rtt_variation} ]{%
-      \includegraphics[ width=0.31\textwidth]{figs/vRTT.eps}}
-\hspace{1em}
-   \subfloat[Impacts of dynamicity level \label{fig:dynamic}]{%
-      \includegraphics[ width=0.31\textwidth]{figs/dyn.eps}}\\
-\caption{Comparison of the MPQUIC schedulers' download when varying loss rate, RTT variations, and dynamicity level.}
-    \label{fig:lossrtt}
-\end{figure*}
+As impairment increases, the absolute gap widens. Under the High scenario (RTT $\approx$ 200\,ms, 3\% loss), SSHv2 requires 3.6\,s and Mosh 3.9\,s on average, while SSH3 completes in 1.0\,s. Variability also grows disproportionately for TCP-based protocols: SSHv2's standard deviation reaches 706\,ms versus 202\,ms for SSH3, reflecting TCP's sensitivity to packet loss during multi-round-trip handshakes.
 
+\subsection{Command Completion Latency (W1)}
+\label{subsec:w1-results}
 
-% Kien's text Sep. 03
-In this evaluation, we examine the MPQUIC schedulers under different network conditions. Moreover, based on an empirical study, we chose the following hyperparameters for MuLeS: learning rate $\alpha = 0.6$, discount factor $\gamma = 0.6$, $\beta = 9$, and $\varepsilon = 0.4$.
-
-\noindent \textbf{Alleviating the rush scheduling phenomenon:} Since all the comparison benchmarks follow the logic of minRTT, in the following, we choose minRTT as the representative and present the comparison between minRTT and MuLeS against the rush scheduling phenomenon. \figureref{fig:selfishrtt} visualizes the paths selected by minRTT in a certain period.
-As shown, due to the rush scheduling phenomenon, in some time slots, the schedulers of all sessions strive for the same path while leaving the other one vacant. To be more specific, from 0.15 to 0.22 seconds, the three sessions chose Path 2 while leaving Path 1 unused. In contrast, during 0.25-0.36 seconds, all sessions focus on Path 1 while leaving Path 2 vacant. On the other hand, MuLeS can consider all sessions' states when making scheduling decisions. Therefore, it can balance the workload imposed on the two paths, thereby alleviating the rush scheduling phenomenon.
-
-% Kien's text 2023 Sep. 03
-\noindent \textbf{Impacts of loss rate:} In this evaluation, we fix the RTT variation and vary the packet loss rate between 0\% and 2.5\%. The download time results are shown in~\figref{fig:loss_rate}. We can observe that MuLeS outperforms the other schedulers. Notably, when the expected loss is 1.5\%, MuLeS reduces the download time by 8\% compared to the others. However, when the expected loss is higher (e.g., 2.5\%), the performance gap between MuLeS and minRTT-based becomes less significant. 
-
-%\noindent \textbf{Impacts of RTT variation:}
-%In this section, we study the impacts of RTT variation by varying its value from 5.0\% to 20\% with 5\% and plot the download time of the schedulers on~\figref{fig:rtt_variation}.
-%As shown, MuLeS reduces the download time significantly compared to the other benchmarks.
-%%Next, we investigate the impact of RTT variation while keeping the loss rate fixed. RTT variation ranges from 5.0\% to 20\% with 5\% granularity. Figure \ref{fig:rtt_variation} displays the results, illustrating the clear advantage of MuLeS over the other benchmarks. 
-%While minRTT, ECF, BLEST, and Peekaboo suffer from increased download times as RTT variation rises, MuLeS maintains stable performance due to its adaptability. 
-%Moreover, MuLeS's design, based on lightweight multi-client learning, allows it to observe and evaluate network state instantaneously. 
-%As a result, across all scenarios, MuLeS consistently achieves download times 9-16\% lower than the other schedulers, showcasing its superior adaptability even in cases of high RTT variation (up to 20\%). 
-
-% Kien slightly modified Sep. 03
-\noindent \textbf{Impacts of RTT variation:} This evaluation studies the impacts of RTT variation by varying its value from 5.0\% to 20\% with a 5\% increasing step. We plot the download time of the schedulers in~\figref{fig:rtt_variation}. As shown, MuLeS reduces the download time significantly compared to the others. While minRTT, ECF, BLEST, and Peekaboo suffer from increased download times as the RTT variation rises, MuLeS maintains stable performance due to its adaptability. Moreover, MuLeS, with lightweight multi-client learning, allows it to observe and evaluate network state instantaneously. As a result, across all scenarios, MuLeS consistently achieves download times 9-16\% lower than the others.%, showcasing its superior adaptability.
-%even in cases of high RTT variation (up to 20\%). 
+Table~\ref{tab:w1-lightweight} summarizes the command completion latency for lightweight commands (\texttt{ls}, \texttt{df~-h}, \texttt{grep}, \texttt{cat~/proc/meminfo}), while Table~\ref{tab:w1-heavy} reports results for heavy-output commands (\texttt{ps~aux}, \texttt{find~/usr~-maxdepth~3}). Each cell aggregates $N=300$ non-warmup samples (3 trials $\times$ 100 iterations) for the LAN scenarios.
 
 \begin{table}[t]
-\begin{center}
-\caption{Dynamicity level.}
-\label{tab2}
-\begin{tabular}{|c|c|c|c|}
+\centering
+\caption{W1 latency for lightweight commands (ms). Values are aggregated across four commands ($N=1200$ for SSH/SSH3, varies for Mosh due to failures).}
+\label{tab:w1-lightweight}
+\begin{tabular}{llrrrr}
 \hline
-\textbf{}&\multicolumn{3}{|c|}{\textbf{Dynamicity level}} \\
-\cline{2-4} 
-\textbf{} & \textbf{\textit{Low}}& \textbf{\textit{Medium}}& \textbf{\textit{High}} \\
+\textbf{Scenario} & \textbf{Protocol} & \textbf{N} & \textbf{Mean} & \textbf{Median} & \textbf{P95} \\
 \hline
-RTT variation (\%)& 5& 10& 20   \\
+\multirow{3}{*}{Low}
+ & SSHv2 & 1200 & 50.5 & 50.5 & 50.8 \\
+ & SSH3  & 1200 & 50.5 & 50.5 & 50.8 \\
+ & Mosh  & 456  & 50.6 & 50.5 & 50.8 \\
 \hline
-Loss rate (\%)& 0.1& 0.5& 0.9  \\
+\multirow{3}{*}{Medium}
+ & SSHv2 & 1200 & 137.9 & 94.5  & 263.3 \\
+ & SSH3  & 1200 & 133.8 & 155.8 & 248.7 \\
+ & Mosh  & 515  & 122.9 & 111.9 & 178.6 \\
+\hline
+\multirow{3}{*}{High}
+ & SSHv2 & 1200 & 262.7 & 205.9 & 572.5 \\
+ & SSH3  & 1200 & 303.8 & 276.4 & 558.2 \\
+ & Mosh  & 383  & 242.0 & 243.4 & 441.8 \\
 \hline
 \end{tabular}
-\end{center}
-%\vspace{-0.5cm}
 \end{table}
-\noindent \textbf{Impacts of dynamicity level:}
-Lastly, we assess the performance of the schedulers under different dynamicity levels, categorized as Low, Medium, and High, as detailed in Table~\ref{tab2}. The results, depicted in~\figref{fig:dynamic}, indicate that as the dynamic level increases, minRTT, ECF, BLEST, and Peekaboo exhibit weaknesses in adapting to network fluctuations, leading to rapid growth in download times. In contrast, MuLeS demonstrates better adaptability under varying conditions. Compared to Peekaboo, MuLeS improves performance by 7\% to 11\%. Additionally, the cumulative distribution function (CDF) of download time on each client, shown in~\figref{fig:dynamiccdf}, reveals that the performance of MuLeS is better than the other schedulers in different dynamicity levels. This result shows that MuLeS optimizes global download time and ensures optimal local download time per session.
 
-In summary, MuLeS proves its capability to adapt to wireless networks'
-dynamicity and capturing the states of all sessions to make appropriate scheduling decisions for all clients simultaneously. MuLeS reduces the download time significantly compared to all other schedulers in all scenarios.
-
-\begin{figure}[ht!]
-\hspace*{2.1em}
-\includegraphics[width=0.44
-\textwidth]{figs/dyn_leg.eps}\\
+\begin{table}[t]
 \centering
-   \subfloat[Low - Client 1 \label{fig:low_c0}]{%
-      \includegraphics[ height=0.38\linewidth]{figs/low_c0.eps}}
-\hspace{0em}
-   \subfloat[Low - Client 2 \label{fig:low_c1} ]{%
-      \includegraphics[ height=0.38\linewidth]{figs/low_c1.eps}}
-\hspace{0em}
-   \subfloat[Low - Client 3 \label{fig:low_c2}]{%
-      \includegraphics[ height=0.38\linewidth]{figs/low_c2.eps}}\\
-   \subfloat[Medium - Client 1 \label{fig:medium_c0}]{%
-      \includegraphics[ height=0.38\linewidth]{figs/medium_c0.eps}}
-\hspace{0em}
-   \subfloat[Medium - Client 2 \label{fig:medium_c1} ]{%
-      \includegraphics[ height=0.38\linewidth]{figs/medium_c1.eps}}
-\hspace{0em}
-   \subfloat[Medium - Client 3 \label{fig:medium_c2}]{%
-      \includegraphics[ height=0.38\linewidth]{figs/medium_c2.eps}}\\
-   \subfloat[High - Client 1 \label{fig:high_c0}]{%
-      \includegraphics[ height=0.38\linewidth]{figs/high_c0.eps}}
-\hspace{0em}
-   \subfloat[High - Client 2 \label{fig:high_c1} ]{%
-      \includegraphics[ height=0.38\linewidth]{figs/high_c1.eps}}
-\hspace{0em}
-   \subfloat[High - Client 3 \label{fig:high_c2}]{%
-      \includegraphics[ height=0.38\linewidth]{figs/high_c2.eps}}\\
-\caption{Download times of each client in different dynamicity levels.}
-    \label{fig:dynamiccdf}
-\end{figure}
+\caption{W1 latency for heavy-output commands (ms). \texttt{ps~aux} ($\sim$4\,KB) and \texttt{find~/usr~-maxdepth~3} ($\sim$12\,KB).}
+\label{tab:w1-heavy}
+\begin{tabular}{llrrrrr}
+\hline
+\textbf{Scenario} & \textbf{Protocol} & \textbf{N} & \textbf{Mean} & \textbf{Median} & \textbf{P95} & \textbf{Stdev} \\
+\hline
+\multirow{3}{*}{Low}
+ & SSHv2 & 600 & 110.0 & 71.5  & 186.0 & 57.3 \\
+ & SSH3  & 600 & 133.0 & 62.3  & 241.3 & 81.8 \\
+ & Mosh  & 600 & 168.0 & 58.8  & 297.1 & 119.4 \\
+\hline
+\multirow{3}{*}{Medium}
+ & SSHv2 & 600 & 1448.9 & 682.3  & 3561.4  & 1235.3 \\
+ & SSH3  & 600 & 2606.3 & 551.3  & 5942.3  & 2427.8 \\
+ & Mosh  & 348 & 359.7  & 381.2  & 488.4   & 123.8 \\
+\hline
+\multirow{3}{*}{High}
+ & SSHv2 & 600 & 3709.8  & 1662.7 & 9570.0  & 3452.1 \\
+ & SSH3  & 600 & 7072.0  & 1520.7 & 15411.7 & 6517.9 \\
+ & Mosh  & 53  & 431.8   & 463.4  & 794.9   & 189.7 \\
+\hline
+\end{tabular}
+\end{table}
+
+\subsubsection{Lightweight commands}
+For commands producing small output ($<$1\,KB), all three protocols perform similarly under the Low scenario ($\sim$50.5\,ms), as the network overhead is negligible on a clean LAN link. Under impairment, the protocols diverge moderately. In the High scenario, Mosh achieves the lowest mean latency (242\,ms), followed by SSHv2 (263\,ms) and SSH3 (304\,ms). Mosh's advantage here comes from SSP's frame-based delivery, which avoids retransmission delays for small payloads.
+
+SSH3's slightly higher latency under the High scenario (304\,ms vs.\ 263\,ms for SSHv2) is notable. This may reflect overhead in the SSH3 implementation (v0.1.7), which is still experimental, or QUIC's more conservative congestion control behavior on lossy links compared to TCP's established loss recovery.
+
+\subsubsection{Heavy-output commands}
+For commands producing larger output, the protocol differences become dramatic and reveal a critical trade-off. Under the High scenario, SSHv2 averages 3.7\,s and SSH3 averages 7.1\,s, while Mosh records only 432\,ms.
+
+SSH3's poor performance for bulk transfer under impairment is unexpected. At 7.1\,s (High), SSH3 is 1.9$\times$ slower than SSHv2 (3.7\,s). This likely reflects the immaturity of SSH3's QUIC implementation: its congestion controller may react more conservatively to loss than TCP's well-tuned algorithms, and the per-stream framing adds overhead for large sequential transfers.
+
+Mosh's low latency (432\,ms in High) is misleading. As shown in Section~\ref{subsec:output-completeness}, Mosh delivers only 2.5\% of the expected output for these commands. SSP transmits terminal frame states rather than raw byte streams; when output arrives faster than the display refresh interval, intermediate frames are discarded. The benchmark measures time-to-prompt, not time-to-complete-output.
+
+\subsubsection{Failure rates}
+SSHv2 and SSH3 achieve perfect reliability (0 failures across all scenarios and commands). Mosh exhibits significant failures, particularly for commands with larger output: only 53 successful samples out of 300 attempts for heavy commands in the High scenario (82\% failure rate). Even for lightweight commands, Mosh's effective sample count drops to 383--515 (vs.\ 1200 for SSH/SSH3), indicating 57--68\% of sessions failed to complete.
+
+\subsection{Output Completeness}
+\label{subsec:output-completeness}
+
+A key metric for AI agent workloads is whether the client receives the complete command output. Table~\ref{tab:recv-pct} reports the mean percentage of expected output bytes received by the client (\texttt{received\_pct}), computed by comparing the captured output length against a reference collected via direct SSH execution.
+
+\begin{table}[t]
+\centering
+\caption{Output completeness (\% of expected bytes received). Higher is better.}
+\label{tab:recv-pct}
+\begin{tabular}{llrr}
+\hline
+\textbf{Scenario} & \textbf{Protocol} & \textbf{Lightweight} & \textbf{Heavy-output} \\
+\hline
+\multirow{3}{*}{Low}
+ & SSHv2 & 99.2 & 96.3 \\
+ & SSH3  & 99.2 & 96.6 \\
+ & Mosh  & 92.2 & 6.3  \\
+\hline
+\multirow{3}{*}{Medium}
+ & SSHv2 & 99.2 & 98.1 \\
+ & SSH3  & 99.0 & 97.0 \\
+ & Mosh  & 90.5 & 2.1  \\
+\hline
+\multirow{3}{*}{High}
+ & SSHv2 & 99.2 & 96.4 \\
+ & SSH3  & 99.2 & 95.4 \\
+ & Mosh  & 89.1 & 2.5  \\
+\hline
+\end{tabular}
+\end{table}
+
+SSHv2 and SSH3 both maintain high output completeness across all scenarios ($\geq$95\%), confirming that their byte-stream transport reliably delivers the full command output regardless of network conditions.
+
+Mosh presents a fundamentally different picture. For heavy-output commands, Mosh delivers only 2--6\% of the expected output across all scenarios. Even for lightweight commands producing less than 1\,KB, Mosh's completeness drops to 89--92\%. This is not a failure mode but an inherent property of SSP: it synchronizes the terminal display state rather than the output byte stream. When multiple screen updates arrive within a single frame interval ($\sim$60\,ms), only the final state is transmitted.
+
+For interactive human users, this trade-off is acceptable---the user sees the final result. For AI agents that must parse intermediate output (e.g., extracting specific lines from \texttt{ps~aux} or parsing directory listings from \texttt{find}), Mosh's frame-skipping behavior means the agent operates on incomplete data. This can lead to incorrect parsing, missed information, and cascading errors in the agent's decision loop.
+
+\subsection{Continuous Monitoring Latency (W2)}
+\label{subsec:w2-results}
+
+% TODO
+
+\subsection{Interactive Keystroke Latency (W3)}
+\label{subsec:w3-results}
+
+% TODO
+
+\subsection{Large Output Delivery (W4)}
+\label{subsec:w4-results}
+
+% TODO
+
+\subsection{Key Takeaways}
+\label{subsec:takeaways}
+
+% TODO

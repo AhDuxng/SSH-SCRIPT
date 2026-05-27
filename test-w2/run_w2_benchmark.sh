@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# HOST="100.66.79.93"
+HOST="100.66.79.93"
 HOST="10.42.0.206"
 USER_NAME="pi"
 # SOURCE_IP="100.70.166.91"
@@ -11,7 +11,7 @@ IDENTITY_FILE="$HOME/.ssh/id_ed25519"
 PROTOCOLS="ssh ssh3 mosh"
 WORKLOADS="top tail ping"
 
-ITERATIONS=3
+ITERATIONS=
 TRIALS=2
 TIMEOUT=30
 SEED=42
@@ -26,7 +26,7 @@ SSH3_INSECURE=true
 BATCH_MODE=false
 STRICT_HOST_KEY=false
 
-MOSH_PREDICT="never"
+MOSH_PREDICT="always"
 
 TOP_INTERVAL=1.0
 PING_TARGET=""

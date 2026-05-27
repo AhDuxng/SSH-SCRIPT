@@ -1,0 +1,28 @@
+scenario,protocol,command,trial_id,session_setup_ms
+unspecified,ssh,find /etc /var/log -type f 2>/dev/null,1,3249.866790
+unspecified,ssh,find /etc /var/log -type f 2>/dev/null,2,3095.220586
+unspecified,ssh,find /etc /var/log -type f 2>/dev/null,3,3924.332542
+unspecified,ssh,"cid=$(docker ps -q | head -n 1); [ -n ""$cid"" ] && docker logs ""$cid"" 2>/dev/null || true",1,4208.074771
+unspecified,ssh,"cid=$(docker ps -q | head -n 1); [ -n ""$cid"" ] && docker logs ""$cid"" 2>/dev/null || true",2,3528.971894
+unspecified,ssh,"cid=$(docker ps -q | head -n 1); [ -n ""$cid"" ] && docker logs ""$cid"" 2>/dev/null || true",3,3384.976185
+unspecified,ssh,git log --oneline -500 2>/dev/null,1,2988.845903
+unspecified,ssh,git log --oneline -500 2>/dev/null,2,3449.572036
+unspecified,ssh,git log --oneline -500 2>/dev/null,3,3717.712466
+unspecified,ssh3,find /etc /var/log -type f 2>/dev/null,1,1076.589471
+unspecified,ssh3,find /etc /var/log -type f 2>/dev/null,2,915.273951
+unspecified,ssh3,find /etc /var/log -type f 2>/dev/null,3,912.461823
+unspecified,ssh3,"cid=$(docker ps -q | head -n 1); [ -n ""$cid"" ] && docker logs ""$cid"" 2>/dev/null || true",1,1312.182171
+unspecified,ssh3,"cid=$(docker ps -q | head -n 1); [ -n ""$cid"" ] && docker logs ""$cid"" 2>/dev/null || true",2,1075.813555
+unspecified,ssh3,"cid=$(docker ps -q | head -n 1); [ -n ""$cid"" ] && docker logs ""$cid"" 2>/dev/null || true",3,914.103197
+unspecified,ssh3,git log --oneline -500 2>/dev/null,1,901.954175
+unspecified,ssh3,git log --oneline -500 2>/dev/null,2,954.717745
+unspecified,ssh3,git log --oneline -500 2>/dev/null,3,883.008254
+unspecified,mosh,find /etc /var/log -type f 2>/dev/null,1,5337.528923
+unspecified,mosh,find /etc /var/log -type f 2>/dev/null,2,3840.038935
+unspecified,mosh,find /etc /var/log -type f 2>/dev/null,3,3599.227176
+unspecified,mosh,"cid=$(docker ps -q | head -n 1); [ -n ""$cid"" ] && docker logs ""$cid"" 2>/dev/null || true",1,6966.685319
+unspecified,mosh,"cid=$(docker ps -q | head -n 1); [ -n ""$cid"" ] && docker logs ""$cid"" 2>/dev/null || true",2,4287.374050
+unspecified,mosh,"cid=$(docker ps -q | head -n 1); [ -n ""$cid"" ] && docker logs ""$cid"" 2>/dev/null || true",3,4418.154682
+unspecified,mosh,git log --oneline -500 2>/dev/null,1,5121.955634
+unspecified,mosh,git log --oneline -500 2>/dev/null,2,4030.434420
+unspecified,mosh,git log --oneline -500 2>/dev/null,3,3515.253719

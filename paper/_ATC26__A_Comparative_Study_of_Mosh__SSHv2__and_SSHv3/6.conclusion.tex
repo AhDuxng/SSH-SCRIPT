@@ -1,13 +1,12 @@
 \section{Conclusion}
 \label{sec:conclusion}
-% Le & Trung's text
-%This work investigated the so-called selfish scheduling phenomenon, which degrades the performance of MPQUIC schedulers in the multi-client context. 
-%for wireless networks with multiple clients communicating with a sever simultaneously. 
-%To this end, we proposed MuLeS, a novel MPQUIC scheduler based on Q-learning that allows for scheduling packets for multiple clients simultaneously.
-%By taking states of all sessions into account, MuLeS can offer a scheduling decision fairly for all clients, thereby alleviating the selfish scheduling phenomenon. Consequently, MuLeS can shorten the mean download time of all clients by up to 16\% compared to other schedulers.
-%However, the performance of MuLeS depends on the values of some hyperparameters, such as $\beta$. Our future work will be devoted to automating the selection of optimal hyperparameters, making our algorithm more robust.
 
+This paper presented a systematic measurement study comparing SSHv2, SSH3, and Mosh as transport substrates for interactive AI agent workloads. Using a controlled testbed with tc/netem emulation across three network scenarios, we evaluated session establishment, command completion latency, and output completeness.
 
-%Kien's text 2023 Sep. 3
-This work investigated the MPQUIC scheduling issue with the consideration of multiple clients. We then proposed MuLeS, a novel MPQUIC scheduler based on Q-learning that allows for simultaneously scheduling packets for several clients. MuLes considers the states of all concurrent sessions and offers a scheduling decision fairly for all clients. As a result, MuLeS alleviates the rush scheduling phenomenon that happened with the existing schedulers. We have implemented and evaluated MuLes in comparison to state-of-the-art MPQUIC schedulers. The results show that  MuLeS can shorten the mean download time of all clients by up to 16\% compared to the others. However, the performance of MuLeS depends on the values of some hyperparameters, such as $\beta$. Our future work will be devoted to automating the selection of optimal hyperparameters, making our algorithm more robust.
-%\balance
+Our key findings are as follows. First, SSH3 achieves 2.2--3.4$\times$ faster session establishment than SSHv2 and 3.2--3.7$\times$ faster than Mosh, owing to QUIC's 1-RTT handshake (RQ1). Second, for lightweight commands ($<$1\,KB output), SSH3 provides the lowest latency under impairment (1.5$\times$ faster than SSHv2 in the High scenario). However, for heavy-output commands, SSH3's userspace QUIC is 1.7--2.2$\times$ slower than SSHv2's kernel TCP, which benefits from decades of optimization (CUBIC, pacing, TSO/GRO offload) (RQ2, RQ3). Third, Mosh achieves the lowest apparent latency for all commands but delivers only 2--6\% of expected output for heavy commands and 89--92\% for lightweight commands, due to SSP's frame-skipping design. For AI agents that must parse complete output, this renders Mosh unsuitable for most workloads (RQ4).
+
+Based on these results, we offer the following practical guidelines for AI agent deployments: (1)~when session churn is frequent (e.g., per-task connections), SSH3 provides the lowest setup overhead; (2)~for commands producing small output (status checks, simple queries), SSH3 offers the best latency; (3)~for commands producing large output (log retrieval, directory listings), SSHv2 remains the most efficient choice; (4)~Mosh should only be used for interactive editing tasks where output completeness is not required.
+
+\textbf{Limitations.} Our measurements use a single-hop controlled testbed with emulated impairments. Real-world deployments may encounter middlebox interference (particularly for UDP-based protocols), multi-hop routing variability, and server load effects not captured here. SSH3 is still experimental software (v0.1.7) and its QUIC performance may improve as the implementation matures.
+
+\textbf{Future work.} We plan to extend this study to wide-area networks, evaluate the impact of 0-RTT resumption in SSH3, and integrate our benchmark framework with actual AI agent systems to measure end-to-end task completion time.

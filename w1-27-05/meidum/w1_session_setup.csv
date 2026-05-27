@@ -1,0 +1,55 @@
+scenario,protocol,command,trial_id,session_setup_ms
+unspecified,ssh,ls,1,1641.060799
+unspecified,ssh,ls,2,2075.961875
+unspecified,ssh,ls,3,1726.840991
+unspecified,ssh,df -h,1,1703.358096
+unspecified,ssh,df -h,2,1706.075932
+unspecified,ssh,df -h,3,2104.912185
+unspecified,ssh,ps aux,1,1775.644946
+unspecified,ssh,ps aux,2,1813.598917
+unspecified,ssh,ps aux,3,1741.044678
+unspecified,ssh,grep -n root /etc/passwd,1,1726.270822
+unspecified,ssh,grep -n root /etc/passwd,2,1773.637312
+unspecified,ssh,grep -n root /etc/passwd,3,1784.261984
+unspecified,ssh,cat /proc/meminfo,1,1769.854204
+unspecified,ssh,cat /proc/meminfo,2,1727.954669
+unspecified,ssh,cat /proc/meminfo,3,1783.569229
+unspecified,ssh,find /usr -maxdepth 3,1,1810.536764
+unspecified,ssh,find /usr -maxdepth 3,2,2036.972419
+unspecified,ssh,find /usr -maxdepth 3,3,1629.986697
+unspecified,ssh3,ls,1,631.760247
+unspecified,ssh3,ls,2,596.551635
+unspecified,ssh3,ls,3,917.559814
+unspecified,ssh3,df -h,1,577.274496
+unspecified,ssh3,df -h,2,667.599807
+unspecified,ssh3,df -h,3,641.889987
+unspecified,ssh3,ps aux,1,590.280637
+unspecified,ssh3,ps aux,2,520.727770
+unspecified,ssh3,ps aux,3,563.402641
+unspecified,ssh3,grep -n root /etc/passwd,1,584.323973
+unspecified,ssh3,grep -n root /etc/passwd,2,665.173500
+unspecified,ssh3,grep -n root /etc/passwd,3,654.641552
+unspecified,ssh3,cat /proc/meminfo,1,605.934335
+unspecified,ssh3,cat /proc/meminfo,2,692.249797
+unspecified,ssh3,cat /proc/meminfo,3,618.403745
+unspecified,ssh3,find /usr -maxdepth 3,1,773.967876
+unspecified,ssh3,find /usr -maxdepth 3,2,650.431100
+unspecified,ssh3,find /usr -maxdepth 3,3,649.269198
+unspecified,mosh,ls,1,2281.992012
+unspecified,mosh,ls,2,2268.681637
+unspecified,mosh,ls,3,2256.756223
+unspecified,mosh,df -h,1,2259.306109
+unspecified,mosh,df -h,2,2118.040650
+unspecified,mosh,df -h,3,2258.791830
+unspecified,mosh,ps aux,1,2252.546854
+unspecified,mosh,ps aux,2,2430.765538
+unspecified,mosh,ps aux,3,2254.770834
+unspecified,mosh,grep -n root /etc/passwd,1,2461.985301
+unspecified,mosh,grep -n root /etc/passwd,2,2852.218868
+unspecified,mosh,grep -n root /etc/passwd,3,3281.833437
+unspecified,mosh,cat /proc/meminfo,1,2218.415468
+unspecified,mosh,cat /proc/meminfo,2,2191.623283
+unspecified,mosh,cat /proc/meminfo,3,2234.981457
+unspecified,mosh,find /usr -maxdepth 3,1,2251.209951
+unspecified,mosh,find /usr -maxdepth 3,2,2195.594868
+unspecified,mosh,find /usr -maxdepth 3,3,2521.717058
