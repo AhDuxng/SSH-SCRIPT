@@ -33,6 +33,7 @@ COMMAND_LABELS = {
     "find /": "find /",
     "git status": "git status",
     "docker logs $(docker ps -q | head -n 1)": "docker logs",
+    "docker logs <container_name> 2>/dev/null": "docker logs",
     'cid=$(docker ps -q | head -n 1); [ -n "$cid" ] && docker logs "$cid" 2>/dev/null || true': "docker logs",
 }
 DEFAULT_PROMPT = "__W4_PROMPT__#"
@@ -46,6 +47,15 @@ _INITIAL_PROMPT_RE = re.compile(
     r"[#$>](?:" + _ANSI_SEQ + r"|\s)*\s*$",
 )
 _ANSI_STRIP_RE = re.compile(_ANSI_SEQ)
+
+
+def _normalize_command(command: str) -> str:
+    cmd = (command or "").strip()
+    if "<container_name>" in cmd:
+        # Legacy placeholder breaks shell parsing because '<' is treated as
+        # input-redirection. Replace it with a dynamic container-id lookup.
+        cmd = cmd.replace("<container_name>", "$(docker ps -q | head -n 1)")
+    return cmd
 
 
 @dataclass
@@ -793,6 +803,19 @@ def main() -> int:
         parser.error("--max-output-lines must be >= 0")
     if args.maxread <= 0:
         parser.error("--maxread must be > 0")
+
+    normalized_commands: List[str] = []
+    for raw in args.commands:
+        normalized = _normalize_command(raw)
+        if normalized != raw:
+            print(
+                f"[compat] rewritten legacy command:\n"
+                f"  from: {raw}\n"
+                f"    to: {normalized}",
+                flush=True,
+            )
+        normalized_commands.append(normalized)
+    args.commands = normalized_commands
 
     benchmark = W4Benchmark(args)
     benchmark.run()
