@@ -8,6 +8,7 @@ import random
 import re
 import shlex
 import statistics
+import subprocess
 import sys
 import time
 from dataclasses import dataclass
@@ -57,6 +58,7 @@ class SampleRecord:
     latency_ms: float
     output_bytes: int
     throughput_kib_s: Optional[float]
+    received_pct: float = 100.0
 
 
 @dataclass
@@ -89,11 +91,14 @@ class SummaryRow:
     ci95_half_width_ms: Optional[float]
     mean_output_kib: Optional[float]
     mean_throughput_kib_s: Optional[float]
+    recv_pct_mean: Optional[float]
+    recv_pct_min: Optional[float]
 
 
 class W4Benchmark:
     def __init__(self, args: argparse.Namespace) -> None:
         self.args = args
+        self.scenario = (args.scenario or "").strip() or "unspecified"
         self.target = f"{args.user}@{args.host}"
         self.prompt_marker = args.prompt.rstrip()
         if not self.prompt_marker:
@@ -112,6 +117,46 @@ class W4Benchmark:
         self.session_setups: Dict[str, Dict[str, List[float]]] = {
             p: {c: [] for c in args.commands} for p in args.protocols
         }
+        self.ref_output_bytes: Dict[str, int] = self._collect_reference_outputs()
+
+    def _collect_reference_outputs(self) -> Dict[str, int]:
+        ref: Dict[str, List[int]] = {cmd: [] for cmd in self.args.commands}
+        n_runs = 2
+        ssh_cmd = [
+            "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
+            "-o", "BatchMode=yes",
+        ]
+        if self.args.identity_file:
+            ssh_cmd += ["-i", self.args.identity_file]
+        ssh_cmd.append(self.target)
+
+        print("=== Collecting reference output bytes (via SSH exec, no PTY) ===", flush=True)
+        for run_idx in range(1, n_runs + 1):
+            for cmd in self.args.commands:
+                wrapped = cmd
+                if self.args.max_output_lines > 0:
+                    wrapped = f"{{ {cmd}; }} 2>&1 | head -n {int(self.args.max_output_lines)}"
+                try:
+                    result = subprocess.run(
+                        ssh_cmd + [wrapped],
+                        capture_output=True, timeout=120,
+                    )
+                    ref[cmd].append(len(result.stdout))
+                except Exception as exc:
+                    print(f"  ref[{cmd}] run {run_idx} FAILED: {exc}", flush=True)
+            print(f"  run {run_idx}/{n_runs} done", flush=True)
+
+        result_dict = {}
+        for cmd in self.args.commands:
+            sizes = ref[cmd]
+            if sizes:
+                sizes.sort()
+                result_dict[cmd] = sizes[len(sizes) // 2]
+            else:
+                result_dict[cmd] = 0
+            print(f"  ref[{cmd}] = {result_dict[cmd]} bytes (samples: {sizes})", flush=True)
+        print("", flush=True)
+        return result_dict
 
     @staticmethod
     def _build_prompt_re(prompt_marker: str) -> re.Pattern[str]:
@@ -215,6 +260,7 @@ class W4Benchmark:
             timeout=self.args.timeout,
         )
         child.delaybeforesend = 0
+        child.setwinsize(50, 200)
 
         start_ns = time.perf_counter_ns()
         child.expect(_INITIAL_PROMPT_RE, timeout=self.args.timeout)
@@ -376,6 +422,12 @@ class W4Benchmark:
                     if latency_ms > 0
                     else None
                 )
+                ref_bytes = self.ref_output_bytes.get(command, 0)
+                if ref_bytes > 0:
+                    received_pct = min(100.0, output_bytes / ref_bytes * 100.0)
+                else:
+                    received_pct = 100.0
+
                 self.results[protocol][command].append(latency_ms)
                 self.output_sizes[protocol][command].append(output_bytes)
                 self.records.append(
@@ -389,12 +441,14 @@ class W4Benchmark:
                         latency_ms,
                         output_bytes,
                         throughput,
+                        received_pct=received_pct,
                     )
                 )
                 print(
                     f"[{protocol:>4}/{workload:<12}] trial {trial_id:>2}/{self.args.trials}"
                     f" sample {sample_id:>3}/{self.args.iterations}:"
-                    f" {latency_ms:.2f} ms, {output_bytes / 1024.0:.1f} KiB",
+                    f" {latency_ms:.2f} ms, {output_bytes / 1024.0:.1f} KiB"
+                    f" | recv {received_pct:.1f}%",
                     flush=True,
                 )
             except (pexpect.TIMEOUT, pexpect.EOF, ValueError) as exc:
@@ -485,6 +539,12 @@ class W4Benchmark:
         )
         total = len(data) + failures
         success_rate = (100.0 * len(data) / total) if total else 0.0
+
+        recv_data = [
+            r.received_pct for r in self.records
+            if r.protocol == protocol and r.command == command
+        ]
+
         if not data:
             return SummaryRow(
                 protocol,
@@ -493,16 +553,7 @@ class W4Benchmark:
                 0,
                 failures,
                 success_rate,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
+                None, None, None, None, None, None, None, None, None, None, None, None,
             )
 
         mean_ms = statistics.mean(data)
@@ -530,6 +581,8 @@ class W4Benchmark:
             (1.96 * stdev_ms / math.sqrt(len(data))) if len(data) > 1 else 0.0,
             mean_output_kib,
             mean_throughput,
+            recv_pct_mean=statistics.mean(recv_data) if recv_data else None,
+            recv_pct_min=min(recv_data) if recv_data else None,
         )
 
     def summaries(self) -> List[SummaryRow]:
@@ -560,7 +613,8 @@ class W4Benchmark:
         header = (
             f"{'Protocol':<8} | {'Command':<12} | {'N':>4} | {'Fail':>4} |"
             f" {'Succ%':>6} | {'Min':>8} | {'Mean':>8} | {'Median':>8} |"
-            f" {'P95':>8} | {'P99':>8} | {'Max':>8} | {'OutKB':>8} | {'KB/s':>8}"
+            f" {'P95':>8} | {'P99':>8} | {'Max':>8} | {'OutKB':>8} | {'KB/s':>8} |"
+            f" {'Recv%Avg':>8} | {'Recv%Min':>8}"
         )
         print("\n" + "=" * len(header))
         print(header)
@@ -573,7 +627,8 @@ class W4Benchmark:
                 f" {self._fmt(row.median_ms):>8} | {self._fmt(row.p95_ms):>8} |"
                 f" {self._fmt(row.p99_ms):>8} | {self._fmt(row.max_ms):>8} |"
                 f" {self._fmt(row.mean_output_kib):>8} |"
-                f" {self._fmt(row.mean_throughput_kib_s):>8}"
+                f" {self._fmt(row.mean_throughput_kib_s):>8} |"
+                f" {self._fmt(row.recv_pct_mean):>8} | {self._fmt(row.recv_pct_min):>8}"
             )
         print("=" * len(header))
 
@@ -609,6 +664,7 @@ class W4Benchmark:
             writer = csv.writer(f)
             writer.writerow(
                 [
+                    "scenario",
                     "protocol",
                     "workload",
                     "round_id",
@@ -618,6 +674,7 @@ class W4Benchmark:
                     "latency_ms",
                     "output_bytes",
                     "throughput_kib_s",
+                    "received_pct",
                     "status",
                     "error_type",
                     "error_message",
@@ -626,6 +683,7 @@ class W4Benchmark:
             for record in self.records:
                 writer.writerow(
                     [
+                        self.scenario,
                         record.protocol,
                         record.workload,
                         record.round_id,
@@ -639,6 +697,7 @@ class W4Benchmark:
                             if record.throughput_kib_s is not None
                             else ""
                         ),
+                        f"{record.received_pct:.2f}",
                         "ok",
                         "",
                         "",
@@ -647,6 +706,7 @@ class W4Benchmark:
             for failure in self.failures:
                 writer.writerow(
                     [
+                        self.scenario,
                         failure.protocol,
                         failure.workload,
                         failure.round_id,
@@ -664,14 +724,14 @@ class W4Benchmark:
 
         with setup_csv.open("w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
-            writer.writerow(["protocol", "command", "trial_id", "session_setup_ms"])
+            writer.writerow(["scenario", "protocol", "command", "trial_id", "session_setup_ms"])
             for protocol in self.args.protocols:
                 for command in self.args.commands:
                     for trial_id, setup_ms in enumerate(
                         self.session_setups[protocol][command], start=1
                     ):
                         writer.writerow(
-                            [protocol, command, trial_id, f"{setup_ms:.6f}"]
+                            [self.scenario, protocol, command, trial_id, f"{setup_ms:.6f}"]
                         )
 
         print(f"Saved line log CSV  : {line_csv}")
@@ -711,6 +771,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--shuffle-pairs", action="store_true")
     parser.add_argument("--reopen-on-failure", action="store_true")
     parser.add_argument("--log-pexpect", action="store_true", help="Compatibility no-op")
+    parser.add_argument("--scenario", default="", help="Free-form network scenario label (e.g. low/medium/high). Written to CSV/meta for later aggregation.")
     return parser
 
 
