@@ -772,7 +772,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--iterations", type=int, default=30)
     parser.add_argument("--timeout", type=int, default=20)
     parser.add_argument("--sample-timeout", type=float, default=60.0)
-    parser.add_argument("--command-idle-timeout", type=float, default=15.0)
+    parser.add_argument("--command-idle-timeout", type=float, default=60.0)
     parser.add_argument("--max-output-lines", type=int, default=1000)
     parser.add_argument("--maxread", type=int, default=65535)
     parser.add_argument("--seed", type=int, default=42)

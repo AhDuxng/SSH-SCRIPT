@@ -1,0 +1,28 @@
+protocol,command,trial_id,session_setup_ms
+ssh,find /,1,2779.356321
+ssh,find /,2,2796.007728
+ssh,find /,3,2762.709841
+ssh,git status,1,2756.604620
+ssh,git status,2,2591.509242
+ssh,git status,3,3418.607016
+ssh,docker logs $(docker ps -q | head -n 1),1,3312.340622
+ssh,docker logs $(docker ps -q | head -n 1),2,2918.259462
+ssh,docker logs $(docker ps -q | head -n 1),3,3153.579499
+ssh3,find /,1,1680.750564
+ssh3,find /,2,1529.898167
+ssh3,find /,3,1758.439206
+ssh3,git status,1,1908.331248
+ssh3,git status,2,1397.932507
+ssh3,git status,3,1660.774077
+ssh3,docker logs $(docker ps -q | head -n 1),1,1643.795275
+ssh3,docker logs $(docker ps -q | head -n 1),2,1563.079693
+ssh3,docker logs $(docker ps -q | head -n 1),3,1552.339273
+mosh,find /,1,3807.367353
+mosh,find /,2,3667.330983
+mosh,find /,3,3554.808353
+mosh,git status,1,3592.202480
+mosh,git status,2,3250.753947
+mosh,git status,3,3548.665110
+mosh,docker logs $(docker ps -q | head -n 1),1,4418.422425
+mosh,docker logs $(docker ps -q | head -n 1),2,4546.569624
+mosh,docker logs $(docker ps -q | head -n 1),3,3582.378785

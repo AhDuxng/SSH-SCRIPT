@@ -1,145 +1,112 @@
 \section{Performance Evaluation}
 \label{sec:evaluation}
 
+This section evaluates SSHv2, SSH3, and Mosh across three interactive AI agent workloads: command completion with small output (W1), large output delivery (W2), and interactive keystroke latency (W3, in single-pane and five-pane tmux layouts). Measurements were conducted under four network conditions, namely VPN (Tailscale over the public Internet) and three controlled tc/netem profiles labeled Low, Medium, and High. The evaluation also reports two cross-cutting metrics that apply to all workloads: session establishment latency, captured before any workload iteration begins, and output completeness, defined as the percentage of expected bytes received by the client. Table~\ref{tab:samples} summarizes the number of collected samples for each measurement case. We use these samples as the basis for the statistical analysis reported in the following subsections.
+
+\begin{table*}[t]
+\centering
+\caption{Summary of collected samples in the measurement campaign.}
+\label{tab:samples}
+\begin{tabular}{p{3.2cm}p{4.6cm}p{2.6cm}p{2.8cm}p{3.6cm}}
+\hline
+\textbf{Measurement case} & \textbf{Scenario / configuration} & \textbf{Protocol(s)} & \textbf{Sampling unit} & \textbf{Collected samples} \\
+\hline
+Session establishment & VPN (Tailscale over the public Internet), Low, Medium, and High tc/netem profiles. & SSHv2, SSH3, Mosh & One session-setup attempt (process spawn to first prompt) & 60 attempts per protocol in VPN; 18 attempts per protocol in each of Low, Medium, and High. \\
+\hline
+Command completion (W1) & Four small-output commands ($\leq$1\,KB): \texttt{ls}, \texttt{df~-h}, \texttt{grep~-n~root~/etc/passwd}, \texttt{git~status}, under all four scenarios. & SSHv2, SSH3, Mosh & One command-completion measurement & 10 sessions $\times$ 100 samples per command, post-warmup, aggregated across the four commands. \\
+\hline
+Large output delivery (W2) & Three large-output commands (tens of KB): \texttt{find~/}, \texttt{ps~aux}, \texttt{docker~logs}, under all four scenarios; 20\,s per-sample timeout. & SSHv2, SSH3, Mosh & One command-completion measurement & 10 sessions $\times$ 100 samples per command for SSHv2 and SSH3; reduced for Mosh due to timeouts (e.g., 53 valid samples in High). \\
+\hline
+Interactive keystroke (W3) & Tmux probe stream in two layouts: single-pane and five-pane (background output on the four non-probe panes), under all four scenarios. & SSHv2, SSH3, Mosh & One typed character (keystroke-to-echo measurement) & 3,000 keystrokes per protocol in VPN; 900 keystrokes per protocol in each of Low, Medium, and High, for each layout. \\
+\hline
+Output completeness & Derived from W1 (lightweight) and W2 (heavy-output) captured outputs, compared against a reference output via direct SSH execution. & SSHv2, SSH3, Mosh & One \texttt{received\_pct} value per command-completion sample & Same population as W1 and W2 above. \\
+\hline
+\end{tabular}
+\end{table*}
+
 \subsection{Session Establishment Latency}
 \label{subsec:session-setup}
 
-Table~\ref{tab:session-setup} reports the session establishment latency across all three protocols and network scenarios. Session setup time is measured from process spawn to the first shell prompt, captured before any background tasks or workload iterations begin, isolating pure transport and authentication overhead.
+We compare SSHv2, SSH3, and Mosh on session establishment latency across four network scenarios: VPN (Tailscale over the public Internet) and three controlled tc/netem profiles labeled Low, Medium, and High. For each (protocol, scenario) pair, we measure the time from client process spawn to the first interactive shell prompt, isolating pure transport and authentication overhead before any workload traffic. We collect 60 attempts per protocol in VPN and 18 attempts per protocol in each tc/netem profile (see Table~\ref{tab:samples}), and report the mean and standard deviation.
 
-\begin{table}[t]
-\centering
-\caption{Session establishment latency (ms). $N=18$ per cell.}
-\label{tab:session-setup}
-\begin{tabular}{llrrrrr}
-\hline
-\textbf{Scenario} & \textbf{Protocol} & \textbf{Mean} & \textbf{Median} & \textbf{Std} & \textbf{P95} & \textbf{Max} \\
-\hline
-\multirow{3}{*}{Low}
- & SSHv2 & 811 & 816 & 49  & 879  & 879  \\
- & SSH3  & 362 & 376 & 50  & 430  & 433  \\
- & Mosh  & 1166 & 1171 & 36 & 1205 & 1219 \\
-\hline
-\multirow{3}{*}{Medium}
- & SSHv2 & 1796 & 1772 & 137 & 2080 & 2105 \\
- & SSH3  & 645  & 637  & 88  & 796  & 918  \\
- & Mosh  & 2366 & 2258 & 283 & 2917 & 3282 \\
-\hline
-\multirow{3}{*}{High}
- & SSHv2 & 3565 & 3527 & 706 & 4749 & 5184 \\
- & SSH3  & 1042 & 954  & 202 & 1459 & 1611 \\
- & Mosh  & 3856 & 3813 & 353 & 4523 & 4705 \\
-\hline
-\end{tabular}
-\end{table}
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\columnwidth]{figs/session_setup_bar.png}
+    \caption{Session establishment latency across four network scenarios. Error bars indicate one standard deviation.}
+    \label{fig:session-setup}
+\end{figure}
 
-SSH3 achieves the fastest session setup across all scenarios, completing 2.2--3.4$\times$ faster than SSHv2 and 3.2--3.7$\times$ faster than Mosh. Under the Low scenario (RTT $\approx$ 20\,ms), SSH3 establishes a session in 362\,ms (median 376\,ms), compared to 811\,ms for SSHv2 and 1166\,ms for Mosh.
+Figure~\ref{fig:session-setup} reports the mean session-setup time with error bars indicating one standard deviation. SSH3 consistently achieves the lowest setup latency across all scenarios. For example, in the VPN scenario, SSH3 establishes a session in 219\,ms on average, while SSHv2 requires 765\,ms (a 71\% reduction) and Mosh requires 908\,ms (a 76\% reduction). The same trend holds under tc/netem impairment: in the High scenario (RTT $\approx$200\,ms, 3\% loss), SSH3 completes setup in 1042\,ms on average, compared to 3565\,ms for SSHv2 and 3856\,ms for Mosh.
 
-This difference stems from the handshake design. SSH3 uses QUIC's 1-RTT handshake, which combines transport and cryptographic setup in a single round trip. SSHv2 requires a TCP three-way handshake followed by key exchange and authentication (2--3 RTTs). Mosh incurs the highest cost because it first completes a full SSH session to bootstrap its UDP-based SSP channel, adding an extra round trip on top of the SSH handshake.
+This difference is a direct consequence of protocol design. SSH3 uses QUIC's 1-RTT handshake, which combines transport setup and cryptographic key exchange into a single round trip. SSHv2, by contrast, requires a TCP three-way handshake followed by SSH key exchange and authentication (2--3 RTTs). Mosh incurs the highest cost because it first completes a full SSHv2 session to bootstrap the UDP-based SSP channel, adding an extra round trip on top of the SSH handshake.
 
-As impairment increases, the absolute gap widens. Under the High scenario (RTT $\approx$ 200\,ms, 3\% loss), SSHv2 requires 3.6\,s and Mosh 3.9\,s on average, while SSH3 completes in 1.0\,s. Variability also grows disproportionately for TCP-based protocols: SSHv2's standard deviation reaches 706\,ms versus 202\,ms for SSH3, reflecting TCP's sensitivity to packet loss during multi-round-trip handshakes.
+Variability under impairment grows disproportionately for TCP-based protocols. In the High scenario, SSHv2's standard deviation reaches 706\,ms versus 202\,ms for SSH3, reflecting TCP's sensitivity to packet loss during multi-RTT handshakes. SSH3's QUIC handshake is less affected because a loss on the single round trip does not stall an unrelated cryptographic exchange in a separate round trip.
 
 \subsection{Command Completion Latency (W1)}
 \label{subsec:w1-results}
 
-Table~\ref{tab:w1-lightweight} summarizes the command completion latency for lightweight commands (\texttt{ls}, \texttt{df~-h}, \texttt{grep}, \texttt{cat~/proc/meminfo}), while Table~\ref{tab:w1-heavy} reports results for heavy-output commands (\texttt{ps~aux}, \texttt{find~/usr~-maxdepth~3}). Each cell aggregates $N=300$ non-warmup samples (3 trials $\times$ 100 iterations) for the LAN scenarios.
+W1 measures the end-to-end completion latency of short commands that produce small output ($\leq$1\,KB). The four commands evaluated are \texttt{ls}, \texttt{df~-h}, \texttt{grep~-n~root~/etc/passwd} (referred to as \texttt{grep} hereafter), and \texttt{git~status}. The W1 rows of Table~\ref{tab:workload-latency} report the mean across all four commands, computed by first averaging per command and then averaging across commands. Table~\ref{tab:workload-latency} also consolidates the W2 and W3 results discussed in the following subsections.
 
 \begin{table}[t]
 \centering
-\caption{W1 latency for lightweight commands (ms). Values are aggregated across four commands ($N=1200$ for SSH/SSH3, varies for Mosh due to failures).}
-\label{tab:w1-lightweight}
-\begin{tabular}{llrrrr}
+\caption{Mean latency (ms) for the three workloads across protocols and network scenarios. W1: small-output commands (\texttt{ls}, \texttt{df~-h}, \texttt{grep}, \texttt{git~status}). W2: large-output commands (\texttt{find~/}, \texttt{ps~aux}, \texttt{docker~logs}). W3: keystroke-to-echo latency in single-pane (1p) and five-pane (5p) tmux layouts. Bold marks the lowest value in each row.}
+\label{tab:workload-latency}
+\begin{tabular}{llrrr}
 \hline
-\textbf{Scenario} & \textbf{Protocol} & \textbf{N} & \textbf{Mean} & \textbf{Median} & \textbf{P95} \\
+\textbf{Workload} & \textbf{Scenario} & \textbf{SSHv2} & \textbf{SSH3} & \textbf{Mosh} \\
 \hline
-\multirow{3}{*}{Low}
- & SSHv2 & 1200 & 50.5 & 50.5 & 50.8 \\
- & SSH3  & 1200 & 50.5 & 50.5 & 50.8 \\
- & Mosh  & 456  & 50.6 & 50.5 & 50.8 \\
+\multirow{4}{*}{W1}
+ & VPN     & 93.1  & \textbf{81.6}  & 97.0  \\
+ & Low     & 97.3  & \textbf{92.9}  & 102.9 \\
+ & Medium  & 194.9 & \textbf{176.2} & 197.1 \\
+ & High    & 384.4 & \textbf{292.9} & 324.4 \\
 \hline
-\multirow{3}{*}{Medium}
- & SSHv2 & 1200 & 137.9 & 94.5  & 263.3 \\
- & SSH3  & 1200 & 133.8 & 155.8 & 248.7 \\
- & Mosh  & 515  & 122.9 & 111.9 & 178.6 \\
+\multirow{4}{*}{W2}
+ & VPN     & 159.8           & \textbf{87.7}  & 96.8           \\
+ & Low     & \textbf{432.0}  & 461.6          & 461.1          \\
+ & Medium  & 1144.9          & 739.3          & \textbf{561.4} \\
+ & High    & 2680.0          & 1384.7         & \textbf{709.6} \\
 \hline
-\multirow{3}{*}{High}
- & SSHv2 & 1200 & 262.7 & 205.9 & 572.5 \\
- & SSH3  & 1200 & 303.8 & 276.4 & 558.2 \\
- & Mosh  & 383  & 242.0 & 243.4 & 441.8 \\
+\multirow{4}{*}{W3-1p}
+ & VPN     & 20.2  & 2.1   & \textbf{1.5}  \\
+ & Low     & 26.1  & 29.3  & \textbf{2.6}  \\
+ & Medium  & 116.7 & 112.0 & \textbf{13.2} \\
+ & High    & 234.5 & 221.8 & \textbf{31.3} \\
+\hline
+\multirow{4}{*}{W3-5p}
+ & VPN     & 23.9  & 9.4   & \textbf{1.2}  \\
+ & Low     & 50.4  & 58.3  & \textbf{3.8}  \\
+ & Medium  & 152.9 & 145.7 & \textbf{7.3}  \\
+ & High    & 291.4 & 279.6 & \textbf{25.3} \\
 \hline
 \end{tabular}
 \end{table}
 
-\begin{table}[t]
-\centering
-\caption{W1 latency for heavy-output commands (ms). \texttt{ps~aux} ($\sim$4\,KB) and \texttt{find~/usr~-maxdepth~3} ($\sim$12\,KB).}
-\label{tab:w1-heavy}
-\begin{tabular}{llrrrrr}
-\hline
-\textbf{Scenario} & \textbf{Protocol} & \textbf{N} & \textbf{Mean} & \textbf{Median} & \textbf{P95} & \textbf{Stdev} \\
-\hline
-\multirow{3}{*}{Low}
- & SSHv2 & 600 & 110.0 & 71.5  & 186.0 & 57.3 \\
- & SSH3  & 600 & 133.0 & 62.3  & 241.3 & 81.8 \\
- & Mosh  & 600 & 168.0 & 58.8  & 297.1 & 119.4 \\
-\hline
-\multirow{3}{*}{Medium}
- & SSHv2 & 600 & 1448.9 & 682.3  & 3561.4  & 1235.3 \\
- & SSH3  & 600 & 2606.3 & 551.3  & 5942.3  & 2427.8 \\
- & Mosh  & 348 & 359.7  & 381.2  & 488.4   & 123.8 \\
-\hline
-\multirow{3}{*}{High}
- & SSHv2 & 600 & 3709.8  & 1662.7 & 9570.0  & 3452.1 \\
- & SSH3  & 600 & 7072.0  & 1520.7 & 15411.7 & 6517.9 \\
- & Mosh  & 53  & 431.8   & 463.4  & 794.9   & 189.7 \\
-\hline
-\end{tabular}
-\end{table}
+For W1, SSH3 achieves the lowest mean latency across all four scenarios (Table~\ref{tab:workload-latency}, W1 rows). The advantage is modest under clean conditions (81.6\,ms vs.\ 93.1\,ms for SSHv2 in VPN) but widens under impairment. In the High scenario, SSH3 averages 292.9\,ms, compared to 384.4\,ms for SSHv2 (1.31$\times$ faster) and 324.4\,ms for Mosh (1.11$\times$ faster). This reflects QUIC's lower per-request overhead: small payloads complete within a single congestion window, and 0-RTT request shipping eliminates an additional round trip that TCP-based SSH must pay for each command. Mosh's SSP frame delivery offers no benefit here because the output is too small to trigger frame coalescing.
 
-\subsubsection{Lightweight commands}
-For commands producing small output ($<$1\,KB), all three protocols perform similarly under the Low scenario ($\sim$50.5\,ms), as the network overhead is negligible on a clean LAN link. Under impairment, the protocols diverge moderately. In the High scenario, Mosh achieves the lowest mean latency (242\,ms), followed by SSHv2 (263\,ms) and SSH3 (304\,ms). Mosh's advantage here comes from SSP's frame-based delivery, which avoids retransmission delays for small payloads.
+\subsection{Large Output Delivery Latency (W2)}
+\label{subsec:w2-results}
 
-SSH3's slightly higher latency under the High scenario (304\,ms vs.\ 263\,ms for SSHv2) is notable. This may reflect overhead in the SSH3 implementation (v0.1.7), which is still experimental, or QUIC's more conservative congestion control behavior on lossy links compared to TCP's established loss recovery.
+W2 measures the completion latency of commands that produce larger output (tens of kilobytes). The three commands evaluated are \texttt{find~/}, \texttt{ps~aux}, and \texttt{docker~logs}. The W2 rows of Table~\ref{tab:workload-latency} report the mean across all three commands.
 
-\subsubsection{Heavy-output commands}
-For commands producing larger output, the protocol differences become dramatic and reveal a critical trade-off. Under the High scenario, SSHv2 averages 3.7\,s and SSH3 averages 7.1\,s, while Mosh records only 432\,ms.
+For W2, no single protocol dominates; the ranking shifts with network condition (Table~\ref{tab:workload-latency}, W2 rows). Under VPN, SSH3 is fastest (87.7\,ms), benefiting from QUIC's stream-multiplexed delivery. Under Low impairment, the three protocols converge (432--462\,ms), as the moderate RTT amortizes both QUIC's and TCP's per-byte overhead. Under Medium and High, however, Mosh's mean latency (561.4 and 709.6\,ms) is dramatically below SSHv2 (1144.9 and 2680.0\,ms) and SSH3 (739.3 and 1384.7\,ms). At High, SSHv2 is 3.8$\times$ slower and SSH3 is 2.0$\times$ slower than Mosh.
 
-SSH3's poor performance for bulk transfer under impairment is unexpected. At 7.1\,s (High), SSH3 is 1.9$\times$ slower than SSHv2 (3.7\,s). This likely reflects the immaturity of SSH3's QUIC implementation: its congestion controller may react more conservatively to loss than TCP's well-tuned algorithms, and the per-stream framing adds overhead for large sequential transfers.
-
-Mosh's low latency (432\,ms in High) is misleading. As shown in Section~\ref{subsec:output-completeness}, Mosh delivers only 2.5\% of the expected output for these commands. SSP transmits terminal frame states rather than raw byte streams; when output arrives faster than the display refresh interval, intermediate frames are discarded. The benchmark measures time-to-prompt, not time-to-complete-output.
+Mosh's apparent advantage is misleading. As shown in Section~\ref{subsec:output-completeness}, Mosh delivers only 2--6\% of the expected bytes for large-output commands because SSP discards intermediate terminal states. The benchmark therefore measures time-to-prompt for Mosh, not time-to-complete-output. SSH3's poor performance relative to SSHv2 under impairment also stands out: at High, SSH3 (1384.7\,ms) is slower than expected, likely reflecting the immaturity of QUIC implementations in SSH3 v0.1.7 (more conservative congestion control and per-stream framing overhead for sustained bulk transfers).
 
 \subsubsection{Failure rates}
-SSHv2 and SSH3 achieve perfect reliability (0 failures across all scenarios and commands). Mosh exhibits significant failures, particularly for commands with larger output: only 53 successful samples out of 300 attempts for heavy commands in the High scenario (82\% failure rate). Even for lightweight commands, Mosh's effective sample count drops to 383--515 (vs.\ 1200 for SSH/SSH3), indicating 57--68\% of sessions failed to complete.
+SSHv2 and SSH3 achieve perfect reliability (0 failures across all scenarios and commands). Mosh exhibits significant failures for large-output commands: only 53 successful samples out of 300 attempts in the High scenario (82\% failure rate), and reduced effective sample counts (53--515 vs.\ 600--1200 for SSH/SSH3) across other scenarios.
 
 \subsection{Output Completeness}
 \label{subsec:output-completeness}
 
-A key metric for AI agent workloads is whether the client receives the complete command output. Table~\ref{tab:recv-pct} reports the mean percentage of expected output bytes received by the client (\texttt{received\_pct}), computed by comparing the captured output length against a reference collected via direct SSH execution.
+A key metric for AI agent workloads is whether the client receives the complete command output. Figure~\ref{fig:recv-pct} reports the mean percentage of expected output bytes received by the client (\texttt{received\_pct}), computed by comparing the captured output length against a reference collected via direct SSH execution.
 
-\begin{table}[t]
-\centering
-\caption{Output completeness (\% of expected bytes received). Higher is better.}
-\label{tab:recv-pct}
-\begin{tabular}{llrr}
-\hline
-\textbf{Scenario} & \textbf{Protocol} & \textbf{Lightweight} & \textbf{Heavy-output} \\
-\hline
-\multirow{3}{*}{Low}
- & SSHv2 & 99.2 & 96.3 \\
- & SSH3  & 99.2 & 96.6 \\
- & Mosh  & 92.2 & 6.3  \\
-\hline
-\multirow{3}{*}{Medium}
- & SSHv2 & 99.2 & 98.1 \\
- & SSH3  & 99.0 & 97.0 \\
- & Mosh  & 90.5 & 2.1  \\
-\hline
-\multirow{3}{*}{High}
- & SSHv2 & 99.2 & 96.4 \\
- & SSH3  & 99.2 & 95.4 \\
- & Mosh  & 89.1 & 2.5  \\
-\hline
-\end{tabular}
-\end{table}
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\columnwidth]{figs/recv_pct_bar.png}
+    \caption{Output completeness (percentage of expected bytes received).}
+    \label{fig:recv-pct}
+\end{figure}
 
 SSHv2 and SSH3 both maintain high output completeness across all scenarios ($\geq$95\%), confirming that their byte-stream transport reliably delivers the full command output regardless of network conditions.
 
@@ -147,20 +114,16 @@ Mosh presents a fundamentally different picture. For heavy-output commands, Mosh
 
 For interactive human users, this trade-off is acceptable---the user sees the final result. For AI agents that must parse intermediate output (e.g., extracting specific lines from \texttt{ps~aux} or parsing directory listings from \texttt{find}), Mosh's frame-skipping behavior means the agent operates on incomplete data. This can lead to incorrect parsing, missed information, and cascading errors in the agent's decision loop.
 
-\subsection{Continuous Monitoring Latency (W2)}
-\label{subsec:w2-results}
-
-% TODO
-
 \subsection{Interactive Keystroke Latency (W3)}
 \label{subsec:w3-results}
 
-% TODO
+W3 measures keystroke-to-echo latency under interactive use. We script a tmux session that types characters at a steady cadence and timestamps the moment each character is rendered back. Two layouts are evaluated: a single pane (\texttt{w3}, 1-pane) and a five-pane split layout (\texttt{w3-5}, 5-pane), the latter representing a more demanding terminal multiplexing workload that forces frequent screen redraws across multiple regions. The W3-1p and W3-5p rows of Table~\ref{tab:workload-latency} report the mean keystroke latency for each layout.
 
-\subsection{Large Output Delivery (W4)}
-\label{subsec:w4-results}
+Mosh dominates W3 across every scenario and layout, often by an order of magnitude (Table~\ref{tab:workload-latency}, W3 rows). Under the High scenario, Mosh keystroke latency stays at 25--31\,ms whereas SSHv2 reaches 234--291\,ms and SSH3 reaches 222--280\,ms (7--11$\times$ higher). The gap originates from SSP's local-echo and predictive rendering: keystrokes are echoed locally on the client and then reconciled with the authoritative server state asynchronously, so user-perceived latency is decoupled from network RTT. SSHv2 and SSH3 both round-trip every character to the remote pseudo-terminal before echoing, so their latency tracks RTT directly.
 
-% TODO
+SSH3's QUIC transport offers a clear benefit only under the VPN scenario (2.1\,ms vs.\ 20.2\,ms for SSHv2 in 1-pane), where 0-RTT request shipping eliminates a round trip. Under impaired networks, SSH3 performs comparably to SSHv2 (e.g., 221.8\,ms vs.\ 234.5\,ms in High 1-pane), and is even slightly slower than SSHv2 under Low (29.3\,ms vs.\ 26.1\,ms in 1-pane), again pointing to the immaturity of QUIC stack tuning in the SSH3 implementation.
+
+The five-pane layout amplifies redraw traffic and stresses the protocols differently. SSHv2 and SSH3 both incur 18--96\% additional latency moving from 1-pane to 5-pane, as each redraw must be transmitted over the network. Mosh, in contrast, shows negligible or even reduced 5-pane latency (e.g., 1.2\,ms vs.\ 1.5\,ms in VPN; 7.3\,ms vs.\ 13.2\,ms in Medium), because SSP coalesces multi-pane updates into a single terminal frame before transmission---additional panes do not multiply the wire workload. This confirms that for human-interactive use over impaired networks, especially with multi-pane layouts, Mosh remains the most responsive option.
 
 \subsection{Key Takeaways}
 \label{subsec:takeaways}

@@ -21,11 +21,11 @@
 set -euo pipefail
 
 # --- Connection / interface config (keep in sync with run_w1_benchmark.sh) ----
-HOST="10.42.0.206"
-USER_NAME="pi"
-IDENTITY_FILE="$HOME/.ssh/id_ed25519"
+HOST="192.168.8.102"
+USER_NAME="trungnt"
+IDENTITY_FILE="$HOME/.ssh/id_rsa"
 
-CLIENT_IFACE="${CLIENT_IFACE:-enp43s0}"   # override: CLIENT_IFACE=eth0 ./run_all_scenarios.sh
+CLIENT_IFACE="${CLIENT_IFACE:-eth0}"   # override: CLIENT_IFACE=eth0 ./run_all_scenarios.sh
 SERVER_IFACE="${SERVER_IFACE:-eth0}"     # override: SERVER_IFACE=eth0 ./run_all_scenarios.sh
 
 LOCAL_SET_NETWORK="${LOCAL_SET_NETWORK:-../set_network.sh}"

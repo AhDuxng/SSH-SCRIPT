@@ -1,5 +1,5 @@
 \section{Methodology}
-\label{sec:proposal}
+\label{sec:methodology}
 
 \begin{figure*}[t]
     \centering
@@ -13,16 +13,14 @@ This section presents the experimental methodology used to evaluate SSHv2, Mosh,
 \subsection{Measurement Framework}
 \label{subsec:measurement-framework}
 
-Figure~\ref{fig:measurement-framework} illustrates the measurement framework. It consists of a benchmark client, a network environment, a remote server, workload generation logic, and a data-analysis process. The benchmark client establishes remote sessions, generates workloads, sends commands or probe characters, observes terminal output, and records timestamps for each measurement event. The same workload suite is executed over SSHv2, Mosh, and SSH3. Traffic then traverses either a controlled LAN environment with tc/netem-based emulation or a VPN-based environment.
+Figure~\ref{fig:measurement-framework} illustrates the measurement framework. The benchmark client establishes remote sessions, generates workloads, sends commands or probe characters, observes terminal output, and records timestamps for each measurement event. The same workload suite is executed over SSHv2, Mosh, and SSH3. Traffic then traverses either a controlled LAN environment with tc/netem-based emulation or a VPN-based environment.
 
 On the remote server, sshd, mosh-server, and ssh3-server are installed and listen concurrently. However, only one protocol is active in each experimental run. This design avoids cross-protocol interference during measurement while keeping the server hardware, operating system, account configuration, and workload content consistent across protocols. The controlled LAN environment isolates the effect of configured network impairments, whereas the VPN-based environment captures behavior over a practical overlay deployment path.
 
-\subsection{Experimental Setup and Tools}
-\label{subsec:experimental-setup-tools}
+\subsection{Experimental Setup and Protocol Implementations}
+\label{subsec:protocol-implementations-measurement-semantics}
 
-The experiments are conducted in two environments: a controlled LAN environment and a VPN-based environment. In the controlled environment, two devices are connected through a LAN, and network impairments are configured on eth0 using Linux tc/netem. In the VPN-based environment, the benchmark client runs on a laptop and connects to the Pi2 server through a VPN tunnel; no tc/netem configuration is applied.
-
-In the controlled environment, the benchmark client is denoted as Pi1, and the remote server is denoted as Pi2. The two devices are connected through the LAN and use eth0 as the measurement interface. In the VPN-based environment, the laptop serves as the benchmark client and connects to the same Pi2 server through the VPN tunnel.
+In the controlled environment, two Raspberry Pi 4 devices serve as the benchmark client (Pi1) and the remote server (Pi2), connected directly via Ethernet (eth0). Network impairments are applied using Linux tc/netem. In the VPN-based environment, the benchmark client runs on an Acer Nitro AN515-58 laptop running Linux 6.19.11-1-cachyos, which connects through a VPN tunnel to the same remote server (Pi2).
 
 The benchmark client runs Python scripts based on pexpect to establish sessions, issue commands or probes, observe terminal output, and write CSV logs. Each measurement record is associated with protocol, scenario, workload, command or probe type, session ID, sample ID, timestamp information, and success or failure status.
 
@@ -32,7 +30,7 @@ Because Linux netem applies impairments only to the egress direction, the same c
 
 \begin{table}[t]
 \centering
-\caption{Per-egress network scenarios used in the controlled environment.}
+\caption{Per-egress network scenarios used in the controlled environment and VPN environment.}
 \label{tab:network-scenarios}
 \begin{tabular}{lcccc}
 \toprule
@@ -41,12 +39,10 @@ Scenario & Bandwidth & OWD & Jitter & Loss/egress \\
 Low & 100 Mbps & 10 ms & 0 ms & 0\% \\
 Medium & 40 Mbps & 50 ms & 4 ms & 1.5\% \\
 High & 10 Mbps & 100 ms & 16 ms & 3\% \\
+VPN & N/A & N/A & N/A & N/A \\
 \bottomrule
 \end{tabular}
 \end{table}
-
-\subsection{Protocol Implementations and Measurement Semantics}
-\label{subsec:protocol-implementations-measurement-semantics}
 
 We evaluate concrete protocol implementations rather than abstract protocol models. SSHv2 is implemented with OpenSSH 9.2p1 and OpenSSL 3.0.17. Mosh is implemented with Mosh 1.4.0 and uses the standard SSH bootstrap procedure before switching to its interactive UDP channel. SSH3 is implemented using francoismichel/ssh3 version 0.1.7 and connects to the /ssh3-term server endpoint.
 
@@ -57,40 +53,50 @@ Because the evaluated protocols do not expose identical terminal semantics, all 
 \subsection{Application Workloads}
 \label{subsec:application-workloads}
 
-The benchmark includes four workloads: command loop, large-output commands, basic interactive editing, and 5-pane interactive editing. These workloads represent common interaction patterns of interactive AI agents operating through a remote terminal: issuing short commands, receiving large outputs, typing interactively, and typing under concurrent redraw pressure. The benchmark uses prompt markers, completion markers, or client-side echo observations to identify the start and end of each measurement.
+The benchmark includes three workloads: command loop (W1), large-output commands (W2), and interactive editing (W3, with single-pane and 5-pane variants). These workloads represent common interaction patterns of interactive AI agents operating through a remote terminal: issuing short commands, receiving large outputs, and performing interactive editing while one or multiple terminal panes remain active. The benchmark mechanism follows the client-side observation path in Figure~\ref{fig:measurement-framework}: prompt markers, completion markers, or client-side echo observations are used to identify the start and end of each measurement.
 
-Each network scenario uses the same repetition structure. For each protocol, workload, and command or probe combination, the experiment opens 10 independent sessions, and each session collects 100 measured samples unless otherwise noted in the dataset metadata.
+\paragraph{Command loop (W1).}
+The command-loop workload consists of four short commands that produce small output ($\leq$1\,KB): \texttt{ls}, \texttt{df~-h}, \texttt{grep~-n~root~/etc/passwd}, and \texttt{git~status}. This workload captures short request-response interactions in which an agent issues a command, waits for the resulting output, and uses the observation to determine the next action.
 
-The workloads are executed using a blocked randomized design. For each scenario, protocol--workload--command combinations are shuffled using a fixed seed of 42 before execution. This reduces order effects caused by cache state, device temperature, run order, or background variation. The seed and shuffle state are stored with the metadata so that the experiment order can be reconstructed.
+\paragraph{Large-output commands (W2).}
+The large-output workload consists of \texttt{find~/}, \texttt{ps~aux}, and \texttt{docker~logs}, with a 20\,s per-sample timeout. These commands produce tens of kilobytes of output and capture cases in which the agent must wait for a large terminal output to reach an observable completion state before continuing.
 
-The command-loop workload consists of four short commands: ls, df -h, ps aux, and grep -n root /etc/passwd. The large-output workload consists of find /, git status, and docker logs, with a per-sample timeout. The basic interactive-editing workload performs 10 warm-up probes, which are excluded from the summary, followed by 100 measured probes in interactive\_shell, vim, and nano. The 5-pane interactive-editing workload uses a tmux session, where pane 0 receives the probe stream and panes 1--4 generate background output and redraw load. Failures, timeouts, and invalid samples are logged instead of being silently discarded.
+\paragraph{Basic interactive editing (W3, single-pane).}
+The basic interactive-editing workload evaluates input visibility in \textit{interactive shell}, \textit{vim}, and \textit{nano}. It captures the latency between sending an input character and observing that character at the client side.
+
+\paragraph{5-pane interactive editing (W3, multi-pane).}
+The 5-pane interactive-editing workload uses a tmux session to emulate editing under concurrent terminal activity. Pane 0 receives the probe stream, while panes 1-4 continuously generate background output and redraw load. This setting represents a terminal session in which the agent edits or types in one pane while other panes concurrently update monitoring output, logs, or command results.
+
+For each protocol, workload, and command or probe combination, the experiment opens 10 independent sessions, and each session collects 100 measured samples unless otherwise noted in the dataset metadata. Within each scenario, combinations of protocol, workload, and command or probe type are shuffled using a fixed seed before execution. This reduces order effects caused by cache state, device temperature, run order, or background variation. The seed and shuffle state are stored with the metadata so that the experiment order can be reconstructed.
 
 \subsection{Measurement Metrics}
 \label{subsec:measurement-metrics}
 
-All local timestamps are recorded with nanosecond resolution and converted to milliseconds during preprocessing. Since all latency metrics follow the same event-difference structure, we define a general latency metric as
-
+All local timestamps are recorded with nanosecond resolution and converted to milliseconds during preprocessing. Since all latency metrics share the same event-difference structure, we define a general latency metric as
 \begin{equation}
-L_m = t_{\mathrm{obs}}^{m} - t_{\mathrm{init}}^{m}.
+L_m = t_{\mathrm{obs}}^{m} - t_{\mathrm{init}}^{m},
 \end{equation}
+where $m$ identifies the measurement type, $t_{\mathrm{init}}^{m}$ is the 
+client-side timestamp when the action is initiated, and $t_{\mathrm{obs}}^{m}$ is the client-side timestamp when the corresponding terminal event becomes visible. The two timestamps are instantiated as follows.
 
-Here, $m$ denotes the measurement type, $t_{\mathrm{init}}^{m}$ is the client-side timestamp at which the measured action is initiated, and $t_{\mathrm{obs}}^{m}$ is the client-side timestamp at which the corresponding terminal event is observed. The specific meaning of these two timestamps depends on the workload being measured.
+\paragraph{Session setup ($L_{\mathrm{setup}}$)}
+From the client launching the protocol command to the first remote shell prompt becoming visible. Captures the delay before the agent can issue commands in a newly established session.
 
-For session setup latency, denoted by $L_{\mathrm{setup}}$, $t_{\mathrm{init}}^{m}$ is the time when the benchmark client launches the protocol command, and $t_{\mathrm{obs}}^{m}$ is the time when the first remote shell prompt is observed at the client side. This metric captures the delay before the agent can start issuing commands in a newly established remote session.
+\paragraph{Command completion ($L_{\mathrm{cmd}}$)}
+From sending a short command to observing the completion marker. Captures short request-response interactions in agent command loops.
 
-For the command-loop workload, the same formulation is reported as command completion latency, denoted by $L_{\mathrm{cmd}}$. In this case, $t_{\mathrm{init}}^{m}$ is the time when the client sends a short command, and $t_{\mathrm{obs}}^{m}$ is the time when the command completion marker is observed on the terminal. This metric captures the latency of short request-response interactions that frequently appear in agent command loops.
+\paragraph{Output completion ($L_{\mathrm{out}}$)}
+From sending a large-output command to the completion marker becoming visible. For Mosh, this reflects observable terminal completion rather than byte-complete delivery (Section~\ref{subsec:protocol-implementations-measurement-semantics}).
 
-For the large-output workload, the same formulation is reported as output completion latency, denoted by $L_{\mathrm{out}}$. Here, $t_{\mathrm{init}}^{m}$ is the time when the large-output command is sent, and $t_{\mathrm{obs}}^{m}$ is the time when the completion marker becomes visible at the client side. The interpretation of this metric follows the protocol semantics described in Section~\ref{subsec:protocol-implementations-measurement-semantics}. In particular, for Mosh, $L_{\mathrm{out}}$ reflects observable terminal completion rather than byte-complete delivery.
+\paragraph{Input-to-visible ($L_{\mathrm{input}}$)}
+From sending a probe character to the character becoming visible. Measured in \textit{interactive shell}, \textit{vim}, and \textit{nano} contexts.
 
-For the basic interactive-editing workload, the same formulation is reported as input-to-visible latency, denoted by $L_{\mathrm{input}}$. In this case, $t_{\mathrm{init}}^{m}$ is the time when the probe character is sent, and $t_{\mathrm{obs}}^{m}$ is the time when that character becomes visible at the client side. This metric is measured in interactive shell, vim, and nano contexts.
-
-For the 5-pane interactive-editing workload, the metric is denoted by $L_{\mathrm{input}}^{\mathrm{5pane}}$ and uses the same definition as $L_{\mathrm{input}}$. The difference is that the probe stream is sent to pane 0 of a tmux session, while panes 1--4 generate background output and redraw load. This setting captures input visibility under concurrent terminal activity.
+\paragraph{5-pane input-to-visible ($L_{\mathrm{input}}^{\mathrm{5pane}}$)}
+Same definition as $L_{\mathrm{input}}$, applied to pane 0 of a tmux session while anes 1-4 generate background output and redraw load.
 
 \subsection{Data Collection and Statistical Analysis}
 \label{subsec:data-collection-statistical-analysis}
 
-All measurement records are stored at the sample level. Each record includes the protocol, scenario, workload, command or probe type, session ID, sample ID, measured latency, success or failure status, and error information when applicable. Timeouts and samples that do not match the expected marker are logged separately instead of being discarded, so that both latency and protocol robustness are reflected in the analysis.
+All measurement records are stored at the sample level. Each record includes the protocol, scenario, workload, command or probe type, session ID, sample ID, measured latency, success or failure status, and error information when applicable. Failures, timeouts, and samples that do not match the expected marker are logged separately rather than discarded, allowing the analysis to capture both latency and protocol robustness.
 
 For each protocol, scenario, and workload combination, we report the number of valid samples $N$, failures, success rate, and latency statistics. The summary includes mean, median, standard deviation, the 95\% confidence interval of the mean, minimum, maximum, 95th percentile, and 99th percentile. The median represents typical behavior, while the 95th and 99th percentiles capture tail latency that an interactive AI agent may experience during long terminal interaction loops.
-
-The results are interpreted according to the protocol semantics defined in Section~\ref{subsec:protocol-implementations-measurement-semantics}. This keeps the analysis aligned with what the agent actually observes at the terminal and avoids attributing unsupported stream semantics to protocols such as Mosh.
