@@ -29,7 +29,7 @@ FIGS_DIR = os.path.join(
 os.makedirs(FIGS_DIR, exist_ok=True)
 
 SCENARIOS = ["default", "low", "medium", "high"]
-SCEN_LABELS = ["Default", "Low", "Medium", "High"]
+SCEN_LABELS = ["VPN", "Low", "Medium", "High"]
 PROTOS = ["ssh", "ssh3", "mosh"]
 PROTO_LABELS = {"ssh": "SSHv2", "mosh": "Mosh", "ssh3": "SSH3"}
 COLORS = {"ssh": "#1f77b4", "mosh": "#2ca02c", "ssh3": "#d62728"}
@@ -233,19 +233,6 @@ def grouped_bar(ax, scenario_data, scenarios, scen_labels, ylabel,
 
 
 # --- Figure builders ---
-
-def fig_session_setup(means, stds):
-    fig, ax = plt.subplots(figsize=(6.5, 4.0))
-    grouped_bar(ax, means, SCENARIOS, SCEN_LABELS,
-                "Time (ms)",
-                value_fmt="{:.0f}", error_data=stds)
-    ax.set_xlabel("")
-    plt.tight_layout()
-    out = os.path.join(FIGS_DIR, "session_setup_bar.png")
-    plt.savefig(out, dpi=180)
-    plt.close()
-    print(f"[saved] {out}")
-
 
 def fig_session_setup(means, stds):
     fig, ax = plt.subplots(figsize=(6.5, 4.0))

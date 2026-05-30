@@ -27,20 +27,18 @@ Output completeness & Derived from W1 (lightweight) and W2 (heavy-output) captur
 \subsection{Session Establishment Latency}
 \label{subsec:session-setup}
 
-We compare SSHv2, SSH3, and Mosh on session establishment latency across four network scenarios: VPN (Tailscale over the public Internet) and three controlled tc/netem profiles labeled Low, Medium, and High. For each (protocol, scenario) pair, we measure the time from client process spawn to the first interactive shell prompt, isolating pure transport and authentication overhead before any workload traffic. We collect 60 attempts per protocol in VPN and 18 attempts per protocol in each tc/netem profile (see Table~\ref{tab:samples}), and report the mean and standard deviation.
+We compare SSHv2, SSH3, and Mosh on session establishment latency across four network scenarios: VPN (Tailscale over the public Internet) and three controlled tc/netem profiles labeled Low, Medium, and High. For each (protocol, scenario) pair, we measure the time from client process spawn to the first interactive shell prompt, isolating pure transport and authentication overhead before any workload traffic. We collect 60 attempts per protocol in VPN and 18 attempts per protocol in each tc/netem profile (see Table~\ref{tab:samples}), and report the mean.
 
 \begin{figure}[t]
     \centering
     \includegraphics[width=\columnwidth]{figs/session_setup_bar.png}
-    \caption{Session establishment latency across four network scenarios. Error bars indicate one standard deviation.}
+    \caption{Mean session establishment latency across four network scenarios.}
     \label{fig:session-setup}
 \end{figure}
 
-Figure~\ref{fig:session-setup} reports the mean session-setup time with error bars indicating one standard deviation. SSH3 consistently achieves the lowest setup latency across all scenarios. For example, in the VPN scenario, SSH3 establishes a session in 219\,ms on average, while SSHv2 requires 765\,ms (a 71\% reduction) and Mosh requires 908\,ms (a 76\% reduction). The same trend holds under tc/netem impairment: in the High scenario (RTT $\approx$200\,ms, 3\% loss), SSH3 completes setup in 1042\,ms on average, compared to 3565\,ms for SSHv2 and 3856\,ms for Mosh.
+Figure~\ref{fig:session-setup} reports the mean session-setup time. SSH3 consistently achieves the lowest setup latency across all scenarios. For example, in the VPN scenario, SSH3 establishes a session in 219\,ms on average, while SSHv2 requires 765\,ms (a 71\% reduction) and Mosh requires 908\,ms (a 76\% reduction). The same trend holds under tc/netem impairment: in the High scenario (RTT $\approx$200\,ms, 3\% loss), SSH3 completes setup in 1042\,ms on average, compared to 3565\,ms for SSHv2 and 3856\,ms for Mosh.
 
 This difference is a direct consequence of protocol design. SSH3 uses QUIC's 1-RTT handshake, which combines transport setup and cryptographic key exchange into a single round trip. SSHv2, by contrast, requires a TCP three-way handshake followed by SSH key exchange and authentication (2--3 RTTs). Mosh incurs the highest cost because it first completes a full SSHv2 session to bootstrap the UDP-based SSP channel, adding an extra round trip on top of the SSH handshake.
-
-Variability under impairment grows disproportionately for TCP-based protocols. In the High scenario, SSHv2's standard deviation reaches 706\,ms versus 202\,ms for SSH3, reflecting TCP's sensitivity to packet loss during multi-RTT handshakes. SSH3's QUIC handshake is less affected because a loss on the single round trip does not stall an unrelated cryptographic exchange in a separate round trip.
 
 \subsection{Command Completion Latency (W1)}
 \label{subsec:w1-results}
@@ -82,7 +80,11 @@ W1 measures the end-to-end completion latency of short commands that produce sma
 \end{tabular}
 \end{table}
 
-For W1, SSH3 achieves the lowest mean latency across all four scenarios (Table~\ref{tab:workload-latency}, W1 rows). The advantage is modest under clean conditions (81.6\,ms vs.\ 93.1\,ms for SSHv2 in VPN) but widens under impairment. In the High scenario, SSH3 averages 292.9\,ms, compared to 384.4\,ms for SSHv2 (1.31$\times$ faster) and 324.4\,ms for Mosh (1.11$\times$ faster). This reflects QUIC's lower per-request overhead: small payloads complete within a single congestion window, and 0-RTT request shipping eliminates an additional round trip that TCP-based SSH must pay for each command. Mosh's SSP frame delivery offers no benefit here because the output is too small to trigger frame coalescing.
+For W1, SSH3 achieves the lowest mean completion latency across all four scenarios (Table~\ref{tab:workload-latency}, W1 rows). On the VPN scenario, SSH3 averages 81.6\,ms, a 12\% reduction over SSHv2 (93.1\,ms) and 16\% over Mosh (97.0\,ms). The advantage grows with impairment: under Medium, SSH3 averages 176.2\,ms versus 194.9\,ms for SSHv2 (10\% reduction) and 197.1\,ms for Mosh (11\% reduction); under High, SSH3 reaches 292.9\,ms compared to 384.4\,ms for SSHv2 and 324.4\,ms for Mosh, a 24\% reduction relative to SSHv2 and 10\% relative to Mosh.
+
+This pattern is again a direct consequence of protocol design. Each W1 command produces less than one kilobyte, so the entire response fits within a single congestion window and the dominant cost per command is the round-trip needed to ship the request and receive the prompt. SSH3's QUIC transport pipelines request bytes alongside the cryptographic handshake on the same round trip, whereas SSHv2 must wait for a separate TCP+SSH exchange before any command bytes can flow on each new request channel. The gap therefore tracks the network RTT: the higher the RTT, the larger the absolute time saved per command (e.g., 91\,ms saved over SSHv2 in High, versus 12\,ms in VPN).
+
+Mosh, by contrast, shows no advantage on W1 despite its UDP-based design. SSP coalesces multiple terminal updates into a single frame to reduce wire traffic, but with sub-kilobyte outputs the entire response already arrives in one frame interval, leaving no redundant updates to discard. Mosh therefore inherits the underlying SSHv2 round-trip cost without recouping it through frame reduction, and trails both SSH3 and SSHv2 under VPN and Low. Under Medium and High, Mosh closes the gap to SSHv2 because SSP recovers from packet loss locally on the UDP channel, avoiding the TCP retransmission stalls that inflate SSHv2's tail; nonetheless, SSH3 remains uniformly the fastest choice for short request-response loops.
 
 \subsection{Large Output Delivery Latency (W2)}
 \label{subsec:w2-results}
