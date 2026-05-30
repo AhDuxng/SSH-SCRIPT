@@ -10,11 +10,10 @@ SOURCE_IP="${SOURCE_IP:-192.168.8.100}"
 IDENTITY_FILE="${IDENTITY_FILE:-$HOME/.ssh/id_rsa}"
 
 PROTOCOLS="${PROTOCOLS:-ssh ssh3 mosh}"
-
 COMMANDS=(
-  "find /etc /var/log -type f 2>/dev/null"
-  'cid=$(docker ps -q | head -n 1); [ -n "$cid" ] && docker logs "$cid" 2>/dev/null || true'
-  "git log --oneline -500 2>/dev/null"
+  "find /"
+  "git status"
+  "docker logs \$(docker ps -q | head -n 1)"
 )
 
 ITERATIONS="${ITERATIONS:-100}"
