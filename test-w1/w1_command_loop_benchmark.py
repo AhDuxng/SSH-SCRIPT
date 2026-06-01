@@ -30,10 +30,8 @@ DEFAULT_SSH3_PATH = "/ssh3-term"
 DEFAULT_COMMANDS = [
     "ls",
     "df -h",
-    "ps aux",
     "grep -n root /etc/passwd",
-    "cat /proc/meminfo",
-    "find /usr -maxdepth 3",
+    "git status",
 ]
 _ANSI_SEQ = r"(?:\x1b\[\??[0-9;]*[a-zA-Z])"
 _ANSI_STRIP_RE = re.compile(r"\x1b\[\??[0-9;]*[a-zA-Z]|\x1b\][^\x07]*\x07|\x1b[()][A-Z0-9]|\r")

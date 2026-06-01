@@ -41,8 +41,8 @@ mkdir -p "$OUTPUT_DIR"
 COMMANDS=(
   "ls"
   "df -h"
-  "ps aux"
   "grep -n root /etc/passwd"
+  "git status"
 )
 
 # --- Build command -----------------------------------------------------------

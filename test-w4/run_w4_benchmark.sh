@@ -14,9 +14,9 @@ IDENTITY_FILE="${IDENTITY_FILE:-$HOME/.ssh/id_ed25519}"
 PROTOCOLS="${PROTOCOLS:-ssh ssh3 mosh}"
 
 COMMANDS=(
-  "find /etc /var/log -type f 2>/dev/null"
+  "find /"
   'cid=$(docker ps -q | head -n 1); [ -n "$cid" ] && docker logs "$cid" 2>/dev/null || true'
-  "git log --oneline -500 2>/dev/null"
+  "ps aux"
 )
 
 ITERATIONS="${ITERATIONS:-50}"

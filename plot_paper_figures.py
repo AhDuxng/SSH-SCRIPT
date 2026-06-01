@@ -2,10 +2,10 @@
 """Generate 4 paper figures for 5.evaluation.tex.
 
 Outputs (saved to paper/.../figs/):
-  - small_output_bar.png   (Table III: small-output commands)
-  - large_output_bar.png   (Table IV: large-output commands)
-  - recv_pct_bar.png       (Table V: output completeness, 2 subplots)
-  - w3_keystroke_bar.png   (Table W3: keystroke latency, 2 subplots)
+  - small_output_bar.pdf   (Table III: small-output commands)
+  - large_output_bar.pdf   (Table IV: large-output commands)
+  - recv_pct_lightweight.pdf, recv_pct_heavy.pdf (Table V: output completeness)
+  - w3_keystroke_bar.pdf   (Table W3: keystroke latency, 2 subplots)
 
 Color scheme (matching session_setup_bar.png):
   - SSH  = blue   (#1f77b4)
@@ -176,7 +176,7 @@ def session_setup_data():
 def grouped_bar(ax, scenario_data, scenarios, scen_labels, ylabel,
                 title=None, log_scale=False, value_fmt="{:.1f}",
                 fontsize_label=None, ymax_pad=1.18, error_data=None,
-                show_legend=True, xlabel="Network scenario"):
+                show_legend=True, xlabel=""):
     if fontsize_label is None:
         fontsize_label = FONT["label"]
     x = np.arange(len(scenarios))
@@ -241,8 +241,8 @@ def fig_session_setup(means, stds):
                 value_fmt="{:.0f}")
     ax.set_xlabel("")
     plt.tight_layout()
-    out = os.path.join(FIGS_DIR, "session_setup_bar.png")
-    plt.savefig(out, dpi=180)
+    out = os.path.join(FIGS_DIR, "session_setup_bar.pdf")
+    plt.savefig(out)
     plt.close()
     print(f"[saved] {out}")
 
@@ -252,8 +252,8 @@ def fig_small_output(g, stds):
     grouped_bar(ax, g["small"], SCENARIOS, SCEN_LABELS,
                 "Latency (ms)")
     plt.tight_layout()
-    out = os.path.join(FIGS_DIR, "small_output_bar.png")
-    plt.savefig(out, dpi=180)
+    out = os.path.join(FIGS_DIR, "small_output_bar.pdf")
+    plt.savefig(out)
     plt.close()
     print(f"[saved] {out}")
 
@@ -261,10 +261,10 @@ def fig_small_output(g, stds):
 def fig_large_output(g, stds):
     fig, ax = plt.subplots(figsize=(6.5, 4.0))
     grouped_bar(ax, g["large"], SCENARIOS, SCEN_LABELS,
-                "Latency (ms)")
+                "Latency (ms)", show_legend=False)
     plt.tight_layout()
-    out = os.path.join(FIGS_DIR, "large_output_bar.png")
-    plt.savefig(out, dpi=180)
+    out = os.path.join(FIGS_DIR, "large_output_bar.pdf")
+    plt.savefig(out)
     plt.close()
     print(f"[saved] {out}")
 
@@ -272,28 +272,36 @@ def fig_large_output(g, stds):
 def fig_recv_pct(rp):
     scen3 = ["low", "medium", "high"]
     labels3 = ["Low", "Medium", "High"]
-    fig, axes = plt.subplots(2, 1, figsize=(6.5, 7.5))
-    # Top subplot: legend ON (will be the shared legend)
-    grouped_bar(axes[0], rp["Lightweight"], scen3, labels3,
+
+    # Lightweight subplot — legend above the chart
+    fig, ax = plt.subplots(figsize=(5.5, 4.0))
+    grouped_bar(ax, rp["Lightweight"], scen3, labels3,
                 "Bytes received (%)",
                 title="",
                 value_fmt="{:.1f}", ymax_pad=1.1,
                 show_legend=True,
                 fontsize_label=10,
-                xlabel="(a) Lightweight")
-    axes[0].set_ylim(80, 105)
-    # Bottom subplot: legend OFF (shared legend on top)
-    grouped_bar(axes[1], rp["Heavy-output"], scen3, labels3,
+                xlabel="")
+    ax.set_ylim(80, 105)
+    plt.tight_layout()
+    out = os.path.join(FIGS_DIR, "recv_pct_lightweight.pdf")
+    plt.savefig(out, bbox_inches="tight")
+    plt.close()
+    print(f"[saved] {out}")
+
+    # Heavy-output subplot — no legend
+    fig, ax = plt.subplots(figsize=(5.5, 4.0))
+    grouped_bar(ax, rp["Heavy-output"], scen3, labels3,
                 "Bytes received (%)",
                 title="",
                 value_fmt="{:.1f}",
                 show_legend=False,
                 fontsize_label=10,
-                xlabel="(b) Heavy-output")
-    axes[1].set_ylim(0, 110)
+                xlabel="")
+    ax.set_ylim(0, 110)
     plt.tight_layout()
-    out = os.path.join(FIGS_DIR, "recv_pct_bar.png")
-    plt.savefig(out, dpi=180)
+    out = os.path.join(FIGS_DIR, "recv_pct_heavy.pdf")
+    plt.savefig(out, bbox_inches="tight")
     plt.close()
     print(f"[saved] {out}")
 
@@ -315,8 +323,8 @@ def fig_w3_keystroke(w3, stds):
                 show_legend=False,
                 fontsize_label=9)
     plt.tight_layout()
-    out = os.path.join(FIGS_DIR, "w3_keystroke_bar.png")
-    plt.savefig(out, dpi=180)
+    out = os.path.join(FIGS_DIR, "w3_keystroke_bar.pdf")
+    plt.savefig(out)
     plt.close()
     print(f"[saved] {out}")
 
