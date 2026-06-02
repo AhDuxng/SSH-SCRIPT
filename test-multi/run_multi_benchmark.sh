@@ -6,7 +6,7 @@ USER_NAME="trungnt"
 SOURCE_IP="192.168.8.100"
 IDENTITY_FILE="$HOME/.ssh/id_rsa"
 
-PROTOCOLS="ssh ssh3"
+PROTOCOLS="ssh ssh3 mosh"
 CONNECTIONS=100
 SPREAD_SECONDS=1
 COMMAND="uname -a"
