@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Optional
 
 
-DEFAULT_PROTOCOLS = ["ssh", "ssh3"]
+DEFAULT_PROTOCOLS = ["ssh", "ssh3", "mosh"]
 DEFAULT_COMMAND = "uname -a"
 DEFAULT_SSH3_PATH = "/ssh3-term"
 
@@ -72,32 +72,39 @@ def percentile(values: list[float], pct: float) -> Optional[float]:
 def build_command(args: argparse.Namespace, protocol: str) -> list[str]:
     target = f"{args.user}@{args.host}"
 
-    if protocol == "ssh":
-        cmd = [
-            "ssh",
+    ssh_common = [
+        "ssh",
+        "-o",
+        f"ConnectTimeout={args.connect_timeout}",
+        "-o",
+        "ConnectionAttempts=1",
+    ]
+    if args.source_ip:
+        ssh_common += ["-b", args.source_ip]
+    if args.strict_host_key_checking:
+        ssh_common += ["-o", "StrictHostKeyChecking=yes"]
+    else:
+        ssh_common += [
             "-o",
-            f"ConnectTimeout={args.connect_timeout}",
+            "StrictHostKeyChecking=no",
             "-o",
-            "ConnectionAttempts=1",
+            "UserKnownHostsFile=/dev/null",
         ]
-        if args.source_ip:
-            cmd += ["-b", args.source_ip]
-        if args.strict_host_key_checking:
-            cmd += ["-o", "StrictHostKeyChecking=yes"]
-        else:
-            cmd += [
-                "-o",
-                "StrictHostKeyChecking=no",
-                "-o",
-                "UserKnownHostsFile=/dev/null",
-            ]
-        if args.batch_mode:
-            cmd += ["-o", "BatchMode=yes"]
-        if args.identity_file:
-            cmd += ["-i", args.identity_file]
-        if args.ssh_option:
-            for option in args.ssh_option:
-                cmd += ["-o", option]
+    if args.batch_mode:
+        ssh_common += ["-o", "BatchMode=yes"]
+    if args.identity_file:
+        ssh_common += ["-i", args.identity_file]
+    if args.ssh_option:
+        for option in args.ssh_option:
+            ssh_common += ["-o", option]
+
+    if protocol == "ssh":
+        return ssh_common + [target, args.command]
+
+    if protocol == "mosh":
+        cmd = ["mosh", f"--ssh={shlex.join(ssh_common)}"]
+        if args.mosh_predict and args.mosh_predict != "adaptive":
+            cmd += ["--predict", args.mosh_predict]
         return cmd + [target, args.command]
 
     if protocol == "ssh3":
@@ -291,7 +298,7 @@ def print_summary(row: SummaryRow) -> None:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Create 100/500 concurrent SSH or SSH3 one-shot command executions "
+            "Create 100/500 concurrent SSH, SSH3, or Mosh one-shot command executions "
             "within a 1-second launch window."
         )
     )
@@ -309,6 +316,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", default="multi_results")
     parser.add_argument("--ssh3-path", default=DEFAULT_SSH3_PATH)
     parser.add_argument("--ssh3-insecure", action="store_true")
+    parser.add_argument(
+        "--mosh-predict",
+        default="always",
+        choices=["adaptive", "always", "never"],
+        help="Mosh prediction mode.",
+    )
     parser.add_argument("--batch-mode", action="store_true")
     parser.add_argument("--strict-host-key-checking", action="store_true")
     parser.add_argument(
@@ -329,7 +342,7 @@ def parse_args() -> argparse.Namespace:
         parser.error("--connections must be > 0")
     if args.spread_seconds <= 0:
         parser.error("--spread-seconds must be > 0")
-    unsupported = sorted(set(args.protocols) - {"ssh", "ssh3"})
+    unsupported = sorted(set(args.protocols) - {"ssh", "ssh3", "mosh"})
     if unsupported:
         parser.error(f"Unsupported protocols: {', '.join(unsupported)}")
     return args

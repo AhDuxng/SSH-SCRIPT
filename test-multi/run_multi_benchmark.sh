@@ -16,6 +16,7 @@ OUTPUT_DIR="multi_results"
 
 SSH3_PATH="/ssh3-term"
 SSH3_INSECURE=true
+MOSH_PREDICT="always"
 BATCH_MODE=true
 STRICT_HOST_KEY=false
 
@@ -33,6 +34,7 @@ CMD=(
   --connect-timeout "$CONNECT_TIMEOUT"
   --output-dir "$OUTPUT_DIR"
   --ssh3-path "$SSH3_PATH"
+  --mosh-predict "$MOSH_PREDICT"
 )
 
 $SSH3_INSECURE   && CMD+=(--ssh3-insecure)
