@@ -25,11 +25,14 @@ except ImportError as exc:
 
 DEFAULT_PROTOCOLS = ["ssh", "ssh3", "mosh"]
 DEFAULT_COMMANDS = [
-    "find /",
-    "docker logs $(docker ps -q | head -n 1)",
-    "ps aux",
+    "cat /tmp/w4_paths_small.txt",
+    "cat /tmp/w4_paths_medium.txt",
+    "cat /tmp/w4_paths_large.txt",
 ]
 COMMAND_LABELS = {
+    "cat /tmp/w4_paths_small.txt": "fixture small",
+    "cat /tmp/w4_paths_medium.txt": "fixture medium",
+    "cat /tmp/w4_paths_large.txt": "fixture large",
     "find /": "find /",
     "docker logs $(docker ps -q | head -n 1)": "docker logs",
     "docker logs <container_name> 2>/dev/null": "docker logs",
@@ -69,6 +72,8 @@ class SampleRecord:
     latency_ms: float
     output_bytes: int
     throughput_kib_s: Optional[float]
+    ref_output_bytes: int = 0
+    output_delta_bytes: int = 0
     received_pct: float = 100.0
 
 
@@ -130,20 +135,69 @@ class W4Benchmark:
         }
         self.ref_output_bytes: Dict[str, int] = self._collect_reference_outputs()
 
-    def _collect_reference_outputs(self) -> Dict[str, int]:
-        ref: Dict[str, List[int]] = {cmd: [] for cmd in self.args.commands}
-        n_runs = 2
+    def _ssh_exec_command(self) -> List[str]:
         ssh_cmd = [
-            "ssh", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
+            "ssh",
+            "-o", "StrictHostKeyChecking=no",
+            "-o", "UserKnownHostsFile=/dev/null",
             "-o", "BatchMode=yes",
         ]
+        if self.args.source_ip:
+            ssh_cmd += ["-b", self.args.source_ip]
         if self.args.identity_file:
             ssh_cmd += ["-i", self.args.identity_file]
         ssh_cmd.append(self.target)
+        return ssh_cmd
 
-        print("=== Collecting reference output bytes (via SSH exec, no PTY) ===", flush=True)
-        for run_idx in range(1, n_runs + 1):
-            for cmd in self.args.commands:
+    def _fixture_ref_command(self, command: str) -> Optional[str]:
+        if self.args.max_output_lines > 0:
+            return None
+        try:
+            parts = shlex.split(command)
+        except ValueError:
+            return None
+        if len(parts) != 2 or parts[0] != "cat":
+            return None
+        path = parts[1]
+        if not path.startswith("/"):
+            return None
+        quoted = shlex.quote(path)
+        return (
+            f"test -r {quoted} || {{ echo 'missing fixture: {quoted}' >&2; exit 66; }}; "
+            f"wc -c < {quoted}"
+        )
+
+    def _collect_reference_outputs(self) -> Dict[str, int]:
+        ref: Dict[str, List[int]] = {cmd: [] for cmd in self.args.commands}
+        n_runs = 2
+        ssh_cmd = self._ssh_exec_command()
+
+        print("=== Collecting reference output bytes ===", flush=True)
+        for cmd in self.args.commands:
+            fixture_ref = self._fixture_ref_command(cmd)
+            if fixture_ref is not None:
+                result = subprocess.run(
+                    ssh_cmd + [fixture_ref],
+                    capture_output=True,
+                    timeout=30,
+                    text=True,
+                )
+                if result.returncode != 0:
+                    raise RuntimeError(
+                        "Failed to read static fixture size for "
+                        f"{cmd!r}. Run setup_w4_fixtures.sh on the server first. "
+                        f"stderr={result.stderr.strip()!r}"
+                    )
+                try:
+                    ref[cmd].append(int(result.stdout.strip().split()[0]))
+                except (IndexError, ValueError) as exc:
+                    raise RuntimeError(
+                        f"Invalid fixture size output for {cmd!r}: {result.stdout!r}"
+                    ) from exc
+                print(f"  ref[{cmd}] = {ref[cmd][0]} bytes (remote wc -c)", flush=True)
+                continue
+
+            for run_idx in range(1, n_runs + 1):
                 wrapped = cmd
                 if self.args.max_output_lines > 0:
                     wrapped = f"{{ {cmd}; }} 2>&1 | head -n {int(self.args.max_output_lines)}"
@@ -155,7 +209,7 @@ class W4Benchmark:
                     ref[cmd].append(len(result.stdout))
                 except Exception as exc:
                     print(f"  ref[{cmd}] run {run_idx} FAILED: {exc}", flush=True)
-            print(f"  run {run_idx}/{n_runs} done", flush=True)
+                print(f"  ref[{cmd}] run {run_idx}/{n_runs} done", flush=True)
 
         result_dict = {}
         for cmd in self.args.commands:
@@ -193,6 +247,19 @@ class W4Benchmark:
 
     @staticmethod
     def _workload_for_command(command: str) -> str:
+        try:
+            parts = shlex.split(command)
+        except ValueError:
+            parts = []
+        if len(parts) == 2 and parts[0] == "cat":
+            fixture_labels = {
+                "w4_paths_small.txt": "fixture small",
+                "w4_paths_medium.txt": "fixture medium",
+                "w4_paths_large.txt": "fixture large",
+            }
+            label = fixture_labels.get(Path(parts[1]).name)
+            if label is not None:
+                return label
         return COMMAND_LABELS.get(command, command)
 
     def _expect_prompt(
@@ -442,6 +509,7 @@ class W4Benchmark:
                     else None
                 )
                 ref_bytes = self.ref_output_bytes.get(command, 0)
+                output_delta_bytes = output_bytes - ref_bytes
                 if ref_bytes > 0:
                     received_pct = min(100.0, output_bytes / ref_bytes * 100.0)
                 else:
@@ -460,6 +528,8 @@ class W4Benchmark:
                         latency_ms,
                         output_bytes,
                         throughput,
+                        ref_bytes,
+                        output_delta_bytes,
                         received_pct=received_pct,
                     )
                 )
@@ -467,7 +537,8 @@ class W4Benchmark:
                     f"[{protocol:>4}/{workload:<12}] trial {trial_id:>2}/{self.args.trials}"
                     f" sample {sample_id:>3}/{self.args.iterations}:"
                     f" {latency_ms:.2f} ms, {output_bytes / 1024.0:.1f} KiB"
-                    f" | recv {received_pct:.1f}%",
+                    f" | recv {received_pct:.1f}%"
+                    f" | delta {output_delta_bytes:+d} B",
                     flush=True,
                 )
             except (pexpect.TIMEOUT, pexpect.EOF, ValueError) as exc:
@@ -692,6 +763,8 @@ class W4Benchmark:
                     "command",
                     "latency_ms",
                     "output_bytes",
+                    "ref_output_bytes",
+                    "output_delta_bytes",
                     "throughput_kib_s",
                     "received_pct",
                     "status",
@@ -711,6 +784,8 @@ class W4Benchmark:
                         record.command,
                         f"{record.latency_ms:.6f}",
                         record.output_bytes,
+                        record.ref_output_bytes,
+                        record.output_delta_bytes,
                         (
                             f"{record.throughput_kib_s:.6f}"
                             if record.throughput_kib_s is not None
@@ -732,6 +807,9 @@ class W4Benchmark:
                         failure.sample_id,
                         failure.command_id,
                         failure.command,
+                        "",
+                        "",
+                        "",
                         "",
                         "",
                         "",

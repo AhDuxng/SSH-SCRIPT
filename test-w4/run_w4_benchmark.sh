@@ -4,23 +4,45 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-# HOST="${HOST:-192.168.8.102}"
-HOST="${HOST:-100.106.17.78}"
+SCENARIO="${1:-${SCENARIO:-default}}"
 USER_NAME="${USER_NAME:-trungnt}"
-SOURCE_IP="${SOURCE_IP:-100.70.166.91}"
-# SOURCE_IP="${SOURCE_IP:-192.168.8.100}"
-IDENTITY_FILE="${IDENTITY_FILE:-$HOME/.ssh/id_ed25519}"
+
+DEFAULT_HOST="${DEFAULT_HOST:-100.106.17.78}"
+DEFAULT_SOURCE_IP="${DEFAULT_SOURCE_IP:-100.70.166.91}"
+DEFAULT_IDENTITY_FILE="${DEFAULT_IDENTITY_FILE:-$HOME/.ssh/id_ed25519}"
+
+LAN_HOST="${LAN_HOST:-192.168.8.102}"
+LAN_SOURCE_IP="${LAN_SOURCE_IP:-192.168.8.100}"
+LAN_IDENTITY_FILE="${LAN_IDENTITY_FILE:-$HOME/.ssh/id_rsa}"
+
+case "$SCENARIO" in
+  default)
+    HOST="${HOST:-$DEFAULT_HOST}"
+    SOURCE_IP="${SOURCE_IP:-$DEFAULT_SOURCE_IP}"
+    IDENTITY_FILE="${IDENTITY_FILE:-$DEFAULT_IDENTITY_FILE}"
+    ;;
+  low|medium|high)
+    HOST="${HOST:-$LAN_HOST}"
+    SOURCE_IP="${SOURCE_IP:-$LAN_SOURCE_IP}"
+    IDENTITY_FILE="${IDENTITY_FILE:-$LAN_IDENTITY_FILE}"
+    ;;
+  *)
+    echo "ERROR: unknown scenario '$SCENARIO' (allowed: default, low, medium, high)" >&2
+    exit 2
+    ;;
+esac
 
 PROTOCOLS="${PROTOCOLS:-ssh ssh3 mosh}"
+FIXTURE_DIR="${FIXTURE_DIR:-/tmp}"
 
 COMMANDS=(
-  "find /"
-  'cid=$(docker ps -q | head -n 1); [ -n "$cid" ] && docker logs "$cid" 2>/dev/null || true'
-  "ps aux"
+  "cat $FIXTURE_DIR/w4_paths_small.txt"
+  "cat $FIXTURE_DIR/w4_paths_medium.txt"
+  "cat $FIXTURE_DIR/w4_paths_large.txt"
 )
 
-ITERATIONS="${ITERATIONS:-50}"
-TRIALS="${TRIALS:-10}"
+ITERATIONS="${ITERATIONS:-10}"
+TRIALS="${TRIALS:-5}"
 TIMEOUT="${TIMEOUT:-20}"
 SAMPLE_TIMEOUT="${SAMPLE_TIMEOUT:-300}"
 COMMAND_IDLE_TIMEOUT="${COMMAND_IDLE_TIMEOUT:-60}"
@@ -28,7 +50,8 @@ MAX_OUTPUT_LINES="${MAX_OUTPUT_LINES:-0}"
 MAXREAD="${MAXREAD:-65535}"
 SEED="${SEED:-42}"
 
-OUTPUT_DIR="${OUTPUT_DIR:-w4_results_trungnt}"
+OUTPUT_ROOT="${OUTPUT_ROOT:-w4_results_trungnt}"
+OUTPUT_DIR="${OUTPUT_DIR:-$OUTPUT_ROOT/$SCENARIO}"
 PROMPT="${PROMPT:-__W4_PROMPT__# }"
 
 SSH3_PATH="${SSH3_PATH:-/ssh3-term}"
@@ -69,6 +92,7 @@ CMD=(
   --prompt "$PROMPT"
   --ssh3-path "$SSH3_PATH"
   --mosh-predict "$MOSH_PREDICT"
+  --scenario "$SCENARIO"
 )
 
 [[ "$SSH3_INSECURE" == "true" ]] && CMD+=(--ssh3-insecure)
@@ -79,7 +103,10 @@ CMD=(
 
 echo "=== W4 Real Large Output Benchmark ==="
 echo "Host      : $USER_NAME@$HOST"
+echo "Scenario  : $SCENARIO"
+echo "Source IP : $SOURCE_IP"
 echo "Protocols : $PROTOCOLS"
+echo "Fixtures  : $FIXTURE_DIR/w4_paths_{small,medium,large}.txt"
 echo "Max lines : $MAX_OUTPUT_LINES per command sample"
 echo "Commands  :"
 for command in "${COMMANDS[@]}"; do

@@ -1,39 +1,54 @@
 #!/usr/bin/env bash
-# run_all_scenarios.sh — Orchestrate W4 low/medium/high runs end-to-end.
+# run_all_scenarios.sh — Orchestrate W4 LAN low/medium/high runs end-to-end.
 #
-# Key difference vs a naive loop: we prime sudo ONCE (locally and on the Pi)
+# Run this script on the Pi client that is connected to the Pi server over LAN.
+# The default/Tailscale scenario is intentionally not part of this orchestrator;
+# run it from your workstation with:
+#   ./run_w4_benchmark.sh default
+#
+# Key difference vs a naive loop: we prime sudo ONCE (locally and on the server)
 # and keep the timestamp fresh via a background loop, so subsequent
 # set_network.sh calls between scenarios do NOT re-prompt for the password.
 #
 # For each scenario:
-#   1. clear tc on client AND server, sleep SETTLE_SEC
-#   2. apply scenario on client AND server, sleep SETTLE_SEC
-#   3. run W4 benchmark -> writes w4_results/<scenario>/
+#   1. prepare static W4 fixtures on the server
+#   2. clear tc on client AND server, sleep SETTLE_SEC
+#   3. apply scenario on client AND server, sleep SETTLE_SEC
+#   4. run W4 benchmark -> writes OUTPUT_ROOT/<scenario>/
 #
 # Usage:
-#   ./run_all_scenarios.sh                # runs low, medium, high
-#   ./run_all_scenarios.sh low medium     # subset / reorder
+#   ./run_all_scenarios.sh                # runs low, medium, high over LAN
+#   ./run_all_scenarios.sh low high       # subset / reorder
 #
 # Overridable via env vars:
-#   CLIENT_IFACE (default enp43s0)  SERVER_IFACE (default eth0)
+#   CLIENT_IFACE (default eth0)  SERVER_IFACE (default eth0)
 #   SETTLE_SEC   (default 30)
 #   LOCAL_SET_NETWORK   (default ../set_network.sh)
 #   REMOTE_SET_NETWORK  (default ~/set_network.sh)
 
 set -euo pipefail
 
-# --- Connection / interface config (keep in sync with run_w4_benchmark.sh) ---
-HOST="10.42.0.206"
-USER_NAME="pi"
-IDENTITY_FILE="$HOME/.ssh/id_ed25519"
+# --- LAN connection / interface config (keep in sync with run_w4_benchmark.sh) ---
+LAN_HOST="${LAN_HOST:-192.168.8.102}"
+LAN_SOURCE_IP="${LAN_SOURCE_IP:-192.168.8.100}"
+LAN_IDENTITY_FILE="${LAN_IDENTITY_FILE:-$HOME/.ssh/id_rsa}"
 
-CLIENT_IFACE="${CLIENT_IFACE:-enp43s0}"
+HOST="${HOST:-$LAN_HOST}"
+USER_NAME="${USER_NAME:-trungnt}"
+SOURCE_IP="${SOURCE_IP:-$LAN_SOURCE_IP}"
+IDENTITY_FILE="${IDENTITY_FILE:-$LAN_IDENTITY_FILE}"
+
+CLIENT_IFACE="${CLIENT_IFACE:-eth0}"
 SERVER_IFACE="${SERVER_IFACE:-eth0}"
 
 LOCAL_SET_NETWORK="${LOCAL_SET_NETWORK:-../set_network.sh}"
 REMOTE_SET_NETWORK="${REMOTE_SET_NETWORK:-~/set_network.sh}"
 
 SETTLE_SEC="${SETTLE_SEC:-30}"
+OUTPUT_ROOT="${OUTPUT_ROOT:-w4_results_trungnt}"
+FIXTURE_DIR="${FIXTURE_DIR:-/tmp}"
+FIXTURE_SCRIPT="${FIXTURE_SCRIPT:-setup_w4_fixtures.sh}"
+SETUP_FIXTURES="${SETUP_FIXTURES:-true}"
 
 # --- ssh ControlMaster (connection multiplexing to Pi) -----------------------
 # One TCP + auth handshake; every subsequent ssh to the Pi reuses the socket.
@@ -62,7 +77,7 @@ ssh_pi_tty() {
 if [[ $# -gt 0 ]]; then
   SCENARIOS=("$@")
 else
-  SCENARIOS=(high medium low)
+  SCENARIOS=(low medium high)
 fi
 
 # --- Helpers -----------------------------------------------------------------
@@ -86,6 +101,21 @@ apply_both() {
   local profile="$1"
   apply_client "$profile"
   apply_server "$profile"
+}
+
+setup_fixtures() {
+  if [[ "$SETUP_FIXTURES" != "true" ]]; then
+    log "Skipping W4 fixture setup (SETUP_FIXTURES=$SETUP_FIXTURES)"
+    return
+  fi
+  if [[ ! -f "$FIXTURE_SCRIPT" ]]; then
+    echo "ERROR: fixture setup script not found at $FIXTURE_SCRIPT" >&2
+    exit 2
+  fi
+  local fixture_dir_q
+  printf -v fixture_dir_q '%q' "$FIXTURE_DIR"
+  log "Preparing static W4 fixtures on $USER_NAME@$HOST in $FIXTURE_DIR"
+  ssh_pi "FIXTURE_DIR=$fixture_dir_q bash -s" < "$FIXTURE_SCRIPT"
 }
 
 sleep_with_dots() {
@@ -162,7 +192,7 @@ fi
 for scenario in "${SCENARIOS[@]}"; do
   case "$scenario" in
     low|medium|high) ;;
-    *) echo "ERROR: unknown scenario '$scenario' (allowed: low, medium, high)" >&2; exit 2 ;;
+    *) echo "ERROR: unknown LAN scenario '$scenario' (allowed: low, medium, high). Run default via ./run_w4_benchmark.sh default from your workstation." >&2; exit 2 ;;
   esac
 done
 
@@ -171,12 +201,15 @@ trap cleanup EXIT
 log "=== W4 orchestrator ==="
 log "Scenarios: ${SCENARIOS[*]}"
 log "Client iface=$CLIENT_IFACE  Server iface=$SERVER_IFACE  settle=${SETTLE_SEC}s"
+log "LAN target=$USER_NAME@$HOST  LAN source IP=$SOURCE_IP"
+log "Output root=$OUTPUT_ROOT  Fixture dir=$FIXTURE_DIR"
 log "Local  : $LOCAL_SET_NETWORK"
 log "Remote : $REMOTE_SET_NETWORK (on $USER_NAME@$HOST)"
 log "ssh mux: $SSH_SOCK"
 echo
 
 prime_sudo
+setup_fixtures
 echo
 
 # --- Main loop ---------------------------------------------------------------
@@ -224,13 +257,19 @@ for scenario in "${SCENARIOS[@]}"; do
   fi
 
   log "--- step 3/3: run benchmark for $scenario"
-  ./run_w4_benchmark.sh "$scenario"
+  HOST="$HOST" \
+  USER_NAME="$USER_NAME" \
+  SOURCE_IP="$SOURCE_IP" \
+  IDENTITY_FILE="$IDENTITY_FILE" \
+  OUTPUT_ROOT="$OUTPUT_ROOT" \
+  FIXTURE_DIR="$FIXTURE_DIR" \
+    ./run_w4_benchmark.sh "$scenario"
   log "--- benchmark for $scenario done"
 done
 
 echo
 log "=== All scenarios done. Results:"
 for scenario in "${SCENARIOS[@]}"; do
-  log "  w4_results/$scenario/"
+  log "  $OUTPUT_ROOT/$scenario/"
 done
 # cleanup trap handles final clear + mux close
