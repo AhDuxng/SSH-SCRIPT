@@ -1,25 +1,27 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-HOST="100.66.79.93"
-USER_NAME="pi"
+HOST="100.106.17.78"
+USER_NAME="trungnt"
 SOURCE_IP="100.70.166.91"
 IDENTITY_FILE="$HOME/.ssh/id_ed25519" 
 
 PROTOCOLS="ssh ssh3 mosh"                          
-WORKLOADS=" nano interactive_shell vim"   
+WORKLOADS="interactive_shell vim nano"   
 
 ITERATIONS=100         
 WARMUP_ROUNDS=10       
-TRIALS=1           
+TRIALS=10
 TIMEOUT=20           
 SEED=42                
 
-OUTPUT_DIR="w3_results"
+OUTPUT_DIR="w3_results_trungnt/default"
 LOG_PEXPECT=false    
 
 PROMPT="__W3_PROMPT__# "
-SSH3_PATH=":4433/ssh3-term"
+PROBE_SEQUENCE='Go straight for 3 meters, then stop'
+
+SSH3_PATH="/ssh3-term"
 SSH3_INSECURE=true     
 
 BATCH_MODE=false              
@@ -45,6 +47,7 @@ CMD=(
     --trials          "$TRIALS"
     --timeout         "$TIMEOUT"
     --seed            "$SEED"
+    --probe-sequence  "$PROBE_SEQUENCE"
     --output-dir      "$OUTPUT_DIR"
     --prompt          "$PROMPT"
     --ssh3-path       "$SSH3_PATH"

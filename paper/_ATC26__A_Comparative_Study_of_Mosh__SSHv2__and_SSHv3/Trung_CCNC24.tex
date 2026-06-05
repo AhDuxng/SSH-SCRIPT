@@ -1,6 +1,5 @@
 \documentclass[conference]{IEEEtran}
 \IEEEoverridecommandlockouts
-\usepackage[font=small]{caption}
 \usepackage{tabularx}
 \usepackage{multirow}
 % \usepackage{subfigure}
@@ -13,7 +12,7 @@
 \usepackage{amsmath,amssymb,amsfonts}
 % \usepackage{algorithmic}
 \usepackage[ruled,vlined]{algorithm2e}
-\usepackage{subfig}
+\usepackage[caption=false,font=footnotesize]{subfig}
 \usepackage{balance}
 %\usepackage{algpseudocode}
 %\alglanguage{pseudocode}
@@ -22,6 +21,9 @@
 \usepackage{xcolor}
 \usepackage{booktabs}
 \usepackage{makecell}
+\usepackage{multirow}
+\usepackage{xurl}
+\usepackage[hidelinks]{hyperref}
 
 \newcommand*{\nguyen}{\textcolor{red}}
 
@@ -75,15 +77,13 @@
 
 \newcommand{\thanhnt}[1] { {\color{blue}{#1}}}
 
-\title{Evaluating Remote Control Protocols for Agent-Like Interactive Terminal Workloads}
+\title{Evaluating Remote Control Protocols for AI-Like Interactive Terminal Workloads}
 
 \author{
-   %  \IEEEauthorblockN{Thanh Trung Nguyen\IEEEauthorrefmark{2}\thanks{Co-first authors: Thanh Trung Nguyen, Minh Hai Vu}\IEEEauthorrefmark{1}, Nguyen Chi Cong\IEEEauthorrefmark{1}, Vu Tuan Anh\IEEEauthorrefmark{1}, Pham Anh Dung\IEEEauthorrefmark{1}\thanks{Corresponding authors: Thi Ha Ly Dinh, Phi Le Nguyen, Kien Nguyen}, Kien Nguyen\IEEEauthorrefmark{3}\IEEEauthorrefmark{4}}
-   %  \IEEEauthorblockA{\IEEEauthorrefmark{1}Phenikaa School of Computing, Phenikaa University, Hanoi, Vietnam}
-   % % {\{trung.nt220001d@sis, hai.vm194550@sis, lenp@soict, thuandp@soict\}.hust.edu.vn}
-   %  \IEEEauthorblockA{\IEEEauthorrefmark{2}Faculty of Computer Science, Phenikaa University, Hanoi, Vietnam; trung.nguyenthanh@phenikaa-uni.edu.vn}
-   %  \IEEEauthorblockA{\IEEEauthorrefmark{3}Institute for Advanced Academic Research, Chiba University, Japan; nguyen@chiba-u.jp}
-   %  \IEEEauthorblockA{\IEEEauthorrefmark{4}Graduate School of Engineering, Chiba University, Japan}
+\IEEEauthorblockN{Cong Nguyen Chi\IEEEauthorrefmark{1}, Tuan Anh Vu\IEEEauthorrefmark{1}, Dung Pham Anh\IEEEauthorrefmark{1}, Thanh Trung Nguyen\IEEEauthorrefmark{1}\thanks{Corresponding author: Thanh Trung Nguyen}, Kien Nguyen\IEEEauthorrefmark{2}\IEEEauthorrefmark{3}}
+\IEEEauthorblockA{\IEEEauthorrefmark{1}A2I Lab, Phenikaa School of Computing, Phenikaa University, Hanoi, Vietnam}
+\IEEEauthorblockA{\IEEEauthorrefmark{2}Institute for Advanced Academic Research, Chiba University, Japan;}
+\IEEEauthorblockA{\IEEEauthorrefmark{3}Graduate School of Informatics, Chiba University, Japan}
 }
 
 \maketitle
@@ -95,13 +95,13 @@
 \input{0.abstract}
 % Kien: Put the \section and \label in the appropriate files 
 \input{1.intro}
-\input{3.background}
-\input{4.proposal}
-\input{5.evaluation}
-\input{6.conclusion}
+\input{2.background}
+\input{3.proposal}
+\input{4.evaluation}
+\input{5.conclusion}
 
 
-\section*{Acknowledgment}
+% \section*{Acknowledgment}
 % This work was supported by the Japan Society for the Promotion of Science (JSPS) under Grant 23H03377. This work was also supported by Hanoi University of Science and Technology (HUST) under grant number T2022-PC-044, and partially supported by NAVER Corporation within the framework of collaboration with the International Research Center for Artificial Intelligence (BKAI), School of Information and Communication Technology, HUST under project NAVER.2022.DA01.
 
 %\addtolength{\textheight}{-12cm}   

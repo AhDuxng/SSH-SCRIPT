@@ -1,121 +1,91 @@
 scenario,protocol,command,trial_id,session_setup_ms
-default,ssh,ls,1,1955.870884
-default,ssh,ls,2,2111.254182
-default,ssh,ls,3,2085.958255
-default,ssh,ls,4,1993.466844
-default,ssh,ls,5,2081.814308
-default,ssh,ls,6,2121.015471
-default,ssh,ls,7,1991.832112
-default,ssh,ls,8,1969.969153
-default,ssh,ls,9,2173.233798
-default,ssh,ls,10,1967.129285
-default,ssh,df -h,1,2150.712739
-default,ssh,df -h,2,2187.504894
-default,ssh,df -h,3,1968.048381
-default,ssh,df -h,4,2019.362852
-default,ssh,df -h,5,2031.878878
-default,ssh,df -h,6,2279.404248
-default,ssh,df -h,7,2137.986856
-default,ssh,df -h,8,2013.040872
-default,ssh,df -h,9,2005.764178
-default,ssh,df -h,10,2095.203736
-default,ssh,ps aux,1,1996.998059
-default,ssh,ps aux,2,1985.841501
-default,ssh,ps aux,3,1926.567249
-default,ssh,ps aux,4,1955.104789
-default,ssh,ps aux,5,1910.087271
-default,ssh,ps aux,6,2060.924656
-default,ssh,ps aux,7,1894.249456
-default,ssh,ps aux,8,1955.946366
-default,ssh,ps aux,9,1923.559338
-default,ssh,ps aux,10,1961.276472
-default,ssh,grep -n root /etc/passwd,1,1962.770502
-default,ssh,grep -n root /etc/passwd,2,1991.739979
-default,ssh,grep -n root /etc/passwd,3,2043.470303
-default,ssh,grep -n root /etc/passwd,4,2080.032878
-default,ssh,grep -n root /etc/passwd,5,2095.906944
-default,ssh,grep -n root /etc/passwd,6,1971.999923
-default,ssh,grep -n root /etc/passwd,7,1998.849408
-default,ssh,grep -n root /etc/passwd,8,2093.109327
-default,ssh,grep -n root /etc/passwd,9,2018.367070
-default,ssh,grep -n root /etc/passwd,10,2117.199856
-default,ssh3,ls,1,708.740824
-default,ssh3,ls,2,708.838341
-default,ssh3,ls,3,558.647408
-default,ssh3,ls,4,695.386743
-default,ssh3,ls,5,574.964418
-default,ssh3,ls,6,616.387468
-default,ssh3,ls,7,646.067489
-default,ssh3,ls,8,597.608848
-default,ssh3,ls,9,569.471236
-default,ssh3,ls,10,676.237945
-default,ssh3,df -h,1,674.485613
-default,ssh3,df -h,2,606.463408
-default,ssh3,df -h,3,678.183272
-default,ssh3,df -h,4,664.877940
-default,ssh3,df -h,5,548.343510
-default,ssh3,df -h,6,664.061985
-default,ssh3,df -h,7,615.899473
-default,ssh3,df -h,8,627.794478
-default,ssh3,df -h,9,670.611202
-default,ssh3,df -h,10,666.265092
-default,ssh3,ps aux,1,639.111447
-default,ssh3,ps aux,2,638.320712
-default,ssh3,ps aux,3,565.602917
-default,ssh3,ps aux,4,564.798271
-default,ssh3,ps aux,5,596.358577
-default,ssh3,ps aux,6,595.521285
-default,ssh3,ps aux,7,567.395491
-default,ssh3,ps aux,8,567.651482
-default,ssh3,ps aux,9,655.334639
-default,ssh3,ps aux,10,586.794531
-default,ssh3,grep -n root /etc/passwd,1,634.803555
-default,ssh3,grep -n root /etc/passwd,2,660.498270
-default,ssh3,grep -n root /etc/passwd,3,656.086267
-default,ssh3,grep -n root /etc/passwd,4,604.903493
-default,ssh3,grep -n root /etc/passwd,5,686.784393
-default,ssh3,grep -n root /etc/passwd,6,611.697231
-default,ssh3,grep -n root /etc/passwd,7,635.446450
-default,ssh3,grep -n root /etc/passwd,8,650.774223
-default,ssh3,grep -n root /etc/passwd,9,596.106074
-default,ssh3,grep -n root /etc/passwd,10,636.454939
-default,mosh,ls,1,2553.801125
-default,mosh,ls,2,2233.837356
-default,mosh,ls,3,2518.832616
-default,mosh,ls,4,2271.375588
-default,mosh,ls,5,2429.980058
-default,mosh,ls,6,2316.696420
-default,mosh,ls,7,2414.047947
-default,mosh,ls,8,2316.464931
-default,mosh,ls,9,2116.985913
-default,mosh,ls,10,2294.484381
-default,mosh,df -h,1,2413.012831
-default,mosh,df -h,2,2196.697711
-default,mosh,df -h,3,2686.987637
-default,mosh,df -h,4,2254.501067
-default,mosh,df -h,5,2297.754109
-default,mosh,df -h,6,2618.143810
-default,mosh,df -h,7,2297.982148
-default,mosh,df -h,8,2663.745453
-default,mosh,df -h,9,2484.309794
-default,mosh,df -h,10,2257.011781
-default,mosh,ps aux,1,2344.448137
-default,mosh,ps aux,2,2308.534467
-default,mosh,ps aux,3,2165.463230
-default,mosh,ps aux,4,2343.628520
-default,mosh,ps aux,5,2064.473285
-default,mosh,ps aux,6,2204.176095
-default,mosh,ps aux,7,2314.759759
-default,mosh,ps aux,8,2339.523355
-default,mosh,ps aux,9,2310.144800
-default,mosh,ps aux,10,2124.278723
-default,mosh,grep -n root /etc/passwd,1,2344.065449
-default,mosh,grep -n root /etc/passwd,2,2953.059316
-default,mosh,grep -n root /etc/passwd,3,2292.526717
-default,mosh,grep -n root /etc/passwd,4,2313.460293
-default,mosh,grep -n root /etc/passwd,5,2273.797751
-default,mosh,grep -n root /etc/passwd,6,2287.271269
-default,mosh,grep -n root /etc/passwd,7,2314.297637
-default,mosh,grep -n root /etc/passwd,8,2287.011442
-default,mosh,grep -n root /etc/passwd,9,2365.008381
-default,mosh,grep -n root /etc/passwd,10,2526.723900
+default,ssh,cat /tmp/w1_fixture_small.txt,1,1679.935402
+default,ssh,cat /tmp/w1_fixture_small.txt,2,1658.133345
+default,ssh,cat /tmp/w1_fixture_small.txt,3,1803.478242
+default,ssh,cat /tmp/w1_fixture_small.txt,4,1654.759728
+default,ssh,cat /tmp/w1_fixture_small.txt,5,1796.863359
+default,ssh,cat /tmp/w1_fixture_small.txt,6,1658.995406
+default,ssh,cat /tmp/w1_fixture_small.txt,7,1801.909650
+default,ssh,cat /tmp/w1_fixture_small.txt,8,1689.012704
+default,ssh,cat /tmp/w1_fixture_small.txt,9,1644.836866
+default,ssh,cat /tmp/w1_fixture_small.txt,10,1686.434728
+default,ssh,cat /tmp/w1_fixture_medium.txt,1,1693.709546
+default,ssh,cat /tmp/w1_fixture_medium.txt,2,1692.153385
+default,ssh,cat /tmp/w1_fixture_medium.txt,3,1722.980722
+default,ssh,cat /tmp/w1_fixture_medium.txt,4,1730.985114
+default,ssh,cat /tmp/w1_fixture_medium.txt,5,1728.070025
+default,ssh,cat /tmp/w1_fixture_medium.txt,6,1652.868314
+default,ssh,cat /tmp/w1_fixture_medium.txt,7,1842.434880
+default,ssh,cat /tmp/w1_fixture_medium.txt,8,1816.560536
+default,ssh,cat /tmp/w1_fixture_medium.txt,9,1744.988709
+default,ssh,cat /tmp/w1_fixture_medium.txt,10,1761.309405
+default,ssh,cat /tmp/w1_fixture_large.txt,1,1613.795525
+default,ssh,cat /tmp/w1_fixture_large.txt,2,1677.759477
+default,ssh,cat /tmp/w1_fixture_large.txt,3,1682.896683
+default,ssh,cat /tmp/w1_fixture_large.txt,4,1733.600391
+default,ssh,cat /tmp/w1_fixture_large.txt,5,1736.429635
+default,ssh,cat /tmp/w1_fixture_large.txt,6,1772.338796
+default,ssh,cat /tmp/w1_fixture_large.txt,7,1682.204953
+default,ssh,cat /tmp/w1_fixture_large.txt,8,1740.324578
+default,ssh,cat /tmp/w1_fixture_large.txt,9,1681.926386
+default,ssh,cat /tmp/w1_fixture_large.txt,10,1726.439228
+default,ssh3,cat /tmp/w1_fixture_small.txt,1,517.645169
+default,ssh3,cat /tmp/w1_fixture_small.txt,2,541.167526
+default,ssh3,cat /tmp/w1_fixture_small.txt,3,482.931667
+default,ssh3,cat /tmp/w1_fixture_small.txt,4,572.384793
+default,ssh3,cat /tmp/w1_fixture_small.txt,5,522.193906
+default,ssh3,cat /tmp/w1_fixture_small.txt,6,513.478666
+default,ssh3,cat /tmp/w1_fixture_small.txt,7,527.462263
+default,ssh3,cat /tmp/w1_fixture_small.txt,8,516.604670
+default,ssh3,cat /tmp/w1_fixture_small.txt,9,576.504539
+default,ssh3,cat /tmp/w1_fixture_small.txt,10,518.467777
+default,ssh3,cat /tmp/w1_fixture_medium.txt,1,526.886717
+default,ssh3,cat /tmp/w1_fixture_medium.txt,2,531.838685
+default,ssh3,cat /tmp/w1_fixture_medium.txt,3,514.297434
+default,ssh3,cat /tmp/w1_fixture_medium.txt,4,544.015256
+default,ssh3,cat /tmp/w1_fixture_medium.txt,5,451.043308
+default,ssh3,cat /tmp/w1_fixture_medium.txt,6,539.751881
+default,ssh3,cat /tmp/w1_fixture_medium.txt,7,477.468586
+default,ssh3,cat /tmp/w1_fixture_medium.txt,8,536.045431
+default,ssh3,cat /tmp/w1_fixture_medium.txt,9,457.441641
+default,ssh3,cat /tmp/w1_fixture_medium.txt,10,538.203230
+default,ssh3,cat /tmp/w1_fixture_large.txt,1,537.776458
+default,ssh3,cat /tmp/w1_fixture_large.txt,2,522.318586
+default,ssh3,cat /tmp/w1_fixture_large.txt,3,537.802656
+default,ssh3,cat /tmp/w1_fixture_large.txt,4,495.792934
+default,ssh3,cat /tmp/w1_fixture_large.txt,5,600.475081
+default,ssh3,cat /tmp/w1_fixture_large.txt,6,496.424275
+default,ssh3,cat /tmp/w1_fixture_large.txt,7,562.779252
+default,ssh3,cat /tmp/w1_fixture_large.txt,8,518.325213
+default,ssh3,cat /tmp/w1_fixture_large.txt,9,570.267082
+default,ssh3,cat /tmp/w1_fixture_large.txt,10,482.091419
+default,mosh,cat /tmp/w1_fixture_small.txt,1,2026.393073
+default,mosh,cat /tmp/w1_fixture_small.txt,2,2024.451935
+default,mosh,cat /tmp/w1_fixture_small.txt,3,1826.696609
+default,mosh,cat /tmp/w1_fixture_small.txt,4,1792.466947
+default,mosh,cat /tmp/w1_fixture_small.txt,5,1754.535648
+default,mosh,cat /tmp/w1_fixture_small.txt,6,1768.839258
+default,mosh,cat /tmp/w1_fixture_small.txt,7,2054.390614
+default,mosh,cat /tmp/w1_fixture_small.txt,8,1936.126183
+default,mosh,cat /tmp/w1_fixture_small.txt,9,1876.344696
+default,mosh,cat /tmp/w1_fixture_small.txt,10,1893.137353
+default,mosh,cat /tmp/w1_fixture_medium.txt,1,1843.765574
+default,mosh,cat /tmp/w1_fixture_medium.txt,2,2049.167865
+default,mosh,cat /tmp/w1_fixture_medium.txt,3,1913.723351
+default,mosh,cat /tmp/w1_fixture_medium.txt,4,1962.774765
+default,mosh,cat /tmp/w1_fixture_medium.txt,5,1954.275415
+default,mosh,cat /tmp/w1_fixture_medium.txt,6,2004.350781
+default,mosh,cat /tmp/w1_fixture_medium.txt,7,1864.565207
+default,mosh,cat /tmp/w1_fixture_medium.txt,8,1803.444606
+default,mosh,cat /tmp/w1_fixture_medium.txt,9,1757.075836
+default,mosh,cat /tmp/w1_fixture_medium.txt,10,1696.048949
+default,mosh,cat /tmp/w1_fixture_large.txt,1,1827.443067
+default,mosh,cat /tmp/w1_fixture_large.txt,2,1813.336358
+default,mosh,cat /tmp/w1_fixture_large.txt,3,1717.294178
+default,mosh,cat /tmp/w1_fixture_large.txt,4,1815.731917
+default,mosh,cat /tmp/w1_fixture_large.txt,5,1947.438201
+default,mosh,cat /tmp/w1_fixture_large.txt,6,1824.028556
+default,mosh,cat /tmp/w1_fixture_large.txt,7,2163.226485
+default,mosh,cat /tmp/w1_fixture_large.txt,8,1836.908163
+default,mosh,cat /tmp/w1_fixture_large.txt,9,1884.079844
+default,mosh,cat /tmp/w1_fixture_large.txt,10,2086.736801

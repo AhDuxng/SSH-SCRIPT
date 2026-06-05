@@ -30,7 +30,7 @@ def safe_float(value: str) -> float | None:
 def collect(input_dir: Path) -> Tuple[Dict[str, Dict[str, dict]], List[dict]]:
     stats: Dict[str, Dict[str, dict]] = {
         scenario: {
-            proto: {"values": [], "ok": 0, "fail": 0}
+            proto: {"values": [], "ok": 0, "fail": 0, "content_bad": 0}
             for proto in PROTOCOLS
         }
         for scenario in SCENARIOS
@@ -52,6 +52,10 @@ def collect(input_dir: Path) -> Tuple[Dict[str, Dict[str, dict]], List[dict]]:
                     value = safe_float(row.get("received_pct", ""))
                     if value is None:
                         continue
+                    content_match = row.get("content_match", "")
+                    if content_match and content_match.lower() != "true":
+                        value = 0.0
+                        stats[scenario][proto]["content_bad"] += 1
                     stats[scenario][proto]["values"].append(value)
                     stats[scenario][proto]["ok"] += 1
                 elif status == "fail":
@@ -73,6 +77,7 @@ def collect(input_dir: Path) -> Tuple[Dict[str, Dict[str, dict]], List[dict]]:
                     "protocol": proto,
                     "ok_samples": entry["ok"],
                     "fail_samples": entry["fail"],
+                    "content_bad_samples": entry["content_bad"],
                     "mean_received_pct": "" if math.isnan(mean) else f"{mean:.6f}",
                     "min_received_pct": "" if math.isnan(mini) else f"{mini:.6f}",
                     "ci95_received_pct": "" if math.isnan(mean) else f"{ci95:.6f}",
@@ -91,6 +96,7 @@ def write_summary(rows: List[dict], output_csv: Path) -> None:
                 "protocol",
                 "ok_samples",
                 "fail_samples",
+                "content_bad_samples",
                 "mean_received_pct",
                 "min_received_pct",
                 "ci95_received_pct",

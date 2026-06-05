@@ -1,0 +1,91 @@
+scenario,protocol,command,trial_id,session_setup_ms
+unspecified,ssh,find /,1,1895.844409
+unspecified,ssh,find /,2,1971.526482
+unspecified,ssh,find /,3,2003.788275
+unspecified,ssh,find /,4,2010.012105
+unspecified,ssh,find /,5,1920.742382
+unspecified,ssh,find /,6,2054.849814
+unspecified,ssh,find /,7,2040.464489
+unspecified,ssh,find /,8,2289.801023
+unspecified,ssh,find /,9,2190.916481
+unspecified,ssh,find /,10,2190.477919
+unspecified,ssh,"cid=$(docker ps -q | head -n 1); [ -n ""$cid"" ] && docker logs ""$cid"" 2>/dev/null || true",1,2091.444980
+unspecified,ssh,"cid=$(docker ps -q | head -n 1); [ -n ""$cid"" ] && docker logs ""$cid"" 2>/dev/null || true",2,1941.187961
+unspecified,ssh,"cid=$(docker ps -q | head -n 1); [ -n ""$cid"" ] && docker logs ""$cid"" 2>/dev/null || true",3,1920.436163
+unspecified,ssh,"cid=$(docker ps -q | head -n 1); [ -n ""$cid"" ] && docker logs ""$cid"" 2>/dev/null || true",4,2013.006510
+unspecified,ssh,"cid=$(docker ps -q | head -n 1); [ -n ""$cid"" ] && docker logs ""$cid"" 2>/dev/null || true",5,2030.122419
+unspecified,ssh,"cid=$(docker ps -q | head -n 1); [ -n ""$cid"" ] && docker logs ""$cid"" 2>/dev/null || true",6,2001.741713
+unspecified,ssh,"cid=$(docker ps -q | head -n 1); [ -n ""$cid"" ] && docker logs ""$cid"" 2>/dev/null || true",7,1582.031785
+unspecified,ssh,"cid=$(docker ps -q | head -n 1); [ -n ""$cid"" ] && docker logs ""$cid"" 2>/dev/null || true",8,1511.730041
+unspecified,ssh,"cid=$(docker ps -q | head -n 1); [ -n ""$cid"" ] && docker logs ""$cid"" 2>/dev/null || true",9,1492.657061
+unspecified,ssh,"cid=$(docker ps -q | head -n 1); [ -n ""$cid"" ] && docker logs ""$cid"" 2>/dev/null || true",10,1561.460121
+unspecified,ssh,ps aux,1,1513.110461
+unspecified,ssh,ps aux,2,1590.704265
+unspecified,ssh,ps aux,3,1522.837861
+unspecified,ssh,ps aux,4,1611.267135
+unspecified,ssh,ps aux,5,1562.742963
+unspecified,ssh,ps aux,6,1590.238511
+unspecified,ssh,ps aux,7,1513.002234
+unspecified,ssh,ps aux,8,1572.211358
+unspecified,ssh,ps aux,9,1541.120749
+unspecified,ssh,ps aux,10,1506.519675
+unspecified,ssh3,find /,1,912.573318
+unspecified,ssh3,find /,2,482.739718
+unspecified,ssh3,find /,3,536.855939
+unspecified,ssh3,find /,4,521.203508
+unspecified,ssh3,find /,5,492.747240
+unspecified,ssh3,find /,6,551.871880
+unspecified,ssh3,find /,7,514.785958
+unspecified,ssh3,find /,8,552.538893
+unspecified,ssh3,find /,9,491.185012
+unspecified,ssh3,find /,10,561.225901
+unspecified,ssh3,"cid=$(docker ps -q | head -n 1); [ -n ""$cid"" ] && docker logs ""$cid"" 2>/dev/null || true",1,482.817053
+unspecified,ssh3,"cid=$(docker ps -q | head -n 1); [ -n ""$cid"" ] && docker logs ""$cid"" 2>/dev/null || true",2,486.665600
+unspecified,ssh3,"cid=$(docker ps -q | head -n 1); [ -n ""$cid"" ] && docker logs ""$cid"" 2>/dev/null || true",3,535.929271
+unspecified,ssh3,"cid=$(docker ps -q | head -n 1); [ -n ""$cid"" ] && docker logs ""$cid"" 2>/dev/null || true",4,555.442318
+unspecified,ssh3,"cid=$(docker ps -q | head -n 1); [ -n ""$cid"" ] && docker logs ""$cid"" 2>/dev/null || true",5,485.241603
+unspecified,ssh3,"cid=$(docker ps -q | head -n 1); [ -n ""$cid"" ] && docker logs ""$cid"" 2>/dev/null || true",6,554.854462
+unspecified,ssh3,"cid=$(docker ps -q | head -n 1); [ -n ""$cid"" ] && docker logs ""$cid"" 2>/dev/null || true",7,535.916864
+unspecified,ssh3,"cid=$(docker ps -q | head -n 1); [ -n ""$cid"" ] && docker logs ""$cid"" 2>/dev/null || true",8,525.095482
+unspecified,ssh3,"cid=$(docker ps -q | head -n 1); [ -n ""$cid"" ] && docker logs ""$cid"" 2>/dev/null || true",9,525.606180
+unspecified,ssh3,"cid=$(docker ps -q | head -n 1); [ -n ""$cid"" ] && docker logs ""$cid"" 2>/dev/null || true",10,542.332081
+unspecified,ssh3,ps aux,1,505.184919
+unspecified,ssh3,ps aux,2,562.194495
+unspecified,ssh3,ps aux,3,613.204010
+unspecified,ssh3,ps aux,4,560.243663
+unspecified,ssh3,ps aux,5,514.046790
+unspecified,ssh3,ps aux,6,534.913198
+unspecified,ssh3,ps aux,7,544.817979
+unspecified,ssh3,ps aux,8,542.352634
+unspecified,ssh3,ps aux,9,562.256557
+unspecified,ssh3,ps aux,10,552.620858
+unspecified,mosh,find /,1,1999.190849
+unspecified,mosh,find /,2,1927.638562
+unspecified,mosh,find /,3,1964.788788
+unspecified,mosh,find /,4,1831.765975
+unspecified,mosh,find /,5,1832.115902
+unspecified,mosh,find /,6,1837.754845
+unspecified,mosh,find /,7,1869.047930
+unspecified,mosh,find /,8,1896.671164
+unspecified,mosh,find /,9,1977.572964
+unspecified,mosh,find /,10,1768.184556
+unspecified,mosh,"cid=$(docker ps -q | head -n 1); [ -n ""$cid"" ] && docker logs ""$cid"" 2>/dev/null || true",1,1845.540109
+unspecified,mosh,"cid=$(docker ps -q | head -n 1); [ -n ""$cid"" ] && docker logs ""$cid"" 2>/dev/null || true",2,1959.053155
+unspecified,mosh,"cid=$(docker ps -q | head -n 1); [ -n ""$cid"" ] && docker logs ""$cid"" 2>/dev/null || true",3,1818.063519
+unspecified,mosh,"cid=$(docker ps -q | head -n 1); [ -n ""$cid"" ] && docker logs ""$cid"" 2>/dev/null || true",4,1824.465388
+unspecified,mosh,"cid=$(docker ps -q | head -n 1); [ -n ""$cid"" ] && docker logs ""$cid"" 2>/dev/null || true",5,1831.257722
+unspecified,mosh,"cid=$(docker ps -q | head -n 1); [ -n ""$cid"" ] && docker logs ""$cid"" 2>/dev/null || true",6,1928.276584
+unspecified,mosh,"cid=$(docker ps -q | head -n 1); [ -n ""$cid"" ] && docker logs ""$cid"" 2>/dev/null || true",7,2192.318384
+unspecified,mosh,"cid=$(docker ps -q | head -n 1); [ -n ""$cid"" ] && docker logs ""$cid"" 2>/dev/null || true",8,1798.014082
+unspecified,mosh,"cid=$(docker ps -q | head -n 1); [ -n ""$cid"" ] && docker logs ""$cid"" 2>/dev/null || true",9,2072.669285
+unspecified,mosh,"cid=$(docker ps -q | head -n 1); [ -n ""$cid"" ] && docker logs ""$cid"" 2>/dev/null || true",10,1877.442835
+unspecified,mosh,ps aux,1,1871.821792
+unspecified,mosh,ps aux,2,1831.633795
+unspecified,mosh,ps aux,3,1898.567253
+unspecified,mosh,ps aux,4,1837.035624
+unspecified,mosh,ps aux,5,1951.505398
+unspecified,mosh,ps aux,6,1870.870374
+unspecified,mosh,ps aux,7,1887.051269
+unspecified,mosh,ps aux,8,1799.096580
+unspecified,mosh,ps aux,9,1898.601669
+unspecified,mosh,ps aux,10,1910.941024

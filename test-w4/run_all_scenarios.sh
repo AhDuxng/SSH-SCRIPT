@@ -11,7 +11,7 @@
 # set_network.sh calls between scenarios do NOT re-prompt for the password.
 #
 # For each scenario:
-#   1. prepare static W4 fixtures on the server
+#   1. prepare the static 2 MiB W4 fixture on the server
 #   2. clear tc on client AND server, sleep SETTLE_SEC
 #   3. apply scenario on client AND server, sleep SETTLE_SEC
 #   4. run W4 benchmark -> writes OUTPUT_ROOT/<scenario>/
@@ -45,10 +45,12 @@ LOCAL_SET_NETWORK="${LOCAL_SET_NETWORK:-../set_network.sh}"
 REMOTE_SET_NETWORK="${REMOTE_SET_NETWORK:-~/set_network.sh}"
 
 SETTLE_SEC="${SETTLE_SEC:-30}"
-OUTPUT_ROOT="${OUTPUT_ROOT:-w4_results_trungnt}"
+OUTPUT_ROOT="${OUTPUT_ROOT:-w4_results_2mb}"
 FIXTURE_DIR="${FIXTURE_DIR:-/tmp}"
+FIXTURE_BYTES="${FIXTURE_BYTES:-2097152}"
 FIXTURE_SCRIPT="${FIXTURE_SCRIPT:-setup_w4_fixtures.sh}"
 SETUP_FIXTURES="${SETUP_FIXTURES:-true}"
+RESUME="${RESUME:-false}"
 
 # --- ssh ControlMaster (connection multiplexing to Pi) -----------------------
 # One TCP + auth handshake; every subsequent ssh to the Pi reuses the socket.
@@ -113,9 +115,11 @@ setup_fixtures() {
     exit 2
   fi
   local fixture_dir_q
+  local fixture_bytes_q
   printf -v fixture_dir_q '%q' "$FIXTURE_DIR"
-  log "Preparing static W4 fixtures on $USER_NAME@$HOST in $FIXTURE_DIR"
-  ssh_pi "FIXTURE_DIR=$fixture_dir_q bash -s" < "$FIXTURE_SCRIPT"
+  printf -v fixture_bytes_q '%q' "$FIXTURE_BYTES"
+  log "Preparing static W4 fixture on $USER_NAME@$HOST in $FIXTURE_DIR (${FIXTURE_BYTES} bytes)"
+  ssh_pi "FIXTURE_DIR=$fixture_dir_q FIXTURE_BYTES=$fixture_bytes_q bash -s" < "$FIXTURE_SCRIPT"
 }
 
 sleep_with_dots() {
@@ -202,7 +206,8 @@ log "=== W4 orchestrator ==="
 log "Scenarios: ${SCENARIOS[*]}"
 log "Client iface=$CLIENT_IFACE  Server iface=$SERVER_IFACE  settle=${SETTLE_SEC}s"
 log "LAN target=$USER_NAME@$HOST  LAN source IP=$SOURCE_IP"
-log "Output root=$OUTPUT_ROOT  Fixture dir=$FIXTURE_DIR"
+log "Output root=$OUTPUT_ROOT  Fixture dir=$FIXTURE_DIR  Fixture bytes=$FIXTURE_BYTES"
+log "Resume=$RESUME"
 log "Local  : $LOCAL_SET_NETWORK"
 log "Remote : $REMOTE_SET_NETWORK (on $USER_NAME@$HOST)"
 log "ssh mux: $SSH_SOCK"
@@ -263,6 +268,7 @@ for scenario in "${SCENARIOS[@]}"; do
   IDENTITY_FILE="$IDENTITY_FILE" \
   OUTPUT_ROOT="$OUTPUT_ROOT" \
   FIXTURE_DIR="$FIXTURE_DIR" \
+  RESUME="$RESUME" \
     ./run_w4_benchmark.sh "$scenario"
   log "--- benchmark for $scenario done"
 done

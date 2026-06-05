@@ -1,0 +1,25 @@
+scenario,command,protocol,n,mean,std,ci95_half_width,source_file
+default,docker logs $(docker ps -q | head -n 1),ssh,1000,39.635142367,3.5047588467666215,0.21722720386598857,/home/twan/NETWORK/COMPARE_MOSH_SSH_SSH3/w3/SSH-SCRIPT/w4-da-chinh-sua/default/w4_results/w4_line_log.csv
+default,docker logs $(docker ps -q | head -n 1),ssh3,1000,25.011984831,3.7398096700718764,0.23179580482981946,/home/twan/NETWORK/COMPARE_MOSH_SSH_SSH3/w3/SSH-SCRIPT/w4-da-chinh-sua/default/w4_results/w4_line_log.csv
+default,docker logs $(docker ps -q | head -n 1),mosh,1000,40.619357811,2.5566248919074526,0.15846125250974297,/home/twan/NETWORK/COMPARE_MOSH_SSH_SSH3/w3/SSH-SCRIPT/w4-da-chinh-sua/default/w4_results/w4_line_log.csv
+default,ps aux,ssh,500,406.482664986,323.97060073197906,28.39727520916741,/home/twan/NETWORK/COMPARE_MOSH_SSH_SSH3/w3/SSH-SCRIPT/w4-da-chinh-sua/default/w4_results/w4_line_log.csv
+default,ps aux,ssh3,500,219.190038076,451.64799273388024,39.58869205524806,/home/twan/NETWORK/COMPARE_MOSH_SSH_SSH3/w3/SSH-SCRIPT/w4-da-chinh-sua/default/w4_results/w4_line_log.csv
+default,ps aux,mosh,500,223.952462336,203.38991019945868,17.827911673627842,/home/twan/NETWORK/COMPARE_MOSH_SSH_SSH3/w3/SSH-SCRIPT/w4-da-chinh-sua/default/w4_results/w4_line_log.csv
+low,docker logs $(docker ps -q | head -n 1),ssh,300,910.2053028733334,125.93980547104405,14.25143059571769,/home/twan/NETWORK/COMPARE_MOSH_SSH_SSH3/w3/SSH-SCRIPT/w4-da-chinh-sua/low/w4_results/w4_line_log.csv
+low,docker logs $(docker ps -q | head -n 1),ssh3,300,929.40388989,120.71636512183204,13.660342676141843,/home/twan/NETWORK/COMPARE_MOSH_SSH_SSH3/w3/SSH-SCRIPT/w4-da-chinh-sua/low/w4_results/w4_line_log.csv
+low,docker logs $(docker ps -q | head -n 1),mosh,300,932.5505360966666,125.46106231558865,14.197255707741416,/home/twan/NETWORK/COMPARE_MOSH_SSH_SSH3/w3/SSH-SCRIPT/w4-da-chinh-sua/low/w4_results/w4_line_log.csv
+low,ps aux,ssh,500,117.131623014,30.463025593609647,2.6702019242829804,/home/twan/NETWORK/COMPARE_MOSH_SSH_SSH3/w3/SSH-SCRIPT/w4-da-chinh-sua/low/w4_results/w4_line_log.csv
+low,ps aux,ssh3,500,124.76850423,527.9575732447283,46.27752170203264,/home/twan/NETWORK/COMPARE_MOSH_SSH_SSH3/w3/SSH-SCRIPT/w4-da-chinh-sua/low/w4_results/w4_line_log.csv
+low,ps aux,mosh,500,130.977061524,80.72524974788564,7.075880120727266,/home/twan/NETWORK/COMPARE_MOSH_SSH_SSH3/w3/SSH-SCRIPT/w4-da-chinh-sua/low/w4_results/w4_line_log.csv
+medium,docker logs $(docker ps -q | head -n 1),ssh,300,1016.45302792,138.23695303733965,15.642983841420092,/home/twan/NETWORK/COMPARE_MOSH_SSH_SSH3/w3/SSH-SCRIPT/w4-da-chinh-sua/medium/w4_results/w4_line_log.csv
+medium,docker logs $(docker ps -q | head -n 1),ssh3,300,1014.5624216933334,136.27513447650384,15.420983172476937,/home/twan/NETWORK/COMPARE_MOSH_SSH_SSH3/w3/SSH-SCRIPT/w4-da-chinh-sua/medium/w4_results/w4_line_log.csv
+medium,docker logs $(docker ps -q | head -n 1),mosh,300,1045.3703584733332,135.6816377712553,15.353822697899416,/home/twan/NETWORK/COMPARE_MOSH_SSH_SSH3/w3/SSH-SCRIPT/w4-da-chinh-sua/medium/w4_results/w4_line_log.csv
+medium,ps aux,ssh,500,1904.799726276,767.6900351271707,67.29099848438736,/home/twan/NETWORK/COMPARE_MOSH_SSH_SSH3/w3/SSH-SCRIPT/w4-da-chinh-sua/medium/w4_results/w4_line_log.csv
+medium,ps aux,ssh3,500,545.83716799,141.53776783935595,12.406332354677431,/home/twan/NETWORK/COMPARE_MOSH_SSH_SSH3/w3/SSH-SCRIPT/w4-da-chinh-sua/medium/w4_results/w4_line_log.csv
+medium,ps aux,mosh,500,195.10953223,54.055034623580056,4.7381326922216465,/home/twan/NETWORK/COMPARE_MOSH_SSH_SSH3/w3/SSH-SCRIPT/w4-da-chinh-sua/medium/w4_results/w4_line_log.csv
+high,docker logs $(docker ps -q | head -n 1),ssh,300,1152.69194078,187.59253078509295,21.228093236760365,/home/twan/NETWORK/COMPARE_MOSH_SSH_SSH3/w3/SSH-SCRIPT/w4-da-chinh-sua/high/w4_results/w4_line_log.csv
+high,docker logs $(docker ps -q | head -n 1),ssh3,300,1147.0394161766667,158.57517991103973,17.944470870452694,/home/twan/NETWORK/COMPARE_MOSH_SSH_SSH3/w3/SSH-SCRIPT/w4-da-chinh-sua/high/w4_results/w4_line_log.csv
+high,docker logs $(docker ps -q | head -n 1),mosh,300,1244.0847928433334,180.3320602575465,20.406493652509997,/home/twan/NETWORK/COMPARE_MOSH_SSH_SSH3/w3/SSH-SCRIPT/w4-da-chinh-sua/high/w4_results/w4_line_log.csv
+high,ps aux,ssh,500,5758.343896122,2036.1651964551374,178.4777486735617,/home/twan/NETWORK/COMPARE_MOSH_SSH_SSH3/w3/SSH-SCRIPT/w4-da-chinh-sua/high/w4_results/w4_line_log.csv
+high,ps aux,ssh3,500,1475.892392328,416.7283511921261,36.527850519546384,/home/twan/NETWORK/COMPARE_MOSH_SSH_SSH3/w3/SSH-SCRIPT/w4-da-chinh-sua/high/w4_results/w4_line_log.csv
+high,ps aux,mosh,500,309.462556814,68.01806855790049,5.962046579753299,/home/twan/NETWORK/COMPARE_MOSH_SSH_SSH3/w3/SSH-SCRIPT/w4-da-chinh-sua/high/w4_results/w4_line_log.csv

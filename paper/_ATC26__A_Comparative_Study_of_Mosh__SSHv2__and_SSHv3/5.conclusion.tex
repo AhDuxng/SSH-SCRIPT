@@ -1,0 +1,8 @@
+\section{Conclusion}
+\label{sec:conclusion}
+This paper presented a measurement study of SSHv2, Mosh, and SSH3 for AI-like interactive terminal workloads. Rather than running a full AI agent, we isolated the transport-facing feedback channel through deterministic terminal events: session setup, small-output commands, large-output fixtures, and visible keystroke probes. This methodology separates effects that are often conflated in remote-shell use, including connection setup, request-response delay, visible responsiveness, and byte-complete output delivery.
+
+The results show that no single protocol dominates all workloads. SSH3 provides the fastest setup and the lowest small-output command latency, where handshake and request-response delay are central. Mosh provides the lowest keystroke-to-echo latency under both single-pane and multi-pane editing, but this responsiveness comes from terminal-state synchronization and does not imply complete delivery of large command output. SSHv2 and SSH3 preserve byte-complete and content-correct output for successful large-output samples, while SSHv2 is faster than SSH3 in the comparable byte-complete W2 cases in our implementation and network setup.
+
+These findings suggest that protocol selection for AI-like terminal clients should follow the dominant feedback pattern. SSH3 is attractive for setup-heavy and short-command loops, Mosh is effective when visible editing responsiveness matters more than byte-level completeness, and SSHv2 or SSH3 should be preferred when the client must parse complete command output. A natural next step is to connect this transport-level characterization to end-to-end agent benchmarks, where reasoning policy and transport feedback interact.
+%\balance

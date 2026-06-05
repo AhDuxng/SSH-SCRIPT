@@ -1,25 +1,46 @@
 scenario,protocol,command,trial_id,session_setup_ms
-low,ssh,ls,1,718.755467
-low,ssh,ls,2,743.599340
-low,ssh,df -h,1,833.761789
-low,ssh,df -h,2,759.892597
-low,ssh,ps aux,1,774.462143
-low,ssh,ps aux,2,761.186595
-low,ssh,grep -n root /etc/passwd,1,757.927078
-low,ssh,grep -n root /etc/passwd,2,814.424710
-low,ssh3,ls,1,303.139821
-low,ssh3,ls,2,286.889314
-low,ssh3,df -h,1,283.196285
-low,ssh3,df -h,2,335.291414
-low,ssh3,ps aux,1,299.731185
-low,ssh3,ps aux,2,280.048366
-low,ssh3,grep -n root /etc/passwd,1,281.775314
-low,ssh3,grep -n root /etc/passwd,2,283.035213
-low,mosh,ls,1,1111.917123
-low,mosh,ls,2,1104.476997
-low,mosh,df -h,1,1226.669021
-low,mosh,df -h,2,1105.074608
-low,mosh,ps aux,1,1121.564897
-low,mosh,ps aux,2,1156.534293
-low,mosh,grep -n root /etc/passwd,1,1121.990485
-low,mosh,grep -n root /etc/passwd,2,1112.712167
+low,ssh,cat /tmp/w1_fixture_small.txt,1,738.041259
+low,ssh,cat /tmp/w1_fixture_small.txt,2,786.531566
+low,ssh,cat /tmp/w1_fixture_small.txt,3,749.349060
+low,ssh,cat /tmp/w1_fixture_small.txt,4,716.767984
+low,ssh,cat /tmp/w1_fixture_small.txt,5,824.567705
+low,ssh,cat /tmp/w1_fixture_medium.txt,1,734.648452
+low,ssh,cat /tmp/w1_fixture_medium.txt,2,732.912187
+low,ssh,cat /tmp/w1_fixture_medium.txt,3,789.928762
+low,ssh,cat /tmp/w1_fixture_medium.txt,4,734.631602
+low,ssh,cat /tmp/w1_fixture_medium.txt,5,730.057339
+low,ssh,cat /tmp/w1_fixture_large.txt,1,731.060850
+low,ssh,cat /tmp/w1_fixture_large.txt,2,757.866906
+low,ssh,cat /tmp/w1_fixture_large.txt,3,818.156245
+low,ssh,cat /tmp/w1_fixture_large.txt,4,725.791755
+low,ssh,cat /tmp/w1_fixture_large.txt,5,729.901917
+low,ssh3,cat /tmp/w1_fixture_small.txt,1,281.017792
+low,ssh3,cat /tmp/w1_fixture_small.txt,2,281.256861
+low,ssh3,cat /tmp/w1_fixture_small.txt,3,400.498787
+low,ssh3,cat /tmp/w1_fixture_small.txt,4,280.906262
+low,ssh3,cat /tmp/w1_fixture_small.txt,5,283.194210
+low,ssh3,cat /tmp/w1_fixture_medium.txt,1,282.661032
+low,ssh3,cat /tmp/w1_fixture_medium.txt,2,282.689697
+low,ssh3,cat /tmp/w1_fixture_medium.txt,3,281.987571
+low,ssh3,cat /tmp/w1_fixture_medium.txt,4,396.393444
+low,ssh3,cat /tmp/w1_fixture_medium.txt,5,281.208461
+low,ssh3,cat /tmp/w1_fixture_large.txt,1,352.525826
+low,ssh3,cat /tmp/w1_fixture_large.txt,2,280.489047
+low,ssh3,cat /tmp/w1_fixture_large.txt,3,284.526413
+low,ssh3,cat /tmp/w1_fixture_large.txt,4,339.124424
+low,ssh3,cat /tmp/w1_fixture_large.txt,5,333.530418
+low,mosh,cat /tmp/w1_fixture_small.txt,1,1169.821399
+low,mosh,cat /tmp/w1_fixture_small.txt,2,1093.451703
+low,mosh,cat /tmp/w1_fixture_small.txt,3,1088.169422
+low,mosh,cat /tmp/w1_fixture_small.txt,4,1093.667237
+low,mosh,cat /tmp/w1_fixture_small.txt,5,1086.546655
+low,mosh,cat /tmp/w1_fixture_medium.txt,1,1084.310351
+low,mosh,cat /tmp/w1_fixture_medium.txt,2,1142.929539
+low,mosh,cat /tmp/w1_fixture_medium.txt,3,1092.226804
+low,mosh,cat /tmp/w1_fixture_medium.txt,4,1085.383275
+low,mosh,cat /tmp/w1_fixture_medium.txt,5,1089.030010
+low,mosh,cat /tmp/w1_fixture_large.txt,1,1089.238588
+low,mosh,cat /tmp/w1_fixture_large.txt,2,1093.705627
+low,mosh,cat /tmp/w1_fixture_large.txt,3,1083.293561
+low,mosh,cat /tmp/w1_fixture_large.txt,4,1080.603260
+low,mosh,cat /tmp/w1_fixture_large.txt,5,1083.448049

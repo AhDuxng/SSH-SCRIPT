@@ -6,7 +6,6 @@ import csv
 import math
 import os
 import random
-import shutil
 import re
 import shlex
 import statistics
@@ -29,23 +28,15 @@ DEFAULT_WORKLOADS = ["interactive_shell", "vim", "nano"]
 DEFAULT_PROMPT    = "__W3_PROMPT__#"
 DEFAULT_SSH3_PATH = "/ssh3-term"
 
-PROBE_TOKEN = "W3_PROBE_FIXED_Q9J5V2K7M4T8X1"
-PROBE_TAIL_LEN = 10
+DEFAULT_PROBE_SEQUENCE = "Go straight for 3 meters, then stop"
 
-TMUX_READY_MARKER = "__W3_TMUX_READY__"
-TMUX_MISSING_MARKER = "__W3_TMUX_MISSING__"
-
-_ANSI_SEQ   = r"(?:\x1b\[\??[0-9;]*[a-zA-Z])"
+# Include common CSI sequences plus SCS sequences like ESC(B
+# that nano emits during screen redraws.
+_ANSI_SEQ   = r"(?:\x1b\[\??[0-9;]*[a-zA-Z]|\x1b[\(\)][0-9A-Za-z])"
 _ECHO_GAP   = rf"(?:{_ANSI_SEQ}|[\r\n\b])*"
 _INITIAL_PROMPT_RE = re.compile(
     r"[#$>](?:" + _ANSI_SEQ + r"|\s)*\s*$",
-    re.MULTILINE,
 )
-
-
-class MissingExecutableError(RuntimeError):
-    """Raised when a local client command such as ssh3 or mosh is missing."""
-
 
 @dataclass
 class SampleRecord:
@@ -82,7 +73,6 @@ class SummaryRow:
     max_ms:             Optional[float]
     ci95_half_width_ms: Optional[float]
 
-
 class W3Benchmark:
     def __init__(self, args: argparse.Namespace) -> None:
         self.args       = args
@@ -91,12 +81,31 @@ class W3Benchmark:
         self.prompt_marker = args.prompt.rstrip()
         if not self.prompt_marker:
             raise ValueError("Prompt must contain at least one non-space character")
+        if args.probe_search_window < 0:
+            raise ValueError("--probe-search-window must be >= 0")
+        if args.tmux_search_window < 0:
+            raise ValueError("--tmux-search-window must be >= 0")
+        probe_sequence = args.probe_sequence
+        if probe_sequence is None:
+            probe_sequence = ""
+        if not probe_sequence:
+            raise ValueError("--probe-sequence must not be empty")
+        if "\n" in probe_sequence or "\r" in probe_sequence:
+            raise ValueError("--probe-sequence must not contain newline characters")
         self.prompt_re = self._build_prompt_re(self.prompt_marker)
-        self.probe_token = PROBE_TOKEN
-        self.probe_tail = self.probe_token[-PROBE_TAIL_LEN:]
-        self.probe_echo_re = self._build_probe_echo_re(self.probe_token)
-        self.probe_tail_echo_re = self._build_probe_echo_re(self.probe_tail)
-        self.probe_seq = 0
+        self.probe_sequence = probe_sequence
+        self.probe_sequence_index = 0
+        self.probe_search_window: Optional[int] = (
+            None if args.probe_search_window == 0
+            else max(8, args.probe_search_window)
+        )
+        self.tmux_search_window: Optional[int] = (
+            None if args.tmux_search_window == 0
+            else max(1024, args.tmux_search_window)
+        )
+        self.pane0_bounds = self._read_pane0_bounds_from_env()
+        self._pane0_stream_row: Optional[int] = None
+        self._pane0_stream_col: Optional[int] = None
         self.records:  List[SampleRecord]  = []
         self.failures: List[FailureRecord] = []
         self.results: Dict[str, Dict[str, List[float]]] = {
@@ -107,56 +116,441 @@ class W3Benchmark:
         }
 
     @staticmethod
-    def _build_probe_echo_re(token: str) -> re.Pattern[str]:
-        parts = [re.escape(ch) + _ECHO_GAP for ch in token]
+    def _build_prompt_re(prompt_marker: str) -> re.Pattern[str]:
+        parts = [re.escape(ch) + _ECHO_GAP for ch in prompt_marker]
+        return re.compile("".join(parts) + rf"(?:{_ANSI_SEQ}|\s)*$")
+
+    @staticmethod
+    def _read_pane0_bounds_from_env() -> Optional[tuple[int, int, int, int]]:
+        raw_top = os.environ.get("W3_PANE0_TOP", "").strip()
+        raw_left = os.environ.get("W3_PANE0_LEFT", "").strip()
+        raw_bottom = os.environ.get("W3_PANE0_BOTTOM", "").strip()
+        raw_right = os.environ.get("W3_PANE0_RIGHT", "").strip()
+        if not (raw_top and raw_left and raw_bottom and raw_right):
+            return None
+        try:
+            top = int(raw_top)
+            left = int(raw_left)
+            bottom = int(raw_bottom)
+            right = int(raw_right)
+        except ValueError:
+            return None
+        if top < 1 or left < 1 or bottom < top or right < left:
+            return None
+        return (top, left, bottom, right)
+
+    def _reset_pane0_stream_cursor(self) -> None:
+        self._pane0_stream_row = None
+        self._pane0_stream_col = None
+
+    def _char_in_pane0_bounds(self, row: Optional[int], col: Optional[int]) -> bool:
+        if self.pane0_bounds is None or row is None or col is None:
+            return False
+        top, left, bottom, right = self.pane0_bounds
+        return top <= row <= bottom and left <= col <= right
+
+    def _expect_probe_in_pane0(
+        self,
+        child: pexpect.spawn,
+        probe_text: str,
+        timeout: float,
+    ) -> None:
+        if len(probe_text) != 1 or self.pane0_bounds is None:
+            child.expect_exact(
+                probe_text,
+                timeout=timeout,
+                searchwindowsize=self.tmux_search_window,
+            )
+            return
+
+        if self._pane0_stream_row is None or self._pane0_stream_col is None:
+            # Start from a conservative default inside pane0 so direct echo
+            # without an immediately preceding CUP can still be matched.
+            top, left, _, _ = self.pane0_bounds
+            self._pane0_stream_row = top
+            self._pane0_stream_col = left
+
+        deadline = time.perf_counter() + timeout
+        carry = ""
+        while True:
+            now = time.perf_counter()
+            if now >= deadline:
+                raise pexpect.TIMEOUT("timeout waiting for probe echo in pane0 area")
+            read_timeout = max(0.01, min(0.25, deadline - now))
+            try:
+                chunk = child.read_nonblocking(size=4096, timeout=read_timeout)
+            except pexpect.TIMEOUT:
+                continue
+            if not chunk:
+                continue
+            data = carry + chunk
+            i = 0
+            carry = ""
+            data_len = len(data)
+            while i < data_len:
+                ch = data[i]
+                if ch == "\x1b":
+                    if i + 1 >= data_len:
+                        carry = data[i:]
+                        i = data_len
+                        break
+                    nxt = data[i + 1]
+                    if nxt == "[":
+                        j = i + 2
+                        while j < data_len and not ("@" <= data[j] <= "~"):
+                            j += 1
+                        if j >= data_len:
+                            carry = data[i:]
+                            i = data_len
+                            break
+                        params = data[i + 2 : j]
+                        final = data[j]
+                        if final in ("H", "f"):
+                            parts = params.split(";")
+                            row = 1
+                            col = 1
+                            if parts and parts[0]:
+                                try:
+                                    row = int(parts[0])
+                                except ValueError:
+                                    row = 1
+                            if len(parts) > 1 and parts[1]:
+                                try:
+                                    col = int(parts[1])
+                                except ValueError:
+                                    col = 1
+                            self._pane0_stream_row = max(1, row)
+                            self._pane0_stream_col = max(1, col)
+                        elif final == "G":
+                            col = 1
+                            if params:
+                                try:
+                                    col = int(params)
+                                except ValueError:
+                                    col = 1
+                            self._pane0_stream_col = max(1, col)
+                        elif final in ("A", "B", "C", "D"):
+                            n = 1
+                            if params:
+                                try:
+                                    n = int(params)
+                                except ValueError:
+                                    n = 1
+                            n = max(1, n)
+                            if self._pane0_stream_row is not None and final == "A":
+                                self._pane0_stream_row = max(1, self._pane0_stream_row - n)
+                            elif self._pane0_stream_row is not None and final == "B":
+                                self._pane0_stream_row += n
+                            elif self._pane0_stream_col is not None and final == "C":
+                                self._pane0_stream_col += n
+                            elif self._pane0_stream_col is not None and final == "D":
+                                self._pane0_stream_col = max(1, self._pane0_stream_col - n)
+                        i = j + 1
+                        continue
+                    # Non-CSI escape; skip ESC and next byte.
+                    i += 2
+                    continue
+
+                row = self._pane0_stream_row
+                col = self._pane0_stream_col
+                if ch == "\r":
+                    self._pane0_stream_col = 1
+                elif ch == "\n":
+                    if self._pane0_stream_row is not None:
+                        self._pane0_stream_row += 1
+                    self._pane0_stream_col = 1
+                elif ch == "\b":
+                    if self._pane0_stream_col is not None:
+                        self._pane0_stream_col = max(1, self._pane0_stream_col - 1)
+                else:
+                    if ch == probe_text and self._char_in_pane0_bounds(row, col):
+                        return
+                    if self._pane0_stream_col is not None:
+                        self._pane0_stream_col += 1
+                i += 1
+
+    @staticmethod
+    def _build_interleaved_text_re(text: str) -> re.Pattern[str]:
+        parts = [re.escape(ch) + _ECHO_GAP for ch in text]
         return re.compile("".join(parts))
 
     @staticmethod
-    def _build_prompt_re(prompt_marker: str) -> re.Pattern[str]:
-        parts = [re.escape(ch) + _ECHO_GAP for ch in prompt_marker]
-        return re.compile("".join(parts) + rf"(?:{_ANSI_SEQ}|\s)*")
-
-    def _expect_prompt(self, child: pexpect.spawn) -> None:
-        # TUI redraw and tmux pane updates may split prompt bytes with ANSI updates.
-        child.expect(self.prompt_re, timeout=self.args.timeout)
-
-    def _next_probe_token(self) -> str:
-        """Return a unique token so pexpect cannot match stale echo bytes."""
-        self.probe_seq += 1
-        return f"{self.probe_token}_{self.probe_seq:08d}"
-
-    def _expect_probe_echo(self, child: pexpect.spawn, token: str) -> None:
-        # Match the full unique token only.  Matching only the tail is unsafe
-        # when tmux/background panes produce a lot of output.
-        child.expect(self._build_probe_echo_re(token), timeout=self.args.timeout)
+    def _build_loose_interleaved_text_re(
+        text: str,
+        max_gap: int = 32,
+    ) -> re.Pattern[str]:
+        gap = rf"[\s\S]{{0,{max(1, max_gap)}}}"
+        parts = [re.escape(ch) + gap for ch in text]
+        return re.compile("".join(parts))
 
     @staticmethod
-    def _ensure_vim_insert_mode(child: pexpect.spawn) -> None:
-        child.send("\x1b")
-        child.send("i")
+    def _printf_literal_cmd(text: str) -> str:
+        escaped = "".join(f"\\{ord(ch):03o}" for ch in text)
+        return f"printf {shlex.quote(escaped)}"
 
     @staticmethod
-    def _erase_probe_token(child: pexpect.spawn, token: str) -> None:
-        if token:
-            child.send("\x7f" * len(token))
+    def _tmux_attach_mode() -> bool:
+        return bool(os.environ.get("W3_ATTACH_CMD"))
 
     @staticmethod
-    def _drain_pending_output(child: pexpect.spawn, max_reads: int = 16) -> None:
+    def _should_attach_after_login(protocol: Optional[str]) -> bool:
+        if protocol is None:
+            return False
+        protocols = os.environ.get("W3_ATTACH_AFTER_LOGIN_PROTOCOLS", "")
+        return protocol in protocols.split()
+
+    def _tmux_marker_search_window(
+        self,
+        protocol: Optional[str],
+    ) -> Optional[int]:
+        # In mosh+tmux mode, very large search windows can make marker scans
+        # expensive under heavy background redraw. Cap window for marker sync.
+        if protocol != "mosh":
+            return self.tmux_search_window
+        if self.tmux_search_window is None:
+            return 8192
+        return min(self.tmux_search_window, 8192)
+
+    def _tmux_marker_max_gap(self, protocol: Optional[str]) -> int:
+        if protocol != "mosh":
+            return self.args.tmux_probe_max_gap
+        return min(self.args.tmux_probe_max_gap, 48)
+
+    def _tmux_boot_marker_max_gap(self, protocol: Optional[str]) -> int:
+        if protocol != "mosh":
+            return self.args.tmux_probe_max_gap
+        # Boot marker is matched once per open-session; prefer tolerance.
+        return self.args.tmux_probe_max_gap
+
+    def _expect_tmux_boot_marker(
+        self,
+        child: pexpect.spawn,
+        protocol: Optional[str] = None,
+    ) -> None:
+        boot_marker = os.environ.get(
+            "W3_ATTACH_BOOT_MARKER",
+            "__W3_ATTACH_PANE0_READY__",
+        )
+        if protocol == "mosh":
+            marker_window = self._tmux_marker_search_window(protocol)
+            try:
+                child.expect_exact(
+                    boot_marker,
+                    timeout=self.args.timeout,
+                    searchwindowsize=marker_window,
+                )
+            except pexpect.TIMEOUT:
+                child.expect(
+                    self._build_loose_interleaved_text_re(
+                        boot_marker,
+                        max_gap=self._tmux_boot_marker_max_gap(protocol),
+                    ),
+                    timeout=max(3, min(self.args.timeout, 10)),
+                    searchwindowsize=marker_window,
+                )
+            return
+        child.expect_exact(
+            boot_marker,
+            timeout=self.args.timeout,
+            searchwindowsize=self.tmux_search_window,
+        )
+
+    def _attach_tmux_after_login(
+        self,
+        child: pexpect.spawn,
+        protocol: Optional[str] = None,
+    ) -> None:
+        attach_cmd = os.environ.get("W3_ATTACH_CMD", "").strip()
+        if protocol == "mosh":
+            # For mosh, prefer a short attach command sent after login.
+            # Long, heavily quoted command lines are more fragile when passed
+            # through predictive local line editing.
+            simple_cmd = os.environ.get("W3_ATTACH_CMD_MOSH_SIMPLE", "").strip()
+            if simple_cmd:
+                attach_cmd = simple_cmd
+        if not attach_cmd:
+            raise ValueError("W3_ATTACH_CMD is not set for attach-after-login flow")
+        self._drain_pending_output(child, max_reads=16)
+        child.sendline(attach_cmd)
+        self._expect_tmux_boot_marker(child, protocol=protocol)
+
+    def _expect_prompt(
+        self,
+        child: pexpect.spawn,
+        protocol: Optional[str] = None,
+    ) -> None:
+        if self._tmux_attach_mode():
+            marker = f"__W3_PROMPT_READY__{random.randrange(10_000, 99_999)}__"
+            last_exc: Optional[pexpect.TIMEOUT] = None
+            attempts = 3
+            marker_window = self._tmux_marker_search_window(protocol)
+            for _ in range(attempts):
+                self._drain_pending_output(child, max_reads=16)
+                child.sendline("")
+                child.sendline(self._printf_literal_cmd(marker + "\n"))
+                try:
+                    if protocol == "mosh":
+                        try:
+                            child.expect_exact(
+                                marker,
+                                timeout=max(4, min(self.args.timeout, 10)),
+                                searchwindowsize=marker_window,
+                            )
+                        except pexpect.TIMEOUT:
+                            child.expect(
+                                self._build_loose_interleaved_text_re(
+                                    marker,
+                                    max_gap=self._tmux_marker_max_gap(protocol),
+                                ),
+                                timeout=max(3, min(self.args.timeout, 8)),
+                                searchwindowsize=marker_window,
+                            )
+                    else:
+                        child.expect_exact(
+                            marker,
+                            timeout=self.args.timeout,
+                            searchwindowsize=marker_window,
+                        )
+                    return
+                except pexpect.TIMEOUT as exc:
+                    last_exc = exc
+            if last_exc is not None:
+                if protocol == "mosh":
+                    # Final lightweight readiness probe before failing.
+                    for _ in range(1):
+                        try:
+                            self._probe_once(
+                                child,
+                                erase_after_echo=True,
+                                expect_timeout=max(2, min(self.args.timeout, 4)),
+                            )
+                            return
+                        except pexpect.TIMEOUT:
+                            self._drain_pending_output(child, max_reads=16)
+                            child.sendline("")
+                    raise last_exc
+                raise last_exc
+
+        # TUI redraw (especially over mosh) may split prompt bytes with ANSI updates.
+        try:
+            child.expect(self.prompt_re, timeout=self.args.timeout)
+            return
+        except pexpect.TIMEOUT:
+            if protocol != "mosh":
+                raise
+
+        last_exc: Optional[pexpect.TIMEOUT] = None
+        for clear_screen in (False, True):
+            self._drain_pending_output(child)
+            if clear_screen:
+                child.sendcontrol("l")
+            child.sendline("")
+            try:
+                child.expect(self.prompt_re, timeout=self.args.timeout)
+                return
+            except pexpect.TIMEOUT as exc:
+                last_exc = exc
+        if last_exc is not None:
+            raise last_exc
+
+    def _refresh_prompt(
+        self,
+        child: pexpect.spawn,
+        protocol: Optional[str] = None,
+    ) -> None:
+        self._drain_pending_output(child)
+        child.sendline("")
+        self._expect_prompt(child, protocol=protocol)
+
+    @staticmethod
+    def _erase_probe_chars(
+        child: pexpect.spawn,
+        length: int,
+        erase_key: str = "\x7f",
+    ) -> None:
+        if length > 0:
+            child.send(erase_key * length)
+
+    def _drain_pending_output(self, child: pexpect.spawn, max_reads: int = 8) -> None:
+        drained_any = False
         for _ in range(max_reads):
             try:
-                child.read_nonblocking(size=8192, timeout=0)
+                child.read_nonblocking(size=4096, timeout=0)
+                drained_any = True
             except (pexpect.TIMEOUT, pexpect.EOF):
                 break
+        if drained_any and self.pane0_bounds is not None:
+            # We discarded raw stream bytes, so tracked cursor position is stale.
+            self._reset_pane0_stream_cursor()
 
-    def _probe_once(self, child: pexpect.spawn, erase_after_echo: bool = False) -> float:
-        token = self._next_probe_token()
+    def _next_probe_text(self) -> str:
+        probe_char = self.probe_sequence[self.probe_sequence_index]
+        self.probe_sequence_index = (
+            self.probe_sequence_index + 1
+        ) % len(self.probe_sequence)
+        return probe_char
+
+    def _consume_stray_probe_text(
+        self,
+        child: pexpect.spawn,
+        probe_text: str,
+        search_window: Optional[int],
+        max_polls: int = 4,
+    ) -> None:
+        # Remove buffered matches for the same probe text before timing.
+        # This avoids matching stale screen output from a previous step.
+        for _ in range(max_polls):
+            idx = child.expect_exact(
+                [probe_text, pexpect.TIMEOUT, pexpect.EOF],
+                timeout=0,
+                searchwindowsize=search_window,
+            )
+            if idx == 0:
+                continue
+            if idx == 1:
+                return
+            raise pexpect.EOF("EOF while draining stale probe bytes")
+
+    def _probe_once(
+        self,
+        child: pexpect.spawn,
+        erase_after_echo: bool = False,
+        erase_key: str = "\x7f",
+        expect_timeout: Optional[float] = None,
+    ) -> float:
         self._drain_pending_output(child)
+        search_window: Optional[int] = self.probe_search_window
+        consume_polls = 4
+        timeout = self.args.timeout if expect_timeout is None else expect_timeout
+        if self._tmux_attach_mode():
+            search_window = self.tmux_search_window
+            # In 5-pane mode the same single-char probe may be re-rendered many
+            # times; clear more stale matches to avoid near-zero false samples.
+            consume_polls = 128
+        probe_text = self._next_probe_text()
+        self._consume_stray_probe_text(
+            child,
+            probe_text,
+            search_window,
+            max_polls=consume_polls,
+        )
         start_ns = time.perf_counter_ns()
-        child.send(token)
-        self._expect_probe_echo(child, token)
+        child.send(probe_text)
+        if self._tmux_attach_mode():
+            self._expect_probe_in_pane0(
+                child,
+                probe_text,
+                timeout=timeout,
+            )
+        else:
+            child.expect_exact(
+                probe_text,
+                timeout=timeout,
+                searchwindowsize=search_window,
+            )
         end_ns = time.perf_counter_ns()
         if erase_after_echo:
-            self._erase_probe_token(child, token)
+            self._erase_probe_chars(child, len(probe_text), erase_key=erase_key)
         return (end_ns - start_ns) / 1_000_000.0
 
     @staticmethod
@@ -164,33 +558,97 @@ class W3Benchmark:
         child.sendcontrol("l")
 
     @staticmethod
+    def _recover_shell_state(child: pexpect.spawn) -> None:
+        child.sendcontrol("c")
+
+    @staticmethod
     def _recover_vim_state(child: pexpect.spawn) -> None:
         child.send("\x1b")
         child.sendcontrol("l")
         child.send("i")
 
-    def _probe_vim_once(self, child: pexpect.spawn) -> float:
-        self._ensure_vim_insert_mode(child)
-        return self._probe_once(child, erase_after_echo=True)
+    def _reopen_session_for_sample_failure(
+        self,
+        child: pexpect.spawn,
+        protocol: str,
+    ) -> pexpect.spawn:
+        self._close_session(child)
+        reopened_child, _ = self._open_session(protocol)
+        return reopened_child
 
-    @staticmethod
-    def _protocol_binary(protocol: str) -> str:
-        if protocol == "ssh":
-            return "ssh"
-        if protocol == "ssh3":
-            return "ssh3"
-        if protocol == "mosh":
-            return "mosh"
-        raise ValueError(f"Unsupported protocol: {protocol}")
+    def _enter_vim_insert_mode(self, child: pexpect.spawn) -> None:
+        remote_file = self.args.remote_vim_file
+        child.sendline(f"vim -Nu NONE -n {shlex.quote(remote_file)}")
+        child.send("i")
+        if self._tmux_attach_mode():
+            insert_patterns = [
+                self._build_loose_interleaved_text_re(
+                    "-- INSERT --",
+                    max_gap=self.args.tmux_probe_max_gap,
+                ),
+                self._build_loose_interleaved_text_re(
+                    "INSERT",
+                    max_gap=self.args.tmux_probe_max_gap,
+                ),
+            ]
+            last_exc: Optional[pexpect.TIMEOUT] = None
+            for _ in range(4):
+                try:
+                    child.expect(
+                        insert_patterns,
+                        timeout=max(self.args.timeout, 45),
+                        searchwindowsize=self.tmux_search_window,
+                    )
+                    return
+                except pexpect.TIMEOUT as exc:
+                    last_exc = exc
+                    self._recover_vim_state(child)
+            if last_exc is not None:
+                raise last_exc
+        child.expect([r"-- INSERT --", r"INSERT"], timeout=self.args.timeout)
 
-    def _ensure_protocol_available(self, protocol: str) -> None:
-        binary = self._protocol_binary(protocol)
-        if shutil.which(binary) is None:
-            raise MissingExecutableError(
-                f"Local command '{binary}' was not found in PATH. "
-                f"Install {binary} on this client, or remove '{protocol}' "
-                f"from --protocols / PROTOCOLS. Current PATH={os.environ.get('PATH', '')}"
-            )
+    def _enter_nano_mode(self, child: pexpect.spawn) -> None:
+        remote_file = self.args.remote_nano_file
+        child.sendline(f"nano --ignorercfiles {shlex.quote(remote_file)}")
+        if self._tmux_attach_mode():
+            # Under 5-pane redraw, nano banners may be fragmented/interleaved.
+            banner_patterns = [
+                self._build_loose_interleaved_text_re(
+                    "GNU nano",
+                    max_gap=self.args.tmux_probe_max_gap,
+                ),
+                self._build_loose_interleaved_text_re(
+                    "^G Help",
+                    max_gap=self.args.tmux_probe_max_gap,
+                ),
+                self._build_loose_interleaved_text_re(
+                    "Get Help",
+                    max_gap=self.args.tmux_probe_max_gap,
+                ),
+            ]
+            last_exc: Optional[pexpect.TIMEOUT] = None
+            for _ in range(4):
+                try:
+                    child.expect(
+                        banner_patterns,
+                        timeout=max(self.args.timeout, 45),
+                        searchwindowsize=self.tmux_search_window,
+                    )
+                    return
+                except pexpect.TIMEOUT as exc:
+                    last_exc = exc
+                    self._recover_nano_state(child)
+            if last_exc is not None:
+                raise last_exc
+        child.expect([r"GNU nano", r"\^G Help"], timeout=self.args.timeout)
+
+    def _probe_vim_once(
+        self,
+        child: pexpect.spawn,
+        erase_after_echo: bool = True,
+    ) -> float:
+        # Assumes Vim is already in Insert mode.
+        return self._probe_once(child, erase_after_echo=erase_after_echo)
 
     def _session_command(self, protocol: str) -> str:
         target     = self.target
@@ -232,249 +690,76 @@ class W3Benchmark:
 
         raise ValueError(f"Unsupported protocol: {protocol}")
 
-    def _remote_cmd_expect_prompt(self, child: pexpect.spawn, command: str) -> None:
-        self._drain_pending_output(child)
-        child.sendline(command)
-        self._expect_prompt(child)
+    def _open_session(self, protocol: str) -> tuple:
+        attempts = 1
+        if self._tmux_attach_mode() and protocol == "mosh":
+            attempts = 3
 
-    def _make_tmux_session_name(self, protocol: str, workload: str, trial_id: int) -> str:
-        safe_protocol = re.sub(r"[^A-Za-z0-9_]", "_", protocol)
-        safe_workload = re.sub(r"[^A-Za-z0-9_]", "_", workload)
-        return (
-            f"{self.args.tmux_session_prefix}_"
-            f"{safe_protocol}_{safe_workload}_t{trial_id}_p{os.getpid()}"
-        )
-
-    def _default_bg_load_commands(self) -> List[str]:
-        # Each command is intentionally visual, moderate-rate, and long-running.
-        return [
-            (
-                "while true; do "
-                "printf '[pane1-clock] '; date '+%H:%M:%S.%3N'; "
-                "sleep 0.20; "
-                "done"
-            ),
-            (
-                "while true; do "
-                "i=1; while [ $i -le 18 ]; do "
-                "printf '[pane2-stream] line=%02d data=%08x\\n' $i $RANDOM; "
-                "i=$((i+1)); "
-                "done; "
-                "sleep 0.35; "
-                "done"
-            ),
-            (
-                "while true; do "
-                "printf '[pane3-cpu] %s\\n' \"$(date '+%H:%M:%S')\"; "
-                "ps -eo pid,comm,%cpu,%mem --sort=-%cpu 2>/dev/null | head -n 8; "
-                "sleep 0.45; "
-                "done"
-            ),
-            (
-                "while true; do "
-                "ping -c 1 -W 1 127.0.0.1 2>/dev/null | sed 's/^/[pane4-ping] /'; "
-                "sleep 0.30; "
-                "done"
-            ),
-        ]
-
-    def _bg_load_command_for_pane(self, pane_idx: int) -> str:
-        custom = self.args.bg_load_cmd
-        if custom:
-            return custom[(pane_idx - 1) % len(custom)]
-        defaults = self._default_bg_load_commands()
-        return defaults[(pane_idx - 1) % len(defaults)]
-
-    def _check_remote_tmux(self, child: pexpect.spawn) -> None:
-        marker_cmd = (
-            f"command -v tmux >/dev/null 2>&1 "
-            f"&& echo {TMUX_READY_MARKER} || echo {TMUX_MISSING_MARKER}"
-        )
-        self._drain_pending_output(child)
-        child.sendline(marker_cmd)
-        idx = child.expect(
-            [TMUX_READY_MARKER, TMUX_MISSING_MARKER],
-            timeout=self.args.timeout,
-        )
-        self._expect_prompt(child)
-        if idx == 1:
-            raise ValueError(
-                "Remote host does not have tmux. Install tmux on the server "
-                "or run with --tmux-panes 1 to disable the 5-pane mode."
+        last_exc: Optional[Exception] = None
+        for attempt in range(1, attempts + 1):
+            self._reset_pane0_stream_cursor()
+            child = pexpect.spawn(
+                self._session_command(protocol),
+                encoding="utf-8",
+                codec_errors="ignore",
+                timeout=self.args.timeout,
             )
+            child.delaybeforesend = 0
 
-    def _setup_remote_tmux_panes(
-        self,
-        child: pexpect.spawn,
-        protocol: str,
-        workload: str,
-        trial_id: int,
-    ) -> str:
-        panes = self.args.tmux_panes
-        if panes < 2:
-            return ""
-
-        self._check_remote_tmux(child)
-        session = self._make_tmux_session_name(protocol, workload, trial_id)
-        q_session = shlex.quote(session)
-        target0 = f"{session}:0.0"
-
-        # Remove stale session from a previous interrupted run.
-        self._remote_cmd_expect_prompt(
-            child,
-            f"tmux kill-session -t {q_session} >/dev/null 2>&1 || true",
-        )
-
-        # Pane 0 is the measured interactive pane.
-        measured_shell = "bash --noprofile --norc"
-        self._remote_cmd_expect_prompt(
-            child,
-            shlex.join([
-                "tmux", "new-session", "-d",
-                "-s", session,
-                "-x", str(self.args.term_cols),
-                "-y", str(self.args.term_rows),
-                measured_shell,
-            ]),
-        )
-
-        tmux_setup_commands = [
-            ["tmux", "set-option", "-t", session, "status", "on"],
-            ["tmux", "set-option", "-t", session, "status-interval", "1"],
-            ["tmux", "set-option", "-t", session, "remain-on-exit", "off"],
-            ["tmux", "set-window-option", "-t", f"{session}:0", "automatic-rename", "off"],
-            ["tmux", "set-window-option", "-t", f"{session}:0", "pane-base-index", "0"],
-            ["tmux", "set-option", "-t", session, "pane-border-status", "top"],
-            [
-                "tmux", "set-option", "-t", session,
-                "pane-border-format", "#[bold]pane #{pane_index}: #{pane_title}#[default]",
-            ],
-            ["tmux", "rename-window", "-t", f"{session}:0", "W3-5pane"],
-            ["tmux", "select-pane", "-t", target0, "-T", "MEASURE pane0"],
-        ]
-        for cmd in tmux_setup_commands:
-            self._remote_cmd_expect_prompt(child, shlex.join(cmd))
-
-        # Create pane 1..N-1. They continuously generate visible background output.
-        for pane_idx in range(1, panes):
-            bg_cmd = self._bg_load_command_for_pane(pane_idx)
-            shell_cmd = (
-                f"printf '[pane{pane_idx}] background load started\\n'; "
-                f"{bg_cmd}"
-            )
-            self._remote_cmd_expect_prompt(
-                child,
-                shlex.join([
-                    "tmux", "split-window", "-d",
-                    "-t", target0,
-                    shlex.join(["bash", "-lc", shell_cmd]),
-                ]),
-            )
-            self._remote_cmd_expect_prompt(
-                child,
-                shlex.join([
-                    "tmux", "select-pane",
-                    "-t", f"{session}:0.{pane_idx}",
-                    "-T", f"LOAD pane{pane_idx}",
-                ]),
-            )
-
-        # Make all panes visible and select pane 0 for measurement.
-        self._remote_cmd_expect_prompt(
-            child,
-            shlex.join(["tmux", "select-layout", "-t", f"{session}:0", "tiled"]),
-        )
-
-        # Set a unique prompt inside pane 0 before attaching.
-        pane0_init = f"export PS1={shlex.quote(self.args.prompt)}; clear"
-        self._remote_cmd_expect_prompt(
-            child,
-            shlex.join(["tmux", "send-keys", "-t", target0, "-l", pane0_init]),
-        )
-        self._remote_cmd_expect_prompt(
-            child,
-            shlex.join(["tmux", "send-keys", "-t", target0, "C-m"]),
-        )
-        self._remote_cmd_expect_prompt(
-            child,
-            shlex.join(["tmux", "select-pane", "-t", target0]),
-        )
-
-        # Attach to the 5-pane tmux session. From this point pexpect types into pane 0.
-        self._drain_pending_output(child)
-        child.sendline(shlex.join(["tmux", "attach-session", "-t", session]))
-        self._expect_prompt(child)
-        setattr(child, "_w3_tmux_session", session)
-        setattr(child, "_w3_using_tmux", True)
-        return session
-
-    def _open_session(self, protocol: str, workload: str, trial_id: int) -> tuple:
-        self._ensure_protocol_available(protocol)
-        child = pexpect.spawn(
-            self._session_command(protocol),
-            encoding="utf-8",
-            codec_errors="ignore",
-            timeout=self.args.timeout,
-            maxread=20000,
-            searchwindowsize=20000,
-            dimensions=(self.args.term_rows, self.args.term_cols),
-            env={"TERM": self.args.term},
-        )
-        # pexpect defaults delaybeforesend to 0.05 s.  That creates an
-        # artificial 50 ms floor in keystroke-latency measurements.
-        # None disables the pre-send sleep.
-        child.delaybeforesend = None
-
-        start_ns = time.perf_counter_ns()
-        child.expect(_INITIAL_PROMPT_RE, timeout=self.args.timeout)
-        setup_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
-
-        # Set prompt for the original remote shell too; useful after detaching tmux.
-        child.sendline(
-            f"export PS1={shlex.quote(self.args.prompt)}; "
-            f"export TERM={shlex.quote(self.args.term)}"
-        )
-        self._expect_prompt(child)
-
-        if self.args.tmux_panes > 1:
-            self._setup_remote_tmux_panes(child, protocol, workload, trial_id)
-        else:
-            setattr(child, "_w3_using_tmux", False)
-
-        return child, setup_ms
-
-    def _close_session(self, child: pexpect.spawn) -> None:
-        using_tmux = bool(getattr(child, "_w3_using_tmux", False))
-        tmux_session = getattr(child, "_w3_tmux_session", "")
-
-        if using_tmux:
-            # Detach from tmux first. This works even if pane 0 is in vim/nano/cat.
             try:
-                child.sendcontrol("b")
-                time.sleep(0.05)
-                child.send("d")
-                child.expect([self.prompt_re, r"\[detached"], timeout=5)
+                start_ns = time.perf_counter_ns()
+                if self._tmux_attach_mode():
+                    if self._should_attach_after_login(protocol):
+                        child.expect(_INITIAL_PROMPT_RE, timeout=self.args.timeout)
+                        setup_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
+                        self._attach_tmux_after_login(child, protocol=protocol)
+                    else:
+                        self._expect_tmux_boot_marker(child, protocol=protocol)
+                        setup_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
+                else:
+                    child.expect(_INITIAL_PROMPT_RE, timeout=self.args.timeout)
+                    setup_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
+
+                child.sendline(f"export PS1={shlex.quote(self.args.prompt)}")
+                self._expect_prompt(child, protocol=protocol)
+                return child, setup_ms
+            except (pexpect.TIMEOUT, pexpect.EOF) as exc:
+                last_exc = exc
                 try:
-                    self._expect_prompt(child)
+                    child.close(force=True)
                 except Exception:
                     pass
+                if attempt >= attempts:
+                    raise
+                if protocol == "mosh":
+                    print(
+                        f"[mosh/open_session] retry {attempt}/{attempts - 1}"
+                        f" after {type(exc).__name__}",
+                        flush=True,
+                    )
+                time.sleep(0.4)
+
+        if last_exc is not None:
+            raise last_exc
+        raise RuntimeError("failed to open session")
+
+    def _close_session(self, child: pexpect.spawn) -> None:
+        self._reset_pane0_stream_cursor()
+        if self._tmux_attach_mode():
+            try:
+                child.sendcontrol("b")
+                child.send("d")
+                child.expect(
+                    pexpect.EOF,
+                    timeout=max(1, min(3, self.args.timeout)),
+                )
+                return
             except Exception:
                 pass
 
-            # Kill the tmux session so background load panes cannot remain alive.
-            if tmux_session:
-                try:
-                    child.sendline(
-                        f"tmux kill-session -t {shlex.quote(tmux_session)} "
-                        f">/dev/null 2>&1 || true"
-                    )
-                    self._expect_prompt(child)
-                except Exception:
-                    pass
-
         try:
             child.sendline("exit")
-            child.expect(pexpect.EOF, timeout=5)
+            child.expect(pexpect.EOF)
         except Exception:
             child.close(force=True)
         finally:
@@ -487,96 +772,223 @@ class W3Benchmark:
     def _measure_interactive_shell(
         self,
         child: pexpect.spawn,
+        protocol: str,
         warmup: int,
         iterations: int,
         report_cb: Optional[Callable[[int, float], None]] = None,
-    ) -> List[float]:
-        child.sendline("cat")
-        child.expect_exact("\n", timeout=self.args.timeout)
+        fail_cb: Optional[Callable[[int, Exception], None]] = None,
+    ) -> tuple[List[float], pexpect.spawn]:
+        self._refresh_prompt(child, protocol=protocol)
+        cleanup_batch = max(1, self.args.editor_cleanup_batch)
+        pending_chars = 0
+        # Keep parity with test/w3_interactive_benchmark.py:
+        # measured probes are not erased immediately.
+        erase_per_probe = False
+        fail_streak = 0
+        fail_limit = max(0, self.args.tmux_fail_streak_limit)
+        fail_total = 0
+        fail_trial_limit = max(0, self.args.tmux_trial_fail_limit)
 
         for _ in range(warmup):
-            self._probe_once(child, erase_after_echo=False)
+            try:
+                self._probe_once(child, erase_after_echo=erase_per_probe)
+            except pexpect.TIMEOUT:
+                self._recover_shell_state(child)
+                self._refresh_prompt(child, protocol=protocol)
+                continue
+            if erase_per_probe:
+                continue
+            pending_chars += 1
+            if pending_chars >= cleanup_batch:
+                self._erase_probe_chars(child, pending_chars)
+                pending_chars = 0
+                self._drain_pending_output(child)
+
+        # Keep warmup side effects outside measured rounds.
+        if not erase_per_probe and pending_chars > 0:
+            self._erase_probe_chars(child, pending_chars)
+            pending_chars = 0
+            self._drain_pending_output(child)
+        self._refresh_prompt(child, protocol=protocol)
 
         latencies: List[float] = []
         for i in range(iterations):
-            lat = self._probe_once(child, erase_after_echo=False)
+            try:
+                lat = self._probe_once(child, erase_after_echo=erase_per_probe)
+            except pexpect.TIMEOUT as exc:
+                fail_streak += 1
+                fail_total += 1
+                if fail_cb:
+                    fail_cb(i + 1, exc)
+                if self.args.reopen_on_failure:
+                    child = self._reopen_session_for_sample_failure(child, protocol)
+                else:
+                    self._recover_shell_state(child)
+                self._refresh_prompt(child, protocol=protocol)
+                if (
+                    self._tmux_attach_mode()
+                    and fail_trial_limit > 0
+                    and fail_total >= fail_trial_limit
+                ):
+                    raise ValueError(
+                        f"too many TIMEOUT failures ({fail_total}) in interactive_shell"
+                    )
+                if self._tmux_attach_mode() and fail_limit > 0 and fail_streak >= fail_limit:
+                    raise ValueError(
+                        f"too many consecutive TIMEOUTs ({fail_streak}) in interactive_shell"
+                    )
+                continue
+            fail_streak = 0
+            if not erase_per_probe:
+                pending_chars += 1
+            if not erase_per_probe and pending_chars >= cleanup_batch:
+                self._erase_probe_chars(child, pending_chars)
+                pending_chars = 0
+                self._drain_pending_output(child)
             latencies.append(lat)
             if report_cb:
                 report_cb(i + 1, lat)
 
-        child.sendcontrol("c")
-        child.sendcontrol("c")
-        self._expect_prompt(child)
-        return latencies
+        if not erase_per_probe and pending_chars > 0:
+            self._erase_probe_chars(child, pending_chars)
+            self._drain_pending_output(child)
+
+        self._refresh_prompt(child, protocol=protocol)
+        return latencies, child
 
     def _measure_vim(
         self,
         child: pexpect.spawn,
+        protocol: str,
         warmup: int,
         iterations: int,
         report_cb: Optional[Callable[[int, float], None]] = None,
-    ) -> List[float]:
-        remote_file = self.args.remote_vim_file
-        child.sendline(f"vim -Nu NONE -n {shlex.quote(remote_file)}")
-        child.send("i")
-        child.expect([r"-- INSERT --", r"INSERT"], timeout=self.args.timeout)
+        fail_cb: Optional[Callable[[int, Exception], None]] = None,
+    ) -> tuple[List[float], pexpect.spawn]:
+        self._enter_vim_insert_mode(child)
+        # Keep parity with test/w3_interactive_benchmark.py.
+        erase_per_probe = False
+        fail_streak = 0
+        fail_limit = max(0, self.args.tmux_fail_streak_limit)
+        fail_total = 0
+        fail_trial_limit = max(0, self.args.tmux_trial_fail_limit)
 
         for _ in range(warmup):
             try:
-                self._probe_vim_once(child)
+                self._probe_vim_once(
+                    child,
+                    erase_after_echo=erase_per_probe,
+                )
             except pexpect.TIMEOUT:
                 self._recover_vim_state(child)
-                self._probe_vim_once(child)
+                continue
 
         latencies: List[float] = []
         for i in range(iterations):
             try:
-                lat = self._probe_vim_once(child)
-            except pexpect.TIMEOUT:
-                self._recover_vim_state(child)
-                lat = self._probe_vim_once(child)
+                lat = self._probe_vim_once(
+                    child,
+                    erase_after_echo=erase_per_probe,
+                )
+            except pexpect.TIMEOUT as exc:
+                fail_streak += 1
+                fail_total += 1
+                if fail_cb:
+                    fail_cb(i + 1, exc)
+                if self.args.reopen_on_failure:
+                    child = self._reopen_session_for_sample_failure(child, protocol)
+                    self._enter_vim_insert_mode(child)
+                else:
+                    self._recover_vim_state(child)
+                if (
+                    self._tmux_attach_mode()
+                    and fail_trial_limit > 0
+                    and fail_total >= fail_trial_limit
+                ):
+                    raise ValueError(
+                        f"too many TIMEOUT failures ({fail_total}) in vim"
+                    )
+                if self._tmux_attach_mode() and fail_limit > 0 and fail_streak >= fail_limit:
+                    raise ValueError(
+                        f"too many consecutive TIMEOUTs ({fail_streak}) in vim"
+                    )
+                continue
+            fail_streak = 0
             latencies.append(lat)
             if report_cb:
                 report_cb(i + 1, lat)
 
         child.send("\x1b")
         child.sendline(":q!")
-        self._expect_prompt(child)
-        return latencies
+        self._expect_prompt(child, protocol=protocol)
+        return latencies, child
 
     def _measure_nano(
         self,
         child: pexpect.spawn,
+        protocol: str,
         warmup: int,
         iterations: int,
         report_cb: Optional[Callable[[int, float], None]] = None,
-    ) -> List[float]:
-        remote_file = self.args.remote_nano_file
-        child.sendline(f"nano --ignorercfiles {shlex.quote(remote_file)}")
-        child.expect([r"GNU nano", r"\^G Help"], timeout=self.args.timeout)
+        fail_cb: Optional[Callable[[int, Exception], None]] = None,
+    ) -> tuple[List[float], pexpect.spawn]:
+        self._enter_nano_mode(child)
+        # Keep parity with test/w3_interactive_benchmark.py.
+        erase_per_probe = False
+        fail_streak = 0
+        fail_limit = max(0, self.args.tmux_fail_streak_limit)
+        fail_total = 0
+        fail_trial_limit = max(0, self.args.tmux_trial_fail_limit)
 
         for _ in range(warmup):
             try:
-                self._probe_once(child, erase_after_echo=True)
+                self._probe_once(
+                    child,
+                    erase_after_echo=erase_per_probe,
+                )
             except pexpect.TIMEOUT:
                 self._recover_nano_state(child)
-                self._probe_once(child, erase_after_echo=True)
+                continue
 
         latencies: List[float] = []
         for i in range(iterations):
             try:
-                lat = self._probe_once(child, erase_after_echo=True)
-            except pexpect.TIMEOUT:
-                self._recover_nano_state(child)
-                lat = self._probe_once(child, erase_after_echo=True)
+                lat = self._probe_once(
+                    child,
+                    erase_after_echo=erase_per_probe,
+                )
+            except pexpect.TIMEOUT as exc:
+                fail_streak += 1
+                fail_total += 1
+                if fail_cb:
+                    fail_cb(i + 1, exc)
+                if self.args.reopen_on_failure:
+                    child = self._reopen_session_for_sample_failure(child, protocol)
+                    self._enter_nano_mode(child)
+                else:
+                    self._recover_nano_state(child)
+                if (
+                    self._tmux_attach_mode()
+                    and fail_trial_limit > 0
+                    and fail_total >= fail_trial_limit
+                ):
+                    raise ValueError(
+                        f"too many TIMEOUT failures ({fail_total}) in nano"
+                    )
+                if self._tmux_attach_mode() and fail_limit > 0 and fail_streak >= fail_limit:
+                    raise ValueError(
+                        f"too many consecutive TIMEOUTs ({fail_streak}) in nano"
+                    )
+                continue
+            fail_streak = 0
             latencies.append(lat)
             if report_cb:
                 report_cb(i + 1, lat)
 
         child.sendcontrol("x")
         child.send("n")
-        self._expect_prompt(child)
-        return latencies
+        self._expect_prompt(child, protocol=protocol)
+        return latencies, child
 
     def _run_trial(
         self,
@@ -584,7 +996,7 @@ class W3Benchmark:
         protocol: str,
         workload: str,
         trial_id: int,
-    ) -> List[float]:
+    ) -> tuple[List[float], pexpect.spawn]:
         def report_cb(s_idx: int, lat: float) -> None:
             self.results[protocol][workload].append(lat)
             self.records.append(
@@ -595,135 +1007,98 @@ class W3Benchmark:
                 f" trial {trial_id:>2}"
                 f" measure {s_idx:>3}/{self.args.iterations}:"
                 f" {lat:.2f} ms",
-                flush=True,
+                flush=True
+            )
+
+        def fail_cb(s_idx: int, exc: Exception) -> None:
+            self.failures.append(
+                FailureRecord(
+                    protocol=protocol,
+                    workload=workload,
+                    round_id=trial_id,
+                    sample_id=s_idx,
+                    error_type=type(exc).__name__,
+                    error_message=str(exc),
+                )
+            )
+            print(
+                f"[{protocol:>4}/{workload:<18}]"
+                f" trial {trial_id:>2}"
+                f" measure {s_idx:>3}/{self.args.iterations}:"
+                f" FAIL ({type(exc).__name__})",
+                flush=True
             )
 
         if workload == "interactive_shell":
-            latencies = self._measure_interactive_shell(
+            latencies, child = self._measure_interactive_shell(
                 child,
+                protocol=protocol,
                 warmup=self.args.warmup_rounds,
                 iterations=self.args.iterations,
                 report_cb=report_cb,
+                fail_cb=fail_cb,
             )
         elif workload == "vim":
-            latencies = self._measure_vim(
+            latencies, child = self._measure_vim(
                 child,
+                protocol=protocol,
                 warmup=self.args.warmup_rounds,
                 iterations=self.args.iterations,
                 report_cb=report_cb,
+                fail_cb=fail_cb,
             )
         elif workload == "nano":
-            latencies = self._measure_nano(
+            latencies, child = self._measure_nano(
                 child,
+                protocol=protocol,
                 warmup=self.args.warmup_rounds,
                 iterations=self.args.iterations,
                 report_cb=report_cb,
+                fail_cb=fail_cb,
             )
         else:
             raise ValueError(f"Unsupported workload: {workload}")
 
-        return latencies
-
-    def _record_failure(
-        self,
-        protocol: str,
-        workload: str,
-        trial_id: int,
-        sample_id: int,
-        exc: BaseException,
-    ) -> None:
-        self.failures.append(
-            FailureRecord(
-                protocol=protocol,
-                workload=workload,
-                round_id=trial_id,
-                sample_id=sample_id,
-                error_type=type(exc).__name__,
-                error_message=str(exc),
-            )
-        )
+        return latencies, child
 
     def _run_session_group(self, protocol: str, workload: str) -> None:
-        try:
-            self._ensure_protocol_available(protocol)
-        except MissingExecutableError as exc:
-            self._record_failure(protocol, workload, 0, -1, exc)
-            print(
-                f"[{protocol:>4}/{workload:<18}] SKIP "
-                f"({type(exc).__name__}: {exc})",
-                flush=True,
-            )
-            return
-
         for trial_id in range(1, self.args.trials + 1):
             child: Optional[pexpect.spawn] = None
             try:
-                try:
-                    child, setup_ms = self._open_session(protocol, workload, trial_id)
-                except (
-                    MissingExecutableError,
-                    pexpect.ExceptionPexpect,
-                    pexpect.TIMEOUT,
-                    pexpect.EOF,
-                    OSError,
-                    ValueError,
-                ) as exc:
-                    self._record_failure(protocol, workload, trial_id, -1, exc)
-                    print(
-                        f"[{protocol:>4}/{workload:<18}]"
-                        f" trial {trial_id:>2}/{self.args.trials}: SESSION FAIL"
-                        f" ({type(exc).__name__}: {exc})",
-                        flush=True,
-                    )
-                    continue
-
-                self.session_setups[protocol][workload].append(setup_ms)
-                pane_note = (
-                    f", tmux_panes={self.args.tmux_panes}"
-                    if self.args.tmux_panes > 1 else ""
-                )
                 print(
                     f"[{protocol:>4}/{workload:<18}]"
                     f" trial {trial_id:>2}/{self.args.trials}"
-                    f" session_setup={setup_ms:.1f} ms{pane_note}",
+                    f" opening session...",
                     flush=True,
+                )
+                child, setup_ms = self._open_session(protocol)
+                self.session_setups[protocol][workload].append(setup_ms)
+                print(
+                    f"[{protocol:>4}/{workload:<18}]"
+                    f" trial {trial_id:>2}/{self.args.trials}"
+                    f" session_setup={setup_ms:.1f} ms"
                 )
 
                 try:
-                    self._run_trial(child, protocol, workload, trial_id)
+                    _, child = self._run_trial(
+                        child, protocol, workload, trial_id
+                    )
                 except (pexpect.TIMEOUT, pexpect.EOF, ValueError) as exc:
-                    self._record_failure(protocol, workload, trial_id, -1, exc)
+                    self.failures.append(
+                        FailureRecord(
+                            protocol=protocol,
+                            workload=workload,
+                            round_id=trial_id,
+                            sample_id=-1,
+                            error_type=type(exc).__name__,
+                            error_message=str(exc),
+                        )
+                    )
                     print(
                         f"[{protocol:>4}/{workload:<18}]"
                         f" trial {trial_id:>2}: FAIL"
-                        f" ({type(exc).__name__}: {exc})",
-                        flush=True,
+                        f" ({type(exc).__name__}: {exc})"
                     )
-                    if self.args.reopen_on_failure:
-                        if child is not None:
-                            self._close_session(child)
-                            child = None
-                        try:
-                            child, setup_ms = self._open_session(
-                                protocol, workload, trial_id
-                            )
-                        except (
-                            MissingExecutableError,
-                            pexpect.ExceptionPexpect,
-                            pexpect.TIMEOUT,
-                            pexpect.EOF,
-                            OSError,
-                            ValueError,
-                        ) as reopen_exc:
-                            self._record_failure(
-                                protocol, workload, trial_id, -1, reopen_exc
-                            )
-                            print(
-                                f"[{protocol:>4}/{workload:<18}]"
-                                f" trial {trial_id:>2}: REOPEN FAIL"
-                                f" ({type(reopen_exc).__name__}: {reopen_exc})",
-                                flush=True,
-                            )
 
             finally:
                 if child is not None:
@@ -757,13 +1132,10 @@ class W3Benchmark:
 
     def _summary_row(self, protocol: str, workload: str) -> SummaryRow:
         data   = self.results[protocol][workload]
-        fail_n = sum(
-            1 for f in self.failures
-            if f.protocol == protocol and f.workload == workload
-        )
-        n     = len(data)
-        total = n + fail_n
-        success_rate = (100.0 * n / total) if total else 0.0
+        expected_n = self.args.trials * self.args.iterations
+        n = len(data)
+        fail_n = max(0, expected_n - n)
+        success_rate = (100.0 * n / expected_n) if expected_n else 0.0
 
         if n == 0:
             return SummaryRow(
@@ -841,7 +1213,7 @@ class W3Benchmark:
         print("\n" + "-" * ss_width)
         print(
             "SESSION SETUP LATENCY (ms)  "
-            "[spawn -> first shell prompt, PS1/tmux setup excluded]"
+            "[spawn -> first login prompt, tmux attach/PS1 excluded]"
         )
         print(
             f"{'Protocol':<8} | {'Workload':<18} | {'N':>3} |"
@@ -925,7 +1297,7 @@ class W3Benchmark:
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="W3 Interactive Editing benchmark with 5-pane visible remote load")
+    p = argparse.ArgumentParser(description="W3 Interactive Editing benchmark")
     p.add_argument(
         "--host", default="192.168.8.102",
         help="Target host IP or hostname",
@@ -960,7 +1332,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Recorded samples per trial",
     )
     p.add_argument(
-        "--warmup-rounds", type=int, default=5,
+        "--warmup-rounds", type=int, default=10,
         help="Warmup samples per trial (not recorded)",
     )
     p.add_argument(
@@ -972,8 +1344,51 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Random seed",
     )
     p.add_argument(
+        "--probe-sequence", default=DEFAULT_PROBE_SEQUENCE,
+        help=(
+            "Sequential probe string used left-to-right per keystroke"
+        ),
+    )
+    p.add_argument(
+        "--probe-search-window", type=int, default=0,
+        help="Bytes scanned when matching probe echo (0 = full buffer search)",
+    )
+    p.add_argument(
+        "--editor-cleanup-batch", type=int, default=32,
+        help="Typed chars between non-measured cleanup operations in interactive_shell",
+    )
+    p.add_argument(
+        "--tmux-fail-streak-limit", type=int, default=8,
+        help=(
+            "Abort a tmux-mode trial early after this many consecutive "
+            "TIMEOUTs (0 disables the limit)"
+        ),
+    )
+    p.add_argument(
+        "--tmux-trial-fail-limit", type=int, default=35,
+        help=(
+            "Abort a tmux-mode trial early after this many total TIMEOUT "
+            "failures (0 disables the limit)"
+        ),
+    )
+    p.add_argument(
+        "--tmux-probe-max-gap", type=int, default=256,
+        help=(
+            "Max arbitrary bytes allowed between probe token characters in "
+            "tmux-mode matching"
+        ),
+    )
+    p.add_argument(
+        "--tmux-search-window", type=int, default=32768,
+        help=(
+            "searchwindowsize for tmux-mode expect/expect_exact matches "
+            "(0 = full buffer search); "
+            "larger values are more tolerant but slower"
+        ),
+    )
+    p.add_argument(
         "--output-dir", default="w3_results",
-        help="Directory for CSV outputs",
+        help="Directory for JSON/CSV outputs",
     )
     p.add_argument(
         "--prompt", default=DEFAULT_PROMPT,
@@ -996,7 +1411,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Keep strict host key checking enabled",
     )
     p.add_argument(
-        "--mosh-predict", default="adaptive",
+        "--mosh-predict", default="always",
         choices=["adaptive", "always", "never"],
         help="Mosh prediction mode",
     )
@@ -1014,45 +1429,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     p.add_argument(
         "--reopen-on-failure", action="store_true",
-        help="Reopen session after each failed measured sample",
-    )
-    p.add_argument(
-        "--tmux-panes", type=int, default=5,
-        help=(
-            "Number of panes inside one remote tmux session. "
-            "Default 5: pane 0 is measured, panes 1-4 show background load. "
-            "Use 1 to disable tmux-pane mode."
-        ),
-    )
-    p.add_argument(
-        "--tmux-session-prefix", default="w3bench",
-        help="Prefix for temporary remote tmux session names",
-    )
-    p.add_argument(
-        "--bg-load-cmd", action="append", default=[],
-        help=(
-            "Custom background load command for tmux load panes. "
-            "Can be passed multiple times; commands are reused cyclically."
-        ),
-    )
-    p.add_argument(
-        "--term", default="xterm-256color",
-        help="TERM value used for the pexpect PTY and remote shells",
-    )
-    p.add_argument(
-        "--term-rows", type=int, default=45,
-        help="PTY/tmux height. Larger values keep 5 panes usable.",
-    )
-    p.add_argument(
-        "--term-cols", type=int, default=160,
-        help="PTY/tmux width. Larger values keep 5 panes usable.",
+        help="Reopen session immediately after each failed measured sample",
     )
     p.add_argument(
         "--log-pexpect", action="store_true",
         help="Deprecated compatibility flag (no-op): pexpect logs are disabled",
     )
     return p
-
 
 def main() -> int:
     parser = build_arg_parser()
@@ -1064,14 +1447,18 @@ def main() -> int:
         parser.error("--iterations must be > 0")
     if args.warmup_rounds < 0:
         parser.error("--warmup-rounds must be >= 0")
-    if args.tmux_panes <= 0:
-        parser.error("--tmux-panes must be >= 1")
-    if args.tmux_panes > 9:
-        parser.error("--tmux-panes should be <= 9 to keep panes readable")
-    if args.term_rows < 24:
-        parser.error("--term-rows should be >= 24")
-    if args.term_cols < 80:
-        parser.error("--term-cols should be >= 80")
+    if args.editor_cleanup_batch <= 0:
+        parser.error("--editor-cleanup-batch must be > 0")
+    if args.probe_search_window < 0:
+        parser.error("--probe-search-window must be >= 0")
+    if args.tmux_fail_streak_limit < 0:
+        parser.error("--tmux-fail-streak-limit must be >= 0")
+    if args.tmux_trial_fail_limit < 0:
+        parser.error("--tmux-trial-fail-limit must be >= 0")
+    if args.tmux_probe_max_gap <= 0:
+        parser.error("--tmux-probe-max-gap must be > 0")
+    if args.tmux_search_window < 0:
+        parser.error("--tmux-search-window must be >= 0")
 
     bench = W3Benchmark(args)
     bench.run()

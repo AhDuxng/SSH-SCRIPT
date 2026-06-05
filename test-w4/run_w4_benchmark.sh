@@ -36,9 +36,7 @@ PROTOCOLS="${PROTOCOLS:-ssh ssh3 mosh}"
 FIXTURE_DIR="${FIXTURE_DIR:-/tmp}"
 
 COMMANDS=(
-  "cat $FIXTURE_DIR/w4_paths_small.txt"
-  "cat $FIXTURE_DIR/w4_paths_medium.txt"
-  "cat $FIXTURE_DIR/w4_paths_large.txt"
+  "cat $FIXTURE_DIR/w4_paths_2mb.txt"
 )
 
 ITERATIONS="${ITERATIONS:-10}"
@@ -50,7 +48,7 @@ MAX_OUTPUT_LINES="${MAX_OUTPUT_LINES:-0}"
 MAXREAD="${MAXREAD:-65535}"
 SEED="${SEED:-42}"
 
-OUTPUT_ROOT="${OUTPUT_ROOT:-w4_results_trungnt}"
+OUTPUT_ROOT="${OUTPUT_ROOT:-w4_results_2mb}"
 OUTPUT_DIR="${OUTPUT_DIR:-$OUTPUT_ROOT/$SCENARIO}"
 PROMPT="${PROMPT:-__W4_PROMPT__# }"
 
@@ -61,6 +59,7 @@ STRICT_HOST_KEY="${STRICT_HOST_KEY:-false}"
 MOSH_PREDICT="${MOSH_PREDICT:-always}"
 SHUFFLE_PAIRS="${SHUFFLE_PAIRS:-false}"
 REOPEN_ON_FAILURE="${REOPEN_ON_FAILURE:-true}"
+RESUME="${RESUME:-false}"
 
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
@@ -100,14 +99,16 @@ CMD=(
 [[ "$STRICT_HOST_KEY" == "true" ]] && CMD+=(--strict-host-key-checking)
 [[ "$SHUFFLE_PAIRS" == "true" ]] && CMD+=(--shuffle-pairs)
 [[ "$REOPEN_ON_FAILURE" == "true" ]] && CMD+=(--reopen-on-failure)
+[[ "$RESUME" == "true" ]] && CMD+=(--resume)
 
 echo "=== W4 Real Large Output Benchmark ==="
 echo "Host      : $USER_NAME@$HOST"
 echo "Scenario  : $SCENARIO"
 echo "Source IP : $SOURCE_IP"
 echo "Protocols : $PROTOCOLS"
-echo "Fixtures  : $FIXTURE_DIR/w4_paths_{small,medium,large}.txt"
+echo "Fixture   : $FIXTURE_DIR/w4_paths_2mb.txt (2 MiB)"
 echo "Max lines : $MAX_OUTPUT_LINES per command sample"
+echo "Resume    : $RESUME"
 echo "Commands  :"
 for command in "${COMMANDS[@]}"; do
   printf '  - %s\n' "$command"

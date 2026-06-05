@@ -1,0 +1,25 @@
+scenario,protocol,command,trial_id,session_setup_ms
+medium,ssh,ls,1,1791.994689
+medium,ssh,ls,2,1671.040018
+medium,ssh,df -h,1,1758.059912
+medium,ssh,df -h,2,1725.703212
+medium,ssh,ps aux,1,1685.247260
+medium,ssh,ps aux,2,1806.510951
+medium,ssh,grep -n root /etc/passwd,1,1682.950865
+medium,ssh,grep -n root /etc/passwd,2,1744.196603
+medium,ssh3,ls,1,532.989230
+medium,ssh3,ls,2,853.637584
+medium,ssh3,df -h,1,541.283219
+medium,ssh3,df -h,2,551.825793
+medium,ssh3,ps aux,1,526.022709
+medium,ssh3,ps aux,2,557.420382
+medium,ssh3,grep -n root /etc/passwd,1,514.667755
+medium,ssh3,grep -n root /etc/passwd,2,785.997126
+medium,mosh,ls,1,2138.855908
+medium,mosh,ls,2,2425.871771
+medium,mosh,df -h,1,2275.000021
+medium,mosh,df -h,2,2190.525939
+medium,mosh,ps aux,1,2252.990091
+medium,mosh,ps aux,2,2158.169998
+medium,mosh,grep -n root /etc/passwd,1,2160.647183
+medium,mosh,grep -n root /etc/passwd,2,2232.743749

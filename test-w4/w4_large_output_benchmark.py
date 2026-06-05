@@ -3,17 +3,20 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import math
+import os
 import random
 import re
 import shlex
+import signal
 import statistics
 import subprocess
 import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set, Tuple
 
 try:
     import pexpect
@@ -25,14 +28,10 @@ except ImportError as exc:
 
 DEFAULT_PROTOCOLS = ["ssh", "ssh3", "mosh"]
 DEFAULT_COMMANDS = [
-    "cat /tmp/w4_paths_small.txt",
-    "cat /tmp/w4_paths_medium.txt",
-    "cat /tmp/w4_paths_large.txt",
+    "cat /tmp/w4_paths_2mb.txt",
 ]
 COMMAND_LABELS = {
-    "cat /tmp/w4_paths_small.txt": "fixture small",
-    "cat /tmp/w4_paths_medium.txt": "fixture medium",
-    "cat /tmp/w4_paths_large.txt": "fixture large",
+    "cat /tmp/w4_paths_2mb.txt": "fixture 2mb",
     "find /": "find /",
     "docker logs $(docker ps -q | head -n 1)": "docker logs",
     "docker logs <container_name> 2>/dev/null": "docker logs",
@@ -74,6 +73,9 @@ class SampleRecord:
     throughput_kib_s: Optional[float]
     ref_output_bytes: int = 0
     output_delta_bytes: int = 0
+    expected_sha256: str = ""
+    received_sha256: str = ""
+    content_match: bool = False
     received_pct: float = 100.0
 
 
@@ -109,6 +111,8 @@ class SummaryRow:
     mean_throughput_kib_s: Optional[float]
     recv_pct_mean: Optional[float]
     recv_pct_min: Optional[float]
+    content_ok_pct: Optional[float]
+    content_bad: int
 
 
 class W4Benchmark:
@@ -124,6 +128,7 @@ class W4Benchmark:
 
         self.records: List[SampleRecord] = []
         self.failures: List[FailureRecord] = []
+        self.completed_samples: Set[Tuple[str, str, int, int]] = set()
         self.results: Dict[str, Dict[str, List[float]]] = {
             p: {c: [] for c in args.commands} for p in args.protocols
         }
@@ -133,7 +138,15 @@ class W4Benchmark:
         self.session_setups: Dict[str, Dict[str, List[float]]] = {
             p: {c: [] for c in args.commands} for p in args.protocols
         }
+        self.ref_output_sha256: Dict[str, str] = {}
         self.ref_output_bytes: Dict[str, int] = self._collect_reference_outputs()
+        self._init_incremental_outputs()
+
+    @staticmethod
+    def _sample_key(
+        protocol: str, command: str, trial_id: int, sample_id: int
+    ) -> Tuple[str, str, int, int]:
+        return (protocol, command, int(trial_id), int(sample_id))
 
     def _ssh_exec_command(self) -> List[str]:
         ssh_cmd = [
@@ -162,10 +175,12 @@ class W4Benchmark:
         if not path.startswith("/"):
             return None
         quoted = shlex.quote(path)
-        return (
-            f"test -r {quoted} || {{ echo 'missing fixture: {quoted}' >&2; exit 66; }}; "
-            f"wc -c < {quoted}"
-        )
+        return f"""
+            test -r {quoted} || {{ echo 'missing fixture: {quoted}' >&2; exit 66; }}
+            bytes=$(wc -c < {quoted})
+            hash=$(sha256sum {quoted} | awk '{{print $1}}')
+            printf '%s %s\\n' "$bytes" "$hash"
+        """
 
     def _collect_reference_outputs(self) -> Dict[str, int]:
         ref: Dict[str, List[int]] = {cmd: [] for cmd in self.args.commands}
@@ -189,12 +204,17 @@ class W4Benchmark:
                         f"stderr={result.stderr.strip()!r}"
                     )
                 try:
-                    ref[cmd].append(int(result.stdout.strip().split()[0]))
+                    parts = result.stdout.strip().split()
+                    ref[cmd].append(int(parts[0]))
+                    self.ref_output_sha256[cmd] = parts[1]
                 except (IndexError, ValueError) as exc:
                     raise RuntimeError(
                         f"Invalid fixture size output for {cmd!r}: {result.stdout!r}"
                     ) from exc
-                print(f"  ref[{cmd}] = {ref[cmd][0]} bytes (remote wc -c)", flush=True)
+                print(
+                    f"  ref[{cmd}] = {ref[cmd][0]} bytes, sha256={self.ref_output_sha256[cmd]}",
+                    flush=True,
+                )
                 continue
 
             for run_idx in range(1, n_runs + 1):
@@ -207,6 +227,8 @@ class W4Benchmark:
                         capture_output=True, timeout=120,
                     )
                     ref[cmd].append(len(result.stdout))
+                    if cmd not in self.ref_output_sha256:
+                        self.ref_output_sha256[cmd] = hashlib.sha256(result.stdout).hexdigest()
                 except Exception as exc:
                     print(f"  ref[{cmd}] run {run_idx} FAILED: {exc}", flush=True)
                 print(f"  ref[{cmd}] run {run_idx}/{n_runs} done", flush=True)
@@ -222,6 +244,227 @@ class W4Benchmark:
             print(f"  ref[{cmd}] = {result_dict[cmd]} bytes (samples: {sizes})", flush=True)
         print("", flush=True)
         return result_dict
+
+    @staticmethod
+    def _fsync_csv_row(path: Path, row: List[object]) -> None:
+        with path.open("a", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(row)
+            f.flush()
+            os.fsync(f.fileno())
+
+    def _init_incremental_outputs(self) -> None:
+        outdir = Path(self.args.output_dir)
+        outdir.mkdir(parents=True, exist_ok=True)
+        self.line_csv = outdir / "w4_line_log.csv"
+        self.setup_csv = outdir / "w4_session_setup.csv"
+
+        if self.args.resume and self.line_csv.exists():
+            self._load_incremental_outputs()
+            print(
+                f"=== Resume mode: loaded {len(self.records)} ok samples, "
+                f"{len(self.failures)} failures from {self.line_csv} ===",
+                flush=True,
+            )
+            if not self.setup_csv.exists():
+                with self.setup_csv.open("w", newline="", encoding="utf-8") as f:
+                    writer = csv.writer(f)
+                    writer.writerow(["scenario", "protocol", "command", "trial_id", "session_setup_ms"])
+                    f.flush()
+                    os.fsync(f.fileno())
+            return
+
+        with self.line_csv.open("w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(
+                [
+                    "scenario",
+                    "protocol",
+                    "workload",
+                    "round_id",
+                    "sample_id",
+                    "command_id",
+                    "command",
+                    "latency_ms",
+                    "output_bytes",
+                    "ref_output_bytes",
+                    "output_delta_bytes",
+                    "expected_sha256",
+                    "received_sha256",
+                    "content_match",
+                    "throughput_kib_s",
+                    "received_pct",
+                    "status",
+                    "error_type",
+                    "error_message",
+                ]
+            )
+            f.flush()
+            os.fsync(f.fileno())
+
+        with self.setup_csv.open("w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(["scenario", "protocol", "command", "trial_id", "session_setup_ms"])
+            f.flush()
+            os.fsync(f.fileno())
+
+    @staticmethod
+    def _float_or_none(value: str) -> Optional[float]:
+        if value == "" or value is None:
+            return None
+        return float(value)
+
+    @staticmethod
+    def _int_or_zero(value: str) -> int:
+        if value == "" or value is None:
+            return 0
+        return int(value)
+
+    def _load_incremental_outputs(self) -> None:
+        allowed_protocols = set(self.args.protocols)
+        allowed_commands = set(self.args.commands)
+
+        with self.line_csv.open("r", newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                protocol = row.get("protocol", "")
+                command = row.get("command", "")
+                if protocol not in allowed_protocols or command not in allowed_commands:
+                    continue
+                if row.get("scenario", self.scenario) not in ("", self.scenario):
+                    continue
+                try:
+                    trial_id = int(row.get("round_id", ""))
+                    sample_id = int(row.get("sample_id", ""))
+                    command_id = int(row.get("command_id", ""))
+                except ValueError:
+                    continue
+
+                workload = row.get("workload", "") or self._workload_for_command(command)
+                status = row.get("status", "")
+                key = self._sample_key(protocol, command, trial_id, sample_id)
+
+                if status == "ok":
+                    try:
+                        latency_ms = float(row.get("latency_ms", ""))
+                    except ValueError:
+                        continue
+                    throughput = self._float_or_none(row.get("throughput_kib_s", ""))
+                    output_bytes = self._int_or_zero(row.get("output_bytes", ""))
+                    record = SampleRecord(
+                        protocol=protocol,
+                        workload=workload,
+                        round_id=trial_id,
+                        sample_id=sample_id,
+                        command_id=command_id,
+                        command=command,
+                        latency_ms=latency_ms,
+                        output_bytes=output_bytes,
+                        throughput_kib_s=throughput,
+                        ref_output_bytes=self._int_or_zero(row.get("ref_output_bytes", "")),
+                        output_delta_bytes=self._int_or_zero(row.get("output_delta_bytes", "")),
+                        expected_sha256=row.get("expected_sha256", ""),
+                        received_sha256=row.get("received_sha256", ""),
+                        content_match=row.get("content_match", "").lower() == "true",
+                        received_pct=float(row.get("received_pct", "100") or "100"),
+                    )
+                    self.records.append(record)
+                    self.results[protocol][command].append(latency_ms)
+                    self.output_sizes[protocol][command].append(output_bytes)
+                    self.completed_samples.add(key)
+                elif status == "fail":
+                    failure = FailureRecord(
+                        protocol=protocol,
+                        workload=workload,
+                        round_id=trial_id,
+                        sample_id=sample_id,
+                        command_id=command_id,
+                        command=command,
+                        error_type=row.get("error_type", ""),
+                        error_message=row.get("error_message", ""),
+                    )
+                    self.failures.append(failure)
+                    self.completed_samples.add(key)
+
+        if self.setup_csv.exists():
+            with self.setup_csv.open("r", newline="", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    protocol = row.get("protocol", "")
+                    command = row.get("command", "")
+                    if protocol not in allowed_protocols or command not in allowed_commands:
+                        continue
+                    if row.get("scenario", self.scenario) not in ("", self.scenario):
+                        continue
+                    try:
+                        setup_ms = float(row.get("session_setup_ms", ""))
+                    except ValueError:
+                        continue
+                    self.session_setups[protocol][command].append(setup_ms)
+
+    def _append_record_csv(self, record: SampleRecord) -> None:
+        self._fsync_csv_row(
+            self.line_csv,
+            [
+                self.scenario,
+                record.protocol,
+                record.workload,
+                record.round_id,
+                record.sample_id,
+                record.command_id,
+                record.command,
+                f"{record.latency_ms:.6f}",
+                record.output_bytes,
+                record.ref_output_bytes,
+                record.output_delta_bytes,
+                record.expected_sha256,
+                record.received_sha256,
+                "true" if record.content_match else "false",
+                (
+                    f"{record.throughput_kib_s:.6f}"
+                    if record.throughput_kib_s is not None
+                    else ""
+                ),
+                f"{record.received_pct:.2f}",
+                "ok",
+                "",
+                "",
+            ],
+        )
+
+    def _append_failure_csv(self, failure: FailureRecord) -> None:
+        self._fsync_csv_row(
+            self.line_csv,
+            [
+                self.scenario,
+                failure.protocol,
+                failure.workload,
+                failure.round_id,
+                failure.sample_id,
+                failure.command_id,
+                failure.command,
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "fail",
+                failure.error_type,
+                failure.error_message,
+            ],
+        )
+
+    def _append_setup_csv(
+        self, protocol: str, command: str, trial_id: int, setup_ms: float
+    ) -> None:
+        self._fsync_csv_row(
+            self.setup_csv,
+            [self.scenario, protocol, command, trial_id, f"{setup_ms:.6f}"],
+        )
 
     @staticmethod
     def _build_prompt_re(prompt_marker: str) -> re.Pattern[str]:
@@ -253,9 +496,7 @@ class W4Benchmark:
             parts = []
         if len(parts) == 2 and parts[0] == "cat":
             fixture_labels = {
-                "w4_paths_small.txt": "fixture small",
-                "w4_paths_medium.txt": "fixture medium",
-                "w4_paths_large.txt": "fixture large",
+                "w4_paths_2mb.txt": "fixture 2mb",
             }
             label = fixture_labels.get(Path(parts[1]).name)
             if label is not None:
@@ -382,28 +623,41 @@ class W4Benchmark:
         self.prev_marker_token = token
         return token
 
-    def _wrap_measured_command(self, command: str, marker: str) -> str:
-        marker_arg = shlex.quote(marker)
+    def _wrap_measured_command(self, command: str, start_marker: str, end_marker: str) -> str:
+        start_arg = shlex.quote(start_marker)
+        end_arg = shlex.quote(end_marker)
         producer = f"{{ {command}; }} 2>&1"
         if self.args.max_output_lines > 0:
             producer = f"{producer} | head -n {int(self.args.max_output_lines)}"
-        return f"{producer}; printf '%s\\n' {marker_arg}"
+        return f"printf '%s\\n' {start_arg}; {producer}; printf '\\n%s\\n' {end_arg}"
 
-    def _wait_for_marker(self, child: pexpect.spawn, marker: str) -> int:
+    @staticmethod
+    def _payload_bytes(text: str) -> bytes:
+        return text.encode("utf-8", errors="ignore")
+
+    def _wait_for_marker(
+        self,
+        child: pexpect.spawn,
+        start_marker: str,
+        end_marker: str,
+    ) -> tuple[int, str]:
         deadline = time.monotonic() + float(self.args.sample_timeout)
         idle_timeout = float(self.args.command_idle_timeout)
-        marker_re = self._build_token_re(marker)
+        start_re = self._build_token_re(start_marker)
+        end_re = self._build_token_re(end_marker)
         read_size = max(4096, int(self.args.maxread))
 
         buffer = ""
         debug_tail = ""
         output_bytes = 0
+        output_hash = hashlib.sha256()
+        capturing = False
         saw_activity = False
         last_data_at = time.monotonic()
 
         def timeout_error(reason: str) -> pexpect.TIMEOUT:
             return pexpect.TIMEOUT(
-                f"{reason} while waiting for marker {marker!r}. "
+                f"{reason} while waiting for marker {end_marker!r}. "
                 f"output_bytes={output_bytes}, clean_tail={debug_tail[-500:]!r}"
             )
 
@@ -427,7 +681,7 @@ class W4Benchmark:
                 continue
             except pexpect.EOF as exc:
                 raise pexpect.EOF(
-                    f"EOF while waiting for marker {marker!r}. "
+                    f"EOF while waiting for marker {end_marker!r}. "
                     f"output_bytes={output_bytes}, clean_tail={debug_tail[-500:]!r}"
                 ) from exc
 
@@ -443,41 +697,49 @@ class W4Benchmark:
             debug_tail = (debug_tail + clean_chunk)[-500:]
             buffer += clean_chunk
 
-            match = marker_re.search(buffer)
-            if match is not None:
-                return output_bytes + len(
-                    buffer[: match.start()].encode("utf-8", errors="ignore")
-                )
+            if not capturing:
+                start_match = start_re.search(buffer)
+                if start_match is None:
+                    if len(buffer) > 4096:
+                        buffer = buffer[-4096:]
+                    continue
+                buffer = buffer[start_match.end() :]
+                if buffer.startswith("\n"):
+                    buffer = buffer[1:]
+                capturing = True
 
-            lines = buffer.split("\n")
-            buffer = lines.pop() if lines else ""
-            for line in lines:
-                marker_pos = line.find(marker)
-                if marker_pos >= 0:
-                    output_bytes += len(
-                        line[:marker_pos].encode("utf-8", errors="ignore")
-                    )
-                    return output_bytes
-                output_bytes += len((line + "\n").encode("utf-8", errors="ignore"))
+            end_match = end_re.search(buffer)
+            if end_match is not None:
+                final_text = buffer[: end_match.start()]
+                if final_text.endswith("\n"):
+                    final_text = final_text[:-1]
+                final_bytes = self._payload_bytes(final_text)
+                output_hash.update(final_bytes)
+                return output_bytes + len(final_bytes), output_hash.hexdigest()
 
-            if len(buffer) > 262_144:
+            if capturing and len(buffer) > 262_144:
                 dropped = buffer[:-262_144]
-                output_bytes += len(dropped.encode("utf-8", errors="ignore"))
+                dropped_bytes = self._payload_bytes(dropped)
+                output_hash.update(dropped_bytes)
+                output_bytes += len(dropped_bytes)
                 buffer = buffer[-262_144:]
 
     def _measure_output_delivery(
         self,
         child: pexpect.spawn,
         command: str,
-        marker: str,
-    ) -> tuple[float, int]:
+        start_marker: str,
+        end_marker: str,
+    ) -> tuple[float, int, str]:
         self._drain_pending_output(child)
-        wrapped = self._wrap_measured_command(command, marker)
+        wrapped = self._wrap_measured_command(command, start_marker, end_marker)
         start_ns = time.perf_counter_ns()
         child.sendline(wrapped)
-        output_bytes = self._wait_for_marker(child, marker)
+        output_bytes, received_sha256 = self._wait_for_marker(
+            child, start_marker, end_marker
+        )
         end_ns = time.perf_counter_ns()
-        return (end_ns - start_ns) / 1_000_000.0, output_bytes
+        return (end_ns - start_ns) / 1_000_000.0, output_bytes, received_sha256
 
     def _recover_after_timeout(self, child: pexpect.spawn) -> bool:
         try:
@@ -498,10 +760,20 @@ class W4Benchmark:
         trial_id: int,
     ) -> None:
         for sample_id in range(1, self.args.iterations + 1):
+            if self._sample_key(protocol, command, trial_id, sample_id) in self.completed_samples:
+                print(
+                    f"[{protocol:>4}/{workload:<12}] trial {trial_id:>2}/{self.args.trials}"
+                    f" sample {sample_id:>3}/{self.args.iterations}: resume skip",
+                    flush=True,
+                )
+                continue
+
             marker = self._next_marker_token()
+            start_marker = f"W4_BEGIN_{marker}"
+            end_marker = f"W4_END_{marker}"
             try:
-                latency_ms, output_bytes = self._measure_output_delivery(
-                    child, command, marker
+                latency_ms, output_bytes, received_sha256 = self._measure_output_delivery(
+                    child, command, start_marker, end_marker
                 )
                 throughput = (
                     (output_bytes / 1024.0) / (latency_ms / 1000.0)
@@ -509,29 +781,41 @@ class W4Benchmark:
                     else None
                 )
                 ref_bytes = self.ref_output_bytes.get(command, 0)
+                expected_sha256 = self.ref_output_sha256.get(command, "")
                 output_delta_bytes = output_bytes - ref_bytes
                 if ref_bytes > 0:
                     received_pct = min(100.0, output_bytes / ref_bytes * 100.0)
                 else:
                     received_pct = 100.0
+                content_match = (
+                    bool(expected_sha256)
+                    and expected_sha256 == received_sha256
+                    and output_delta_bytes == 0
+                )
 
                 self.results[protocol][command].append(latency_ms)
                 self.output_sizes[protocol][command].append(output_bytes)
-                self.records.append(
-                    SampleRecord(
-                        protocol,
-                        workload,
-                        trial_id,
-                        sample_id,
-                        command_id,
-                        command,
-                        latency_ms,
-                        output_bytes,
-                        throughput,
-                        ref_bytes,
-                        output_delta_bytes,
-                        received_pct=received_pct,
-                    )
+                record = SampleRecord(
+                    protocol,
+                    workload,
+                    trial_id,
+                    sample_id,
+                    command_id,
+                    command,
+                    latency_ms,
+                    output_bytes,
+                    throughput,
+                    ref_bytes,
+                    output_delta_bytes,
+                    expected_sha256,
+                    received_sha256,
+                    content_match,
+                    received_pct=received_pct,
+                )
+                self.records.append(record)
+                self._append_record_csv(record)
+                self.completed_samples.add(
+                    self._sample_key(protocol, command, trial_id, sample_id)
                 )
                 print(
                     f"[{protocol:>4}/{workload:<12}] trial {trial_id:>2}/{self.args.trials}"
@@ -539,23 +823,27 @@ class W4Benchmark:
                     f" {latency_ms:.2f} ms, {output_bytes / 1024.0:.1f} KiB"
                     f" | recv {received_pct:.1f}%"
                     f" | delta {output_delta_bytes:+d} B",
+                    f" | content {'ok' if content_match else 'BAD'}",
                     flush=True,
                 )
             except (pexpect.TIMEOUT, pexpect.EOF, ValueError) as exc:
                 recovered = True
                 if isinstance(exc, pexpect.TIMEOUT):
                     recovered = self._recover_after_timeout(child)
-                self.failures.append(
-                    FailureRecord(
-                        protocol,
-                        workload,
-                        trial_id,
-                        sample_id,
-                        command_id,
-                        command,
-                        type(exc).__name__,
-                        str(exc),
-                    )
+                failure = FailureRecord(
+                    protocol,
+                    workload,
+                    trial_id,
+                    sample_id,
+                    command_id,
+                    command,
+                    type(exc).__name__,
+                    str(exc),
+                )
+                self.failures.append(failure)
+                self._append_failure_csv(failure)
+                self.completed_samples.add(
+                    self._sample_key(protocol, command, trial_id, sample_id)
                 )
                 print(
                     f"[{protocol:>4}/{workload:<12}] trial {trial_id:>2}"
@@ -566,6 +854,13 @@ class W4Benchmark:
                 if self.args.reopen_on_failure or not recovered:
                     raise
 
+    def _trial_complete(self, protocol: str, command: str, trial_id: int) -> bool:
+        return all(
+            self._sample_key(protocol, command, trial_id, sample_id)
+            in self.completed_samples
+            for sample_id in range(1, self.args.iterations + 1)
+        )
+
     def _run_session_group(
         self,
         protocol: str,
@@ -574,10 +869,19 @@ class W4Benchmark:
         command_id: int,
     ) -> None:
         for trial_id in range(1, self.args.trials + 1):
+            if self._trial_complete(protocol, command, trial_id):
+                print(
+                    f"[{protocol:>4}/{workload:<12}] trial {trial_id:>2}/{self.args.trials}"
+                    " resume skip complete trial",
+                    flush=True,
+                )
+                continue
+
             child: Optional[pexpect.spawn] = None
             try:
                 child, setup_ms = self._open_session(protocol)
                 self.session_setups[protocol][command].append(setup_ms)
+                self._append_setup_csv(protocol, command, trial_id, setup_ms)
                 print(
                     f"[{protocol:>4}/{workload:<12}] trial {trial_id:>2}/{self.args.trials}"
                     f" session_setup={setup_ms:.1f} ms",
@@ -634,6 +938,16 @@ class W4Benchmark:
             r.received_pct for r in self.records
             if r.protocol == protocol and r.command == command
         ]
+        content_data = [
+            r.content_match for r in self.records
+            if r.protocol == protocol and r.command == command
+        ]
+        content_bad = sum(1 for ok in content_data if not ok)
+        content_ok_pct = (
+            100.0 * (len(content_data) - content_bad) / len(content_data)
+            if content_data
+            else None
+        )
 
         if not data:
             return SummaryRow(
@@ -644,6 +958,7 @@ class W4Benchmark:
                 failures,
                 success_rate,
                 None, None, None, None, None, None, None, None, None, None, None, None,
+                None, 0,
             )
 
         mean_ms = statistics.mean(data)
@@ -673,6 +988,8 @@ class W4Benchmark:
             mean_throughput,
             recv_pct_mean=statistics.mean(recv_data) if recv_data else None,
             recv_pct_min=min(recv_data) if recv_data else None,
+            content_ok_pct=content_ok_pct,
+            content_bad=content_bad,
         )
 
     def summaries(self) -> List[SummaryRow]:
@@ -704,7 +1021,7 @@ class W4Benchmark:
             f"{'Protocol':<8} | {'Command':<12} | {'N':>4} | {'Fail':>4} |"
             f" {'Succ%':>6} | {'Min':>8} | {'Mean':>8} | {'Median':>8} |"
             f" {'P95':>8} | {'P99':>8} | {'Max':>8} | {'OutKB':>8} | {'KB/s':>8} |"
-            f" {'Recv%Avg':>8} | {'Recv%Min':>8}"
+            f" {'Recv%Avg':>8} | {'Recv%Min':>8} | {'ContentOK%':>10} | {'BadHash':>7}"
         )
         print("\n" + "=" * len(header))
         print(header)
@@ -718,7 +1035,8 @@ class W4Benchmark:
                 f" {self._fmt(row.p99_ms):>8} | {self._fmt(row.max_ms):>8} |"
                 f" {self._fmt(row.mean_output_kib):>8} |"
                 f" {self._fmt(row.mean_throughput_kib_s):>8} |"
-                f" {self._fmt(row.recv_pct_mean):>8} | {self._fmt(row.recv_pct_min):>8}"
+                f" {self._fmt(row.recv_pct_mean):>8} | {self._fmt(row.recv_pct_min):>8} |"
+                f" {self._fmt(row.content_ok_pct):>10} | {row.content_bad:>7}"
             )
         print("=" * len(header))
 
@@ -749,8 +1067,10 @@ class W4Benchmark:
 
         line_csv = outdir / "w4_line_log.csv"
         setup_csv = outdir / "w4_session_setup.csv"
+        line_tmp = line_csv.with_suffix(line_csv.suffix + ".tmp")
+        setup_tmp = setup_csv.with_suffix(setup_csv.suffix + ".tmp")
 
-        with line_csv.open("w", newline="", encoding="utf-8") as f:
+        with line_tmp.open("w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
             writer.writerow(
                 [
@@ -765,6 +1085,9 @@ class W4Benchmark:
                     "output_bytes",
                     "ref_output_bytes",
                     "output_delta_bytes",
+                    "expected_sha256",
+                    "received_sha256",
+                    "content_match",
                     "throughput_kib_s",
                     "received_pct",
                     "status",
@@ -786,6 +1109,9 @@ class W4Benchmark:
                         record.output_bytes,
                         record.ref_output_bytes,
                         record.output_delta_bytes,
+                        record.expected_sha256,
+                        record.received_sha256,
+                        "true" if record.content_match else "false",
                         (
                             f"{record.throughput_kib_s:.6f}"
                             if record.throughput_kib_s is not None
@@ -813,13 +1139,19 @@ class W4Benchmark:
                         "",
                         "",
                         "",
+                        "",
+                        "",
+                        "",
                         "fail",
                         failure.error_type,
                         failure.error_message,
                     ]
                 )
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(line_tmp, line_csv)
 
-        with setup_csv.open("w", newline="", encoding="utf-8") as f:
+        with setup_tmp.open("w", newline="", encoding="utf-8") as f:
             writer = csv.writer(f)
             writer.writerow(["scenario", "protocol", "command", "trial_id", "session_setup_ms"])
             for protocol in self.args.protocols:
@@ -830,6 +1162,9 @@ class W4Benchmark:
                         writer.writerow(
                             [self.scenario, protocol, command, trial_id, f"{setup_ms:.6f}"]
                         )
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(setup_tmp, setup_csv)
 
         print(f"Saved line log CSV  : {line_csv}")
         print(f"Saved setup CSV     : {setup_csv}")
@@ -867,6 +1202,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--shuffle-pairs", action="store_true")
     parser.add_argument("--reopen-on-failure", action="store_true")
+    parser.add_argument("--resume", action="store_true", help="Append to existing CSVs and skip samples already logged as ok/fail")
     parser.add_argument("--log-pexpect", action="store_true", help="Compatibility no-op")
     parser.add_argument("--scenario", default="", help="Free-form network scenario label (e.g. low/medium/high). Written to CSV/meta for later aggregation.")
     return parser
@@ -903,11 +1239,27 @@ def main() -> int:
         normalized_commands.append(normalized)
     args.commands = normalized_commands
 
+    interrupted = False
+
+    def _handle_stop(signum, _frame) -> None:
+        raise KeyboardInterrupt(f"received signal {signum}")
+
+    for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+        try:
+            signal.signal(sig, _handle_stop)
+        except (AttributeError, ValueError):
+            pass
+
     benchmark = W4Benchmark(args)
-    benchmark.run()
-    benchmark.print_report()
-    benchmark.export()
-    return 0
+    try:
+        benchmark.run()
+    except KeyboardInterrupt as exc:
+        interrupted = True
+        print(f"\nInterrupted: {exc}. Exporting partial in-memory summary...", flush=True)
+    finally:
+        benchmark.print_report()
+        benchmark.export()
+    return 130 if interrupted else 0
 
 
 if __name__ == "__main__":

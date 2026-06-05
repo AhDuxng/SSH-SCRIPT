@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # setup_w4_fixtures.sh - run on the benchmark server before W4.
 #
-# It creates static ASCII text fixtures in /tmp. W4 then runs `cat` on these
-# files through ssh/ssh3/mosh, so received_pct is compared against fixed byte
+# It creates a static 2 MiB ASCII text fixture in /tmp. W4 then runs `cat` on
+# this file through ssh/ssh3/mosh, so received_pct is compared against fixed byte
 # counts instead of moving outputs like `ps aux` or live `docker logs`.
 #
 # From the client:
@@ -14,13 +14,9 @@ set -euo pipefail
 
 FIXTURE_DIR="${FIXTURE_DIR:-/tmp}"
 SOURCE_FILE="$FIXTURE_DIR/w4_paths_source.txt"
-SMALL_FILE="$FIXTURE_DIR/w4_paths_small.txt"
-MEDIUM_FILE="$FIXTURE_DIR/w4_paths_medium.txt"
-LARGE_FILE="$FIXTURE_DIR/w4_paths_large.txt"
+FIXTURE_FILE="$FIXTURE_DIR/w4_paths_2mb.txt"
 
-SMALL_BYTES="${SMALL_BYTES:-524288}"      # 512 KiB
-MEDIUM_BYTES="${MEDIUM_BYTES:-2621440}"   # 2.5 MiB
-LARGE_BYTES="${LARGE_BYTES:-10485760}"    # 10 MiB
+FIXTURE_BYTES="${FIXTURE_BYTES:-2097152}" # 2 MiB
 
 generate_source() {
   local target_bytes="$1"
@@ -63,26 +59,26 @@ copy_exact_bytes() {
 
 echo "=== W4 static fixture setup ==="
 echo "Directory: $FIXTURE_DIR"
+echo "Fixture bytes: $FIXTURE_BYTES"
 echo
 
 mkdir -p "$FIXTURE_DIR"
-generate_source "$LARGE_BYTES"
+generate_source "$FIXTURE_BYTES"
 
-copy_exact_bytes "$SMALL_BYTES" "$SMALL_FILE"
-copy_exact_bytes "$MEDIUM_BYTES" "$MEDIUM_FILE"
-copy_exact_bytes "$LARGE_BYTES" "$LARGE_FILE"
+copy_exact_bytes "$FIXTURE_BYTES" "$FIXTURE_FILE"
 
 echo
 echo "=== Verification ==="
-wc -c "$SMALL_FILE" "$MEDIUM_FILE" "$LARGE_FILE"
+wc -c "$FIXTURE_FILE"
+sha256sum "$FIXTURE_FILE"
 
 echo
 echo "=== Warm page cache ==="
-cat "$SMALL_FILE" "$MEDIUM_FILE" "$LARGE_FILE" >/dev/null
+cat "$FIXTURE_FILE" >/dev/null
 
 echo
 echo "=== Commands for W4 ==="
-printf 'cat %s\n' "$SMALL_FILE" "$MEDIUM_FILE" "$LARGE_FILE"
+printf 'cat %s\n' "$FIXTURE_FILE"
 
 echo
-echo "Done. Static W4 fixtures are ready."
+echo "Done. Static 2 MiB W4 fixture is ready."
