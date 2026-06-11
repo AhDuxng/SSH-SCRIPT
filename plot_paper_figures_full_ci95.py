@@ -566,9 +566,18 @@ def grouped_bar(ax, scenario_data, scenarios, scen_labels, ylabel,
 
 def add_network_region_labels(ax):
     trans = ax.get_xaxis_transform()
-    ax.axvline(0.5, color="0.7", linestyle="--", linewidth=1.0, zorder=1)
+    ax.plot(
+        [0.5, 0.5],
+        [-0.26, 1.0],
+        transform=trans,
+        color="0.7",
+        linestyle="--",
+        linewidth=1.0,
+        zorder=1,
+        clip_on=False,
+    )
     ax.text(0, -0.08, "VPN", transform=trans, ha="center", va="top", fontsize=14, color="0.05", clip_on=False)
-    ax.text(2, -0.14, "Controlled emulation", transform=trans, ha="center", va="top", fontsize=11, color="0", clip_on=False)
+    ax.text(2, -0.14, "Controlled emulation", transform=trans, ha="center", va="top", fontsize=14, color="0", clip_on=False)
 
 
 def fig_session_setup(means, ci95):

@@ -1,45 +1,57 @@
 \section{Performance Evaluation}
 \label{sec:evaluation}
 
-We evaluate the protocols along four latency-oriented axes mapping to the questions of Section~\ref{sec:intro}: session-setup latency, command completion (W1), large-output delivery (W2), and interactive keystroke latency (W3), and on output completeness. Table~\ref{tab:workload-latency-steady} and Figures~\ref{fig:session-setup} and~\ref{fig:recv-pct} report the results. Each per-workload latency is a macro-average over the commands in that workload.
+We evaluate the protocols along four latency-oriented axes mapping to the questions of Section~\ref{sec:intro}: session-setup latency, command completion (W1), large-output delivery (W2), and interactive keystroke latency (W3), and on output completeness. Figure~\ref{fig:session-setup}, Figure~\ref{fig:workload-latency-steady}, and Table~\ref{tab:recv-pct} report the results. Each per-workload latency is a macro-average over the commands in that workload.
 
-\begin{table*}[t]
-\centering
-\caption{Mean latency (ms) and 95\% confidence interval (CI 95\%) for the steady-state workloads (excluding warmup samples) across protocols and network scenarios. \textbf{Bold} marks the lowest mean value in each category.}
-\label{tab:workload-latency-steady}
-\renewcommand{\arraystretch}{1.2} 
-\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}llrrrr}
-\hline
-\textbf{Workload} & \textbf{Protocol} & \textbf{VPN} & \textbf{Low} & \textbf{Medium} & \textbf{High} \\
-\hline
-\multirow{3}{*}{\textbf{W1 (ms)}} 
- & \textbf{SSHv2} & 188.8$\pm$0.96 & 76.1$\pm$0.60 & 173.6$\pm$8.55 & 367.0$\pm$33.30 \\
- & \textbf{SSH3}  & \textbf{177.9$\pm$3.99} & \textbf{75.5$\pm$0.33} & \textbf{170.4$\pm$6.05} & \textbf{307.5$\pm$14.86} \\
- & \textbf{Mosh}  & 190.9$\pm$2.49 & 82.2$\pm$0.51 & 187.9$\pm$19.03 & 317.3$\pm$24.04 \\
-\hline
-\multirow{3}{*}{\textbf{W2 (ms)}} 
- & \textbf{SSHv2} & 4213.5$\pm$667.04 & \textbf{439.0$\pm$61.72} & 26353.2$\pm$4015.32 & 77422.6$\pm$11865.40 \\
- & \textbf{SSH3}  & 47732.6$\pm$7605.23 & 690.8$\pm$102.05 & 60207.2$\pm$9346.69 & 54320.0$\pm$7254.16$^{\dagger}$ \\
- & \textbf{Mosh}  & \textbf{2402.4$\pm$372.90} & 2287.5$\pm$431.50 & \textbf{2315.3$\pm$401.70} & \textbf{2467.9$\pm$423.26} \\
-\hline
-\multirow{3}{*}{\textbf{W3-1p (ms)}} 
- & \textbf{SSHv2} & 301.0$\pm$4.08 & 26.5$\pm$0.20 & 117.4$\pm$2.20 & 240.0$\pm$4.35 \\
- & \textbf{SSH3}  & 285.9$\pm$3.82 & 29.8$\pm$0.24 & 113.9$\pm$1.07 & 229.9$\pm$2.82 \\
- & \textbf{Mosh}  & \textbf{23.5$\pm$3.06} & \textbf{2.6$\pm$0.43} & \textbf{17.5$\pm$1.57} & \textbf{19.1$\pm$2.59} \\
-\hline
-\multirow{3}{*}{\textbf{W3-5p (ms)}} 
- & \textbf{SSHv2} & 409.0$\pm$10.02 & 57.6$\pm$7.60 & 153.5$\pm$12.72 & 301.3$\pm$9.38 \\
- & \textbf{SSH3}  & 393.2$\pm$13.46 & 58.3$\pm$4.80 & 152.2$\pm$12.17 & 284.6$\pm$13.61 \\
- & \textbf{Mosh}  & \textbf{16.5$\pm$2.67} & \textbf{3.9$\pm$0.58} & \textbf{7.6$\pm$1.24} & \textbf{28.0$\pm$3.27} \\
-\hline
-\end{tabular*}
-\begin{flushleft}
-\footnotesize{$^{\dagger}$SSH3 in the High W2 scenario includes only successful small and medium fixture samples; the large fixture timed out in this result set.}
-\end{flushleft}
-\end{table*}
-
-
-
+% \begin{figure*}[t]
+%     \centering
+%     \subfloat[W1: Small-output]{%
+%         \includegraphics[width=0.48\textwidth]{figs/latency_w1_by_scenario.pdf}%
+%         \label{fig:latency-w1}
+%     }\hfill
+%     \subfloat[W2: Large-output]{%
+%         \includegraphics[width=0.48\textwidth]{figs/latency_w2_by_scenario.pdf}%
+%         \label{fig:latency-w2}
+%     }\\[1ex]
+%     \subfloat[W3-1p: Single-pane]{%
+%         \includegraphics[width=0.48\textwidth]{figs/latency_w3_1p_by_scenario.pdf}%
+%         \label{fig:latency-w3-1p}
+%     }\hfill
+%     \subfloat[W3-5p: Five-pane]{%
+%         \includegraphics[width=0.48\textwidth]{figs/latency_w3_5p_by_scenario.pdf}%
+%         \label{fig:latency-w3-5p}
+%     }
+%     \caption{Mean latency and 95\% confidence interval (CI 95\%) for the steady-state workloads (excluding warmup samples) across protocols and network scenarios.}
+%     \label{fig:workload-latency-steady}
+% \end{figure*}
+\captionsetup{font=normalsize}
+\captionsetup[subfloat]{font=normalsize}
+\begin{figure*}[t]
+    \centering
+    \includegraphics[width=0.36\textwidth]{figs/latency_workload_legend.pdf}\\[-0.5ex]
+    \subfloat[W1: Small-output]{%
+        \includegraphics[width=0.47\textwidth]{figs/latency_w1_by_scenario.pdf}%
+        \label{fig:latency-w1}
+    }\hfill
+    \subfloat[W2: Large-output]{%
+        \includegraphics[width=0.47\textwidth]{figs/latency_w2_by_scenario.pdf}%
+        \label{fig:latency-w2}
+    }\\[-0.5ex]
+    \subfloat[W3-1p: Single-pane]{%
+        \includegraphics[width=0.47\textwidth]{figs/latency_w3_1p_by_scenario.pdf}%
+        \label{fig:latency-w3-1p}
+    }\hfill
+    \subfloat[W3-5p: Five-pane]{%
+        \includegraphics[width=0.47\textwidth]{figs/latency_w3_5p_by_scenario.pdf}%
+        \label{fig:latency-w3-5p}
+    }
+    \captionsetup{font=normalsize}
+    \caption{Mean latency and 95\% confidence interval (CI 95\%) for the steady-state workloads (excluding warmup samples) across protocols and network scenarios.}
+    \label{fig:workload-latency-steady}
+    \captionsetup[subfloat]{font=normalsize}
+\end{figure*}
+\captionsetup{font=normalsize}
+\captionsetup[subfloat]{font=normalsize}
 
 
 \begin{figure}[h]
@@ -59,7 +71,7 @@ Figure~\ref{fig:session-setup} shows that SSH3 achieves the lowest setup latency
 \subsection{Workload Latency Results}
 
 \paragraph{W1}
-We first evaluate completion latency for three sub-kilobyte static fixture commands. SSH3 achieves the lowest mean latency in all four scenarios, although the gap is modest in the Low and Medium cases. In the VPN scenario, SSH3 completes a command loop in 177.9\,ms, compared with 188.8\,ms for SSHv2 and 190.9\,ms for Mosh, corresponding to reductions of 5.8\% and 6.8\%. Under Low impairment, SSH3 and SSHv2 are nearly tied (75.5\,ms vs.\ 76.1\,ms), while Mosh is slower at 82.2\,ms. The benefit becomes clearer as impairment increases: under the High scenario, SSH3 reaches 307.5\,ms, ahead of Mosh at 317.3\,ms and SSHv2 at 367.0\,ms. Since W1 responses are small and content-complete for the successful samples, the measured latency primarily captures request-response delay inside an already established session rather than bulk transfer throughput. The results therefore indicate that SSH3 provides the best steady-state command-loop latency for small outputs in this environment, consistent with SSH3's use of HTTP/3 over QUIC for interactive shell transport \cite{michel2023,Iyengar2021}, while Mosh's screen-state synchronization offers little advantage for these byte-complete sub-kilobyte responses \cite{Winstein2012}.
+We first evaluate completion latency for three sub-kilobyte static fixture commands. SSH3 achieves the lowest mean latency in all four scenarios, although the gap is modest in the Low and Medium cases. In the VPN scenario, SSH3 completes a command loop in 177.9\,ms, compared with 188.8\,ms for SSHv2 and 190.9\,ms for Mosh, corresponding to reductions of 5.8\% and 6.8\%. Under Low impairment, SSH3 and SSHv2 are nearly tied (75.5\,ms vs.\ 76.1\,ms), while Mosh is slower at 82.2\,ms. The benefit becomes clearer as impairment increases: under the High scenario, SSH3 reaches 307.5\,ms, ahead of Mosh at 317.3\,ms and SSHv2 at 367.0\,ms. Since W1 responses are small and content-complete for the successful samples, the measured latency primarily captures request-response delay inside an already established session rather than bulk transfer throughput. The results therefore indicate that SSH3 provides the best steady-state command-loop latency for small outputs in this environment, while Mosh's screen-state synchronization offers little advantage for these byte-complete sub-kilobyte responses.
 
 \paragraph{W2}
 Next, we compare large-output delivery using static fixtures that emulate byte-heavy command output. In contrast to W1, the ranking changes once the client must receive hundreds of KiB to MiB of terminal output. Mosh often reports the lowest apparent completion latency (e.g., 2402.4\,ms over VPN and 2467.9\,ms under High impairment), but this latency must be interpreted together with output completeness: Mosh receives only a small fraction of the expected bytes for these fixtures, because SSP synchronizes terminal screen state rather than every byte in the stream \cite{Winstein2012}. Among byte-complete transports, SSHv2 is faster than SSH3 in the comparable W2 cases: over VPN SSHv2 completes in 4213.5\,ms versus 47732.6\,ms for SSH3, and under Medium impairment in 26353.2\,ms versus 60207.2\,ms. Under High impairment, SSH3 successfully completes the small and medium fixtures but times out on the large fixture in this result set; therefore its 54320.0\,ms aggregate excludes the hardest case and should not be directly compared with SSHv2's 77422.6\,ms aggregate over all three fixtures. On the common small and medium High fixtures, SSHv2 remains faster. This is consistent with prior QUIC measurements showing that QUIC's advantage over TCP is workload-, path-, and implementation-dependent rather than universal \cite{Kakhki2017,Langley2017}. Moreover, QUIC removes head-of-line blocking across independent streams, but SSH3 maps each channel onto a QUIC stream whose messages still require in-order delivery; within such a single ordered stream, lost stream data is retransmitted before the byte stream can be completed \cite{michel2023,Iyengar2021}. These results show that, for single-stream bulk terminal output in our implementation and network setup, SSHv2 provides the most reliable byte-complete W2 delivery, whereas Mosh's low latency reflects responsiveness after partial screen-state synchronization rather than complete output arrival.
@@ -70,24 +82,29 @@ Finally, we consider the keystroke-to-echo latency in both single-pane and five-
 \subsection{Output Completeness}
 \label{subsec:output-completeness}
 
-\begin{figure}[t]
-    \centering
-    \subfloat[W1: sub-kilobyte command fixtures]{%
-        \includegraphics[width=0.9\columnwidth]{figs/recv_pct_w1_by_scenario.pdf}%
-    }\\[1ex]
-    \subfloat[W2: large-output fixtures]{%
-        \includegraphics[width=0.9\columnwidth]{figs/recv_pct_w2_by_scenario.pdf}%
-    }
-    \caption{Output completeness, measured as the percentage of expected bytes received by the client.}
-    \label{fig:recv-pct}
-\end{figure}
+\begin{table}[t]
+\centering
+\caption{Output completeness, measured as the percentage of expected bytes received by the client.}
+\label{tab:recv-pct}
+\renewcommand{\arraystretch}{1.15}
+\begin{tabular}{llrrrr}
+\hline
+\textbf{Workload} & \textbf{Protocol} & \textbf{VPN} & \textbf{Low} & \textbf{Medium} & \textbf{High} \\
+\hline
+\multirow{3}{*}{\textbf{W1 (\%)}} 
+ & \textbf{SSHv2} & 100.00 & 100.00 & 100.00 & 100.00 \\
+ & \textbf{SSH3}  & 100.00 & 100.00 & 100.00 & 100.00 \\
+ & \textbf{Mosh}  & 100.00 & 100.00 & 100.00 & 100.00 \\
+\hline
+\multirow{3}{*}{\textbf{W2 (\%)}} 
+ & \textbf{SSHv2} & 100.00 & 100.00 & 100.00 & 100.00 \\
+ & \textbf{SSH3}  & 100.00 & 100.00 & 100.00 & 100.00 \\
+ & \textbf{Mosh}  & 1.43 & 4.19 & 1.75 & 1.24 \\
+\hline
+\end{tabular}
+\end{table}
 
-Output completeness measures whether the client receives the expected output. Figure~\ref{fig:recv-pct} reports the mean percentage of received bytes, comparing captured output against static fixture references. For W1, all three protocols receive 100\% of the expected bytes across all scenarios, showing that sub-kilobyte command outputs are small enough for Mosh's screen synchronization to preserve the full visible response in successful samples. The W2 result is sharply different. SSHv2 and SSH3 receive 100\% of the expected bytes in every scenario, and the follow-up SHA-256 validation confirms content matches for their successful samples. Mosh receives only a small fraction of the large-output fixtures: 1.43\% over VPN, 4.19\% under Low impairment, 1.75\% under Medium, and 1.24\% under High. This matches SSP's design, which synchronizes the visible screen state rather than every byte, so when updates arrive faster than the frame interval, intermediate output states are skipped and only the latest screen is sent \cite{Winstein2012}.
+Output completeness measures whether the client receives the expected output. Table~\ref{tab:recv-pct} reports the mean percentage of received bytes, comparing captured output against static fixture references. For W1, all three protocols receive 100\% of the expected bytes across all scenarios, showing that sub-kilobyte command outputs are small enough for Mosh's screen synchronization to preserve the full visible response in successful samples. The W2 result is sharply different. SSHv2 and SSH3 receive 100\% of the expected bytes in every scenario, and the follow-up SHA-256 validation confirms content matches for their successful samples. Mosh receives only a small fraction of the large-output fixtures: 1.43\% over VPN, 4.19\% under Low impairment, 1.75\% under Medium, and 1.24\% under High. This matches SSP's design, which synchronizes the visible screen state rather than every byte, so when updates arrive faster than the frame interval, intermediate output states are skipped and only the latest screen is sent.
 
-This is acceptable for human use, where the final visible screen matters more than byte-level completeness, but problematic for AI-like automated clients that parse output to read file listings, process lists, errors, or system state: skipped output can make the next scripted step operate on incomplete data. Hence Mosh can be responsive for interactive viewing, but SSHv2 and SSH3 are the reliable choices when byte-complete and content-correct large output is required.
+This is acceptable for human use, where the final visible screen matters more than byte-level completeness, but problematic for agents, which parse output to read file listings, process lists, errors, or system state: skipped output can make the agent act on incomplete data. Hence Mosh can be responsive for interactive viewing, but SSHv2 and SSH3 are the reliable choices when byte-complete and content-correct large output is required.
 
-
-\subsection{Key Takeaway}
-\label{subsec:eval-summary}
-
-The evaluation leads to four findings. First, SSH3 improves the setup path and small-output command loop, where reduced handshake cost and request-response delay are most visible. Second, Mosh provides the strongest visible responsiveness for interactive editing, especially under impairment, but this result must not be interpreted as byte-complete delivery. Third, large-output terminal workloads are governed by output completeness and ordered delivery: SSHv2 and SSH3 preserve complete content for successful samples, while Mosh delivers only the latest screen state. Fourth, SSH3 does not universally outperform SSHv2; in the comparable W2 cases, SSHv2 is faster for byte-complete large-output delivery. Protocol selection should therefore follow the dominant terminal feedback pattern rather than a single aggregate ranking.
