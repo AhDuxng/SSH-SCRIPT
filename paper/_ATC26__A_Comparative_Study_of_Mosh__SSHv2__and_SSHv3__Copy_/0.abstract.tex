@@ -1,0 +1,11 @@
+\begin{abstract}
+Remote terminal access remains a fundamental interface for server and edge device management. However, its usage is increasingly shifting from human operators to automated workflows and programmatic clients. Evaluating terminal protocols for automated clients faces a critical methodological gap. Networking research primarily measures responsiveness perceived by humans, while AI agent benchmarks focus exclusively on overall task success, treating the underlying network as a frictionless pipe. Consequently, it remains unclear how modern remote shell protocols such as SSH3 and Mosh, compared to legacy SSHv2, handle the strict latency and byte completeness demands of automated observation loops. To bridge this gap, we introduce a benchmark workflow that isolates transport layer behavior from the variable reasoning time of AI models. We evaluate SSHv2, SSH3, and Mosh across three characteristic terminal feedback patterns: short commands, large-output data streams, and interactive editing. These evaluations are conducted under both real VPN environments and controlled network impairments. Our measurements reveal that optimizing for human perception conflicts with programmatic requirements. Although Mosh minimizes interactive keystroke latency, its state synchronization model drops over 98\% of data during large-output commands, which breaks the automated feedback loop. Among the protocols that guarantee data integrity, SSH3 provides the fastest session setup and short command execution. However, for heavy data streams, legacy SSHv2 remains superior by completing large-output data streams significantly faster than SSH3. Ultimately, we demonstrate that building robust infrastructure for automated clients requires transport layer evaluations, and protocol selection must be strictly dependent on the workload.
+
+
+
+\end{abstract}
+
+\begin{IEEEkeywords}
+Remote shell protocols, SSH, Mosh.
+
+\end{IEEEkeywords}

@@ -1,0 +1,54 @@
+% Add these packages in the preamble:
+% \usepackage{xcolor}
+% \usepackage[normalem]{ulem}
+
+% Optional macros for revision tracking:
+\newcommand{\revised}[1]{\textcolor{red}{#1}}
+\newcommand{\removed}[1]{\textcolor{gray}{\sout{#1}}}
+
+\section{Methodology}
+\label{sec:methodology}
+
+This section describes the methodology used to evaluate SSHv2, SSH3, and Mosh under \removed{AI-like interactive terminal workloads}\revised{simulated interactive workloads}.
+
+\subsection{Workload Design}
+\label{subsec:application-workloads}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.9\columnwidth]{figs/workload.pdf}
+\caption{Benchmark workload design and protocol performance metrics.}
+\label{fig:workload}
+\end{figure}
+
+Figure~\ref{fig:workload} illustrates the benchmark workflow used in this study. In each run, the \removed{client benchmark}\revised{benchmark client} uses one \removed{client-side package}\revised{client implementation} corresponding to the protocol under test: \texttt{OpenSSH-Client} for SSHv2, \texttt{ssh3} for SSH3, and \texttt{mosh} \removed{(bootstrapped via ssh) for Mosh}\revised{for Mosh, which is bootstrapped via \texttt{ssh}}. The selected client \removed{package}\revised{implementation} connects to the \removed{matching server-side package}\revised{corresponding server implementation} on the remote server: \texttt{sshd}, \texttt{ssh3-server}, or \texttt{mosh-server}. The \removed{workload module}\revised{workload generator} executes three types of terminal activity: small-output commands, large-output commands, and interactive editing. During each run, the benchmark client records logs from protocol execution and workload observation. These logs are used to analyze session setup latency, output-delivery latency, and keystroke responsiveness.
+
+The workload suite is designed around three \removed{closed-loop interaction patterns}\revised{closed-loop workloads} that commonly \removed{appear}\revised{occur} when \removed{an AI-like terminal client}\revised{a simulated terminal client} interacts with a remote shell. First, the client sends short commands and expects a quickly visible response. Second, the client receives \removed{large-output commands}\revised{large command outputs}, such as logs, build results, or test results, where byte completeness must be strictly preserved for programmatic parsing. Third, the client performs interactive editing, where each typed character should become visible quickly enough to \removed{preserve a responsive editing experience}\revised{maintain keystroke responsiveness}. These patterns motivate the three workloads used in our evaluation: Workload 1 (W1) for small-output commands, Workload 2 (W2) for large-output commands, and Workload 3 (W3) for interactive editing. W3 includes both single-pane (1p) and five-pane (5p) variants.
+
+\paragraph{W1: Small-output commands}
+Four commands with outputs under 1 KB: \texttt{ls}, \texttt{df -h}, \texttt{grep -n root /etc/passwd}, and \texttt{git status}.
+
+\paragraph{W2: Large-output commands}
+Three commands producing \removed{byte-heavy outputs}\revised{multi-megabyte outputs} in the 2-10 MB range: \texttt{yes | head -c N}, \texttt{seq}, and \texttt{cat}.
+
+\paragraph{W3: Interactive editing}
+A 1p variant (\texttt{shell}, \texttt{vim}, \texttt{nano}) and a 5p variant (\texttt{tmux}: pane~0 receives the \removed{keystroke probe stream}\revised{keystroke sequence} while panes 1-4 generate background redraw load).
+
+\revised{The selected commands are chosen to cover diverse terminal behaviors: W1 uses common short-running shell operations to measure command completion latency without being dominated by bulk data transfer; W2 uses controllable multi-megabyte outputs to stress output delivery and evaluate output completeness; and W3 uses shell, editor, and revised{multiplexer environments} to capture interactive responsiveness under both simple and \revised{rendering-intensive terminal conditions}.}
+
+\subsection{Measurement Metrics and Analysis}
+\label{subsec:measurement-analysis}
+
+Figure~\ref{fig:workload} provides the deployment context for the client-side measurements described. The metrics below are computed from terminal events observed at the benchmark client.
+
+All local timestamps are recorded with nanosecond resolution and converted to milliseconds during preprocessing. Since all latency metrics \removed{follow}\revised{share} the same event-difference structure, we define a general latency metric as
+\begin{equation}
+L_m = t_{\mathrm{obs}}^{m} - t_{\mathrm{init}}^{m},
+\end{equation}
+where $m$ identifies the measurement type, $t_{\mathrm{init}}^{m}$ is the client-side timestamp when the measured action is initiated, and $t_{\mathrm{obs}}^{m}$ is the client-side timestamp when the corresponding terminal event becomes visible.
+
+We instantiate $L_m$ for the latency-analysis categories shown in Figure~\ref{fig:workload}. Session setup latency ($L_{\mathrm{setup}}$) is measured from \removed{client launch}\revised{client process execution} to the first interactive prompt. Output-delivery latency is measured for both small-output and large-output workloads: command completion latency ($L_{\mathrm{cmd}}$) for W1 is measured from \removed{command send}\revised{command transmission} to completion-marker visibility, while output completion latency ($L_{\mathrm{out}}$) for W2 is measured from \removed{command send}\revised{command transmission} to completion-marker visibility after the \removed{output-producing command}\revised{output-generating command}. Keystroke responsiveness is measured for W3 as input-to-visible latency in the 1p ($L_{\mathrm{input}}$) and 5p ($L_{\mathrm{input}}^{\mathrm{5pane}}$) settings, from \removed{probe send}\revised{probe transmission} to character visibility at the client. In the 5p case, pane~0 is observed while panes 1-4 generate background redraw load. For Mosh, $L_{\mathrm{out}}$ reflects observable terminal completion rather than byte-complete delivery, and $L_{\mathrm{input}}$ reflects predictive local echo.
+
+To measure output completeness, we remove \removed{ANSI codes}\revised{ANSI escape sequences}, \removed{such as color-formatting and cursor-control codes}\revised{including color-formatting and cursor-control sequences}. This keeps the comparison focused on textual content rather than terminal rendering artifacts. The cleaned client output is then compared with a reference output \revised{obtained} from three SSH runs without a pseudo-terminal (no-PTY). For each sample, the \removed{received-output percentage}\revised{output completeness ratio} is computed from the observed output size and the reference size, capped at 100\%. We report the average and minimum \removed{received-output percentages}\revised{output completeness ratios} for each protocol, scenario, workload, and command combination over all non-warmup samples.
+
+All measurements are logged at the granularity of individual samples, capturing relevant metadata, execution status, and latency. Crucially, we retain failures, timeouts, and \removed{unmatched-marker cases}\revised{marker mismatch cases} rather than discarding them, allowing us to \removed{holistically} evaluate protocol robustness alongside performance. In our aggregate analysis, latency statistics, including mean values and 95\% confidence intervals\removed{ (CI95)}, are computed exclusively over successful samples. The retained error cases are reported as robustness indicators, and for output-producing workloads, we additionally track the average and minimum \removed{received-output percentages}\revised{output completeness ratios}.

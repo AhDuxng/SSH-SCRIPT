@@ -1,0 +1,4 @@
+\section{Conclusion}
+\label{sec:conclusion}
+
+This paper evaluated the transport layer performance of SSHv2, SSH3, and Mosh for automated, AI-like terminal clients. Using a measurement framework across varying network impairments, we demonstrated that optimizing for human perception inherently conflicts with the data integrity demands of programmatic workflows. Specifically, while Mosh excels in interactive responsiveness, its state synchronization drops over 98\% of large output data, breaking automated observation loops. Among byte-preserving protocols, SSH3 provides the fastest session setup and short command execution, whereas legacy SSHv2 remains significantly faster at transmitting heavy data streams. Ultimately, robust edge automation requires workload-dependent protocol selection rather than a single universal transport. Future work will explore adaptive transport mechanisms that dynamically adjust underlying protocols based on real-time terminal workloads.
