@@ -18,12 +18,18 @@ ROOT = Path(__file__).resolve().parent
 PAPER_FIGS = ROOT / "paper/_ATC26__A_Comparative_Study_of_Mosh__SSHv2__and_SSHv3/figs"
 
 SCENARIOS = ["default", "low", "medium", "high"]
-SCENARIO_LABELS = ["", "Low", "Medium", "High"]
+SCENARIO_LABELS = ["VPN", "Low", "Medium", "High"]
 PROTOCOLS = ["ssh", "ssh3", "mosh"]
 PROTO_LABELS = {"ssh": "SSHv2", "ssh3": "SSH3", "mosh": "Mosh"}
 COLORS = {"ssh": "#1f77b4", "ssh3": "#d62728", "mosh": "#2ca02c"}
 HATCH_COLORS = {"ssh": "#d4f4ff", "ssh3": "#fab9ba", "mosh": "#c2fac0"}
-HATCHES = {"ssh": "////", "ssh3": "////", "mosh": "\\\\\\\\"}
+HATCHES = {"ssh": "////", "ssh3": "...", "mosh": "\\\\\\\\"}
+FONT_SIZES = {
+    "axis_label": 9,
+    "tick": 8,
+    "annotation": 7,
+}
+SAVEFIG_KW = {"bbox_inches": "tight", "pad_inches": 0.02, "dpi": 300}
 
 INPUTS = {
     "w1": {
@@ -103,6 +109,13 @@ def collect_recv_pct(paths: Dict[str, Path], warmup_filter: bool = False) -> Dic
     return stats
 
 
+def collect_all_recv_pct() -> Dict[str, Dict[str, Dict[str, dict]]]:
+    return {
+        "w1": collect_recv_pct(INPUTS["w1"], warmup_filter=True),
+        "w2": collect_recv_pct(INPUTS["w2"], warmup_filter=False),
+    }
+
+
 def write_summary_csv(w1: Dict[str, Dict[str, dict]], w2: Dict[str, Dict[str, dict]]) -> None:
     out_csv = ROOT / "recv_pct_summary_all.csv"
     with out_csv.open("w", newline="", encoding="utf-8") as f:
@@ -138,36 +151,65 @@ def write_summary_csv(w1: Dict[str, Dict[str, dict]], w2: Dict[str, Dict[str, di
     print(f"[saved] {out_csv}")
 
 
-def add_network_region_labels(ax) -> None:
+def save_figure(fig, output_pdf: Path) -> None:
+    fig.savefig(output_pdf, **SAVEFIG_KW)
+    png_path = output_pdf.with_suffix(".png")
+    fig.savefig(png_path, **SAVEFIG_KW)
+    print(f"[saved] {output_pdf}")
+    print(f"[saved] {png_path}")
+
+
+def add_network_region_labels(ax, *, fontsize: int = FONT_SIZES["tick"]) -> None:
     trans = ax.get_xaxis_transform()
     ax.plot(
         [0.5, 0.5],
-        [-0.26, 1.0],
+        [0, 1.0],
         transform=trans,
-        color="#bfbfbf",
-        linestyle="--",
-        linewidth=1.0,
+        color="0.65",
+        linestyle=":",
+        linewidth=0.6,
+        alpha=0.8,
         zorder=1,
         clip_on=False,
     )
-    ax.text(0, -0.08, "VPN", transform=trans, ha="center", va="top", fontsize=13, clip_on=False)
-    ax.text(2, -0.14, "Controlled emulation", transform=trans, ha="center", va="top", fontsize=13, clip_on=False)
+    ax.plot(
+        [-0.42, -0.42, 0.42, 0.42],
+        [-0.10, -0.14, -0.14, -0.10],
+        transform=trans,
+        color="#222222",
+        linewidth=0.6,
+        zorder=4,
+        clip_on=False,
+    )
+    ax.plot(
+        [0.58, 0.58, 3.42, 3.42],
+        [-0.10, -0.14, -0.14, -0.10],
+        transform=trans,
+        color="#222222",
+        linewidth=0.6,
+        zorder=4,
+        clip_on=False,
+    )
+    ax.text(0, -0.19, "Internet", transform=trans, ha="center", va="top", fontsize=fontsize, clip_on=False)
+    ax.text(2, -0.19, "Emulated", transform=trans, ha="center", va="top", fontsize=fontsize, clip_on=False)
 
 
-def plot_recv_pct(stats: Dict[str, Dict[str, dict]], output_pdf: Path, show_legend: bool = True) -> None:
+def plot_recv_pct(stats: Dict[str, Dict[str, dict]], output_pdf: Path, show_legend: bool = False) -> None:
     output_pdf.parent.mkdir(parents=True, exist_ok=True)
     x = np.arange(len(SCENARIOS))
     width = 0.25
     spacing = 0.02
 
     plt.rcParams.update({
-        "font.size": 11,
+        "font.family": "sans-serif",
+        "font.sans-serif": ["Helvetica", "Nimbus Sans", "Liberation Sans", "Arial", "DejaVu Sans"],
+        "font.size": FONT_SIZES["tick"],
         "axes.edgecolor": "#222222",
-        "axes.linewidth": 0.9,
-        "hatch.linewidth": 0.8,
+        "axes.linewidth": 0.7,
+        "hatch.linewidth": 0.55,
     })
 
-    fig, ax = plt.subplots(figsize=(6.4, 4.0), dpi=180)
+    fig, ax = plt.subplots(figsize=(3.45, 2.35), dpi=300)
     add_network_region_labels(ax)
 
     for i, protocol in enumerate(PROTOCOLS):
@@ -204,42 +246,37 @@ def plot_recv_pct(stats: Dict[str, Dict[str, dict]], output_pdf: Path, show_lege
             edgecolor=COLORS[protocol],
             linewidth=1.2,
             yerr=yerr,
-            capsize=3,
-            error_kw={"ecolor": "#222222", "elinewidth": 1.0, "capthick": 1.0},
+            capsize=5,
+            error_kw={"ecolor": "0.3", "elinewidth": 0.8, "capthick": 0.8},
             zorder=3,
         )
         for bar, mean, err_high in zip(bars, means, yerr[1]):
+            if mean >= 99.5:
+                continue
             ax.text(
                 bar.get_x() + bar.get_width() / 2,
-                min(103.0, mean + err_high + 0.9),
+                min(103.0, mean + err_high + 1.2),
                 f"{mean:.1f}",
                 ha="center",
                 va="bottom",
-                fontsize=7,
+                fontsize=FONT_SIZES["annotation"],
                 color=COLORS[protocol],
             )
 
-    ax.set_ylabel("Bytes received (%)", fontsize=12)
+    ax.set_ylabel("Received bytes (%)", fontsize=FONT_SIZES["axis_label"])
     ax.set_xticks(x)
-    ax.set_xticklabels(SCENARIO_LABELS, fontsize=11)
-    ax.set_ylim(0, 110)
-    ax.set_yticks(np.arange(0, 101, 20))
-    ax.grid(axis="y", linestyle="--", linewidth=0.7, alpha=0.55, zorder=0)
-    if show_legend:
-        ax.legend(
-            ncol=3,
-            frameon=True,
-            framealpha=0.9,
-            loc="upper center",
-            bbox_to_anchor=(0.5, 1.18),
-        )
-    fig.subplots_adjust(bottom=0.22, top=0.86)
-    fig.savefig(output_pdf, bbox_inches="tight")
-    png_path = output_pdf.with_suffix(".png")
-    fig.savefig(png_path, bbox_inches="tight")
+    ax.set_xticklabels(SCENARIO_LABELS, fontsize=FONT_SIZES["tick"])
+    ax.tick_params(axis="x", pad=5)
+    ax.tick_params(axis="y", labelsize=FONT_SIZES["tick"])
+    ax.set_ylim(0, 112.5)
+    ax.set_yticks([0, 25, 50, 75, 100])
+    ax.grid(axis="y", linestyle="--", linewidth=0.5, alpha=0.32, zorder=0)
+    ax.grid(axis="x", visible=False)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    fig.subplots_adjust(left=0.16, right=0.98, bottom=0.25, top=0.98)
+    save_figure(fig, output_pdf)
     plt.close(fig)
-    print(f"[saved] {output_pdf}")
-    print(f"[saved] {png_path}")
 
 
 def print_report(name: str, stats: Dict[str, Dict[str, dict]]) -> None:
@@ -258,14 +295,15 @@ def print_report(name: str, stats: Dict[str, Dict[str, dict]]) -> None:
 
 
 def main() -> int:
-    w1 = collect_recv_pct(INPUTS["w1"], warmup_filter=True)
-    w2 = collect_recv_pct(INPUTS["w2"], warmup_filter=False)
+    stats = collect_all_recv_pct()
+    w1 = stats["w1"]
+    w2 = stats["w2"]
 
     print_report("W1 recv_pct", w1)
     print_report("W2 recv_pct", w2)
     write_summary_csv(w1, w2)
 
-    plot_recv_pct(w1, PAPER_FIGS / "recv_pct_w1_by_scenario.pdf", show_legend=True)
+    plot_recv_pct(w1, PAPER_FIGS / "recv_pct_w1_by_scenario.pdf", show_legend=False)
     plot_recv_pct(w2, PAPER_FIGS / "recv_pct_w2_by_scenario.pdf", show_legend=False)
     return 0
 
