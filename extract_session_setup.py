@@ -23,6 +23,14 @@ PROTO_LABELS = {"ssh": "SSHv2", "ssh3": "SSH3", "mosh": "Mosh"}
 COLORS = {"ssh": "#1f77b4", "ssh3": "#d62728", "mosh": "#2ca02c"}
 HATCH_COLORS = {"ssh": "#d4f4ff", "ssh3": "#fab9ba", "mosh": "#c2fac0"}
 HATCHES = {"ssh": "////", "ssh3": "...", "mosh": "\\\\\\\\"}
+FIG_DPI = 180
+BAR_WIDTH = 0.25
+BAR_SPACING = 0.02
+BAR_FACE_COLOR = "white"
+BAR_EDGE_LINEWIDTH = 1.2
+HATCH_LINEWIDTH = 0.8
+ERROR_BAR_CAPSIZE = 5
+ERROR_BAR_KW = {"ecolor": "#222222", "elinewidth": 1.0, "capthick": 1.0}
 
 SETUP_LATENCY = {
     "default": {"ssh": (2873.3, 187.7), "ssh3": (876.0, 71.1), "mosh": (3280.0, 191.5)},
@@ -70,15 +78,15 @@ def add_network_region_labels(
         zorder=4,
         clip_on=False,
     )
-    ax.text(0, group_y, "Internet", transform=trans, ha="center", va="top", fontsize=fontsize, clip_on=False, fontweight=500, linespacing=0.9)
-    ax.text(2, group_y, "Simulated (Dynamicity level)", transform=trans, ha="center", va="top", fontsize=fontsize, clip_on=False, fontweight=500)
+    ax.text(0, group_y, "Real network", transform=trans, ha="center", va="top", fontsize=fontsize, clip_on=False, fontweight=500, linespacing=0.9)
+    ax.text(2, group_y, "Controlled network", transform=trans, ha="center", va="top", fontsize=fontsize, clip_on=False, fontweight=500)
 
 
 def legend_handles() -> list[tuple[Patch, Patch]]:
     return [
         (
             Patch(
-                facecolor="white",
+                facecolor=BAR_FACE_COLOR,
                 edgecolor=HATCH_COLORS[protocol],
                 hatch=HATCHES[protocol],
                 linewidth=0,
@@ -86,7 +94,7 @@ def legend_handles() -> list[tuple[Patch, Patch]]:
             Patch(
                 facecolor="none",
                 edgecolor=COLORS[protocol],
-                linewidth=1.2,
+                linewidth=BAR_EDGE_LINEWIDTH,
             ),
         )
         for protocol in PROTOCOLS
@@ -101,7 +109,7 @@ def plot_session_setup_legend() -> None:
     output_pdf = PAPER_FIGS / "session_setup_legend.pdf"
     output_pdf.parent.mkdir(parents=True, exist_ok=True)
 
-    fig, ax = plt.subplots(figsize=(9, 0.62), dpi=180)
+    fig, ax = plt.subplots(figsize=(9, 0.62), dpi=FIG_DPI)
     ax.axis("off")
     ax.set_position([0, 0, 1, 1])
     ax.legend(
@@ -121,11 +129,8 @@ def plot_session_setup_legend() -> None:
         borderpad=0.35,
     )
     fig.savefig(output_pdf)
-    png_path = output_pdf.with_suffix(".png")
-    fig.savefig(png_path)
     plt.close(fig)
     print(f"[saved] {output_pdf}")
-    print(f"[saved] {png_path}")
 
 
 def plot_session_setup() -> None:
@@ -133,8 +138,8 @@ def plot_session_setup() -> None:
     output_pdf.parent.mkdir(parents=True, exist_ok=True)
 
     x = np.arange(len(SCENARIOS))
-    width = 0.25
-    spacing = 0.02
+    width = BAR_WIDTH
+    spacing = BAR_SPACING
     ylim = 6750
     ytick_max = 6000
 
@@ -144,10 +149,10 @@ def plot_session_setup() -> None:
         "font.size": 19,
         "axes.edgecolor": "#222222",
         "axes.linewidth": 0.9,
-        "hatch.linewidth": 0.8,
+        "hatch.linewidth": HATCH_LINEWIDTH,
     })
 
-    fig, ax = plt.subplots(figsize=(9, 6), dpi=180)
+    fig, ax = plt.subplots(figsize=(9, 6), dpi=FIG_DPI)
     add_network_region_labels(ax)
 
     for i, protocol in enumerate(PROTOCOLS):
@@ -160,7 +165,7 @@ def plot_session_setup() -> None:
             positions,
             means,
             width,
-            facecolor="white",
+            facecolor=BAR_FACE_COLOR,
             edgecolor=HATCH_COLORS[protocol],
             hatch=HATCHES[protocol],
             linewidth=0,
@@ -173,14 +178,14 @@ def plot_session_setup() -> None:
             label=PROTO_LABELS[protocol],
             facecolor="none",
             edgecolor=COLORS[protocol],
-            linewidth=1.2,
+            linewidth=BAR_EDGE_LINEWIDTH,
             yerr=ci95,
-            capsize=5,
-            error_kw={"ecolor": "#222222", "elinewidth": 1.0, "capthick": 1.0},
+            capsize=ERROR_BAR_CAPSIZE,
+            error_kw=ERROR_BAR_KW,
             zorder=3,
         )
 
-    ax.set_ylabel("Time (ms)", fontsize=21, fontweight=500)
+    ax.set_ylabel("Latency (ms)", fontsize=21, fontweight=500)
     ax.set_xticks(x)
     ax.set_xticklabels(SCENARIO_LABELS, fontsize=21, fontweight=500)
     ax.tick_params(axis="x", pad=10)
@@ -193,11 +198,8 @@ def plot_session_setup() -> None:
 
     fig.subplots_adjust(left=0.14, right=0.98, bottom=0.25, top=0.98)
     fig.savefig(output_pdf, bbox_inches="tight", pad_inches=0.02)
-    png_path = output_pdf.with_suffix(".png")
-    fig.savefig(png_path, bbox_inches="tight", pad_inches=0.02)
     plt.close(fig)
     print(f"[saved] {output_pdf}")
-    print(f"[saved] {png_path}")
 
 
 def main() -> int:
@@ -207,9 +209,8 @@ def main() -> int:
         "font.size": 19,
         "axes.edgecolor": "#222222",
         "axes.linewidth": 0.9,
-        "hatch.linewidth": 0.8,
+        "hatch.linewidth": HATCH_LINEWIDTH,
     })
-    plot_session_setup_legend()
     plot_session_setup()
     return 0
 

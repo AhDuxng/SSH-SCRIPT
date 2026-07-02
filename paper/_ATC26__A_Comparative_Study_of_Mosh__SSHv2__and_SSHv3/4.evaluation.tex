@@ -1,0 +1,348 @@
+\section{Performance Evaluation}
+\label{sec:evaluation}
+% In this section, we conduct extensive experiments to answer the following research question: \textbf{Which SSH Connection Protocol can meet the strict latency and completeness demands of closed-loop terminal agents?}
+
+% \subsection{Experiment Setup}
+% \label{subsec:experiment-setup}
+
+
+% Figure~\ref{fig:controlled-setup} shows the experimental setup used to evaluate SSHv2, SSH3, and Mosh across controlled network simulated environments. In the controlled experiments, we used three simulated network scenarios, summarized in Table~\ref{tab:network-scenarios}. These scenarios were configured using Linux \texttt{tc/netem} to provide controlled latency, jitter, and packet loss range. This setup allowed us to test how the performance of each protocol changed as network degradation increased, and whether its performance degraded or plummeted under more extreme conditions.
+
+
+% Figure~\ref{fig:vpn-setup} shows the VPN-based Internet-path setup. In this scenario, traffic is routed through a VPN over the Internet instead of through the controlled simulated path. Unlike the simulated scenarios, we do not apply fixed delay, jitter, or packet loss settings with \texttt{tc/netem}; instead, we record the network conditions observed during the experiment. This VPN scenario complements the controlled simulated scenarios by showing how each protocol behaves under naturally varying Internet latency, jitter, and loss.
+
+% \begin{table}[t]
+% \centering
+% \caption{Network configuration parameters in the evaluated network environments}
+% \label{tab:network-scenarios}
+
+% \resizebox{\columnwidth}{!}{%
+% \begin{tabular}{llccc}
+% \hline
+% \multicolumn{1}{c}{\multirow{2}{*}{Network}} &
+% \multicolumn{1}{c}{\multirow{2}{*}{Dynamicity level}} &
+% OWD & Jitter & Loss \\
+% & & (ms) & (\%) & (\%) \\
+% \hline
+
+% \multirow{3}{*}{Simulated}
+%     & Low    & 10.0  & 0.0  & 0.0 \\
+%     & Medium & 50.0  & 4.0  & 1.5 \\
+%     & High   & 100.0 & 16.0 & 3.0 \\
+
+% \hline
+% VPN & Based on real-network conditions & 78.2 & 11.3 & 0.0 \\
+% \hline
+% \end{tabular}%
+
+% }
+% \end{table}
+
+% The setup consists of a benchmark client, a network path, and a remote server. Two Raspberry Pi 4 devices are used as the client and the server, respectively. Because Linux \texttt{netem} only applies network attenuation to outgoing traffic, the same scenario is applied on both hosts to emulate bidirectional degradation. A configured one-way delay $D$ therefore yields approximately $2D$ ms RTT, and a per-egress loss rate $p$ yields approximately $1-(1-p)^2$ round-trip loss exposure. We evaluate concrete protocol implementations rather than abstract protocol models. SSHv2 is implemented with OpenSSH 9.2 and OpenSSL 3.0.17. Mosh is implemented with Mosh 1.4.0 and uses the standard SSH bootstrap procedure before switching to its UDP-based State Synchronization Protocol channel. SSH3 is implemented using the francoismichel/ssh3 implementation and connects to the SSH3 terminal server endpoint \cite{michel2023}. All protocols use the same remote account, SSH key material, server host, terminal environment, and workload content.
+
+% To compare the three protocols, we evaluated all three under each controlled network scenario before clearing the network configuration and applying the next scenario. For each workload, each protocol was evaluated in 10 independent trials. Each trial established a new session and executed 100 iterations of the corresponding workload. Session setup latency was measured once per trial, yielding 10 setup measurements for each protocol in each scenario. Workload latency was measured for every command or probe iteration, yielding 1,000 latency samples for each protocol in each scenario. W1 and W2 repeatedly executed their respective command sets, whereas W3 repeated a predefined sequence of keystrokes.
+
+% \begin{figure}[t]
+% \centering
+% \includegraphics[width=0.9\columnwidth]{figs/setuprouter.pdf}
+% \caption{Controlled LAN experimental setup for evaluating SSHv2, SSH3, and Mosh under emulated network conditions using Linux \texttt{tc/netem}.}
+% \label{fig:controlled-setup}
+% \end{figure}
+
+% \begin{figure}[t]
+% \centering
+% \includegraphics[width=0.9\columnwidth]{figs/setupvpn.pdf}
+% \caption{VPN-based Internet-path experimental setup for evaluating SSHv2, SSH3, and Mosh under measured real-network conditions.}
+% \label{fig:vpn-setup}
+% \end{figure}
+
+%trungnt
+In this section, we evaluate SSHv2, SSH3, and Mosh to answer the
+following research question: \textbf{Which remote control protocol best supports different classes of agent-like interactive terminal workloads under latency, network dynamicity, and output-completeness constraints?}
+
+\subsection{Experiment Setup}
+\label{subsec:experiment-setup}
+
+The experimental setup consists of a benchmark client, a network path,
+and a remote server. The benchmark client establishes a remote terminal session using one of the evaluated protocols, executes the predefined workloads, observes terminal-side events, and records latency and output completeness metrics. The remote server runs the corresponding server-side implementations for SSHv2, SSH3, and Mosh. Only one protocol is active in each experimental run, while the hardware, user account, terminal environment, SSH key material, and workload content are kept identical across protocols.
+
+Network dynamicity refers to the time-varying behavior of the network,
+particularly the fluctuation of round-trip time (RTT) and packet loss rate over time. In the controlled LAN environment, we emulate different network dynamicity levels using Linux \texttt{tc/netem} by configuring one-way delay (OWD), delay jitter, and packet loss. Following~\cite{NGUYEN2024107924}, we consider three dynamicity levels: Low, Medium, and High, as summarized in Table~\ref{tab:network-scenarios}. These scenarios allow us to observe how each protocol behaves as network dynamicity increases.
+
+
+The second environment is a VPN-based Internet path. In this setting, the client connects to the same Raspberry Pi 4 server through a VPN tunnel over the Internet. Unlike the controlled LAN scenarios, no fixed impairment is injected using \texttt{tc/netem}. Instead, we record the network conditions observed during the experiment. This environment complements the controlled testbed by capturing protocol behavior under naturally varying Internet latency, jitter, and loss.
+
+\begin{table}[t]
+\centering
+\caption{Network parameters}
+\label{tab:network-scenarios}
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{llccc}
+\hline
+\multicolumn{1}{c}{\multirow{1}{*}{Scenario}} &
+\multicolumn{1}{c}{\multirow{1}{*}{Dynamicity level}} &
+OWD & Jitter & Loss \\
+% & & (ms) & (ms) & (\%) \\
+\hline
+
+\multirow{3}{*}{Controlled LAN}
+    & Low    & 10~ms  & 0~\%  & 0~\% \\
+    & Medium & 50~ms & 4~\%  & 1.5~\% \\
+    & High   & 100~ms & 16~\% & 3.0~\% \\
+
+\hline
+VPN & Measured Internet path & 78.2 & 11.3 & 0.0 \\
+\hline
+\end{tabular}%
+}
+\end{table}
+
+Because Linux \texttt{netem} applies impairment only to outgoing traffic, the same configuration is applied on both the client and the server in the controlled LAN experiments to emulate bidirectional degradation. A configured one-way delay $D$ therefore yields approximately $2D$ ms RTT, excluding host processing and jitter. Similarly, when a per-egress packet loss rate $p$ is applied in both directions, the approximate round-trip loss exposure is $1-(1-p)^2$.
+
+We evaluate concrete protocol implementations rather than abstract protocol models. SSHv2 is implemented with OpenSSH 9.2 and OpenSSL 3.0.17. Mosh is implemented with Mosh 1.4.0 and uses the standard SSH bootstrap procedure before switching to its UDP-based State Synchronization Protocol channel. SSH3 is implemented using the \texttt{francoismichel/ssh3} implementation and connects to the SSH3 terminal server endpoint~\cite{michel2023}. All protocols use the same remote account, key material, server host, terminal environment, and workload content.
+
+For each controlled network scenario, we evaluate all three protocols
+before clearing the \texttt{tc/netem} configuration and applying the next scenario. For each workload and protocol, we conduct 10 independent trials. Each trial establishes a new session and executes 100 iterations of the corresponding workload. Session setup latency is measured once per trial, yielding 10 setup measurements for each protocol in each scenario. Workload latency is measured for every command or probe iteration, yielding 1,000 latency samples for each protocol in each scenario. W1 and W2 repeatedly execute their respective command sets, whereas W3 repeats a predefined sequence of keystroke probes under single-pane and five-pane terminal
+layouts.
+
+
+% \subsection{Experiment Results}
+% \label{subsec:experiment-results}
+
+% \begin{figure}[h]
+%     \centering
+%     \makebox[\columnwidth][c]{%
+%     \hspace*{0.08\columnwidth}%
+%     \includegraphics[width=0.68\columnwidth,trim=235bp 6bp 160bp 6bp,clip]{figs/latency_workload_legend.pdf}%
+%     }
+%     \par\vspace{1.2ex}
+%     \includegraphics[width=0.9\columnwidth]
+%     {figs/session_setup_bar.pdf}
+%     \captionsetup{font=captionplus}
+%     \caption{Mean session setup latency across four network scenarios.}
+%     \label{fig:session-setup}
+% \end{figure}
+
+
+% This section evaluates SSHv2, Mosh, and SSH3 for session setup latency, load latency, and output completeness. Overall, these measurements characterize the differences in session setup latency, output completeness, and interactive responsiveness in the evaluated network scenarios. We use these results to explain the observed differences using the previously discussed protocol behavior.
+
+
+
+% \begin{figure*}[t]
+%     \centering
+%     \includegraphics[width=0.8\textwidth]{figs/latency_workload_legend.pdf}\\[-0.4ex]
+%     \subfloat[W1: Small-output latency and output completeness]{%
+%         \includegraphics[width=0.44\textwidth]{figs/latency_completeness_w1_by_scenario.pdf}%
+%         \label{fig:latency-w1}
+%     }\hfill
+%     \subfloat[W2: Large-output latency and output completeness]{%
+%         \includegraphics[width=0.44\textwidth]{figs/latency_completeness_w2_by_scenario.pdf}%
+%         \label{fig:latency-w2}
+%     }
+%     \caption{Mean latency and 95\% confidence intervals for W1 and W2, excluding warmup samples. Bars show workload latency, while markers show output completeness as the percentage of expected bytes received.}
+%     \label{fig:w1-w2-performance}
+% \end{figure*}
+
+% \begin{figure*}[t]
+%     \centering
+%     \includegraphics[width=0.8\textwidth]{figs/latency_workload_legend.pdf}\\[-0.4ex]
+%     \subfloat[W3-1p: Single-pane]{%
+%         \includegraphics[width=0.44\textwidth]{figs/latency_w3_1p_by_scenario.pdf}%
+%         \label{fig:latency-w3-1p}
+%     }\hfill
+%     \subfloat[W3-5p: Five-pane]{%
+%         \includegraphics[width=0.44\textwidth]{figs/latency_w3_5p_by_scenario.pdf}%
+%         \label{fig:latency-w3-5p}
+%     }
+%     % \captionsetup{
+%     % font=captiontest,
+%     % labelfont=captiontest,
+%     % textfont=captiontest
+%     % }
+%     \caption{Mean keystroke-to-echo latency and 95\% confidence intervals for the W3 interactive-editing workload under single-pane and five-pane terminal layouts.}
+%     \label{fig:w3-performance}
+% \end{figure*}
+% \captionsetup{font=normalsize}
+% \captionsetup[subfloat]{font=normalsize}
+
+% Mosh has the longest session setup time in these measurements because it uses SSHv2 for authentication and session establishment before switching to a UDP-based State Synchronization Protocol (SSP) channel \cite{Winstein2012}. In the context of interactive terminal tasks like AI, this session startup latency can impact measurement results and execution efficiency, especially when the task frequently opens new shells, restores connections, or runs multiple short remote control loops.
+
+% W1 simulates the measurement of interactions on commands with short response times and small outputs. As shown in Figure~\ref{fig:latency-w1}, SSH3 achieved the lowest mean W1 latency across four network scenarios, although the margins were small on slightly degraded paths. In a realistic internet environment, SSH3 completed the command loop in 177.9 ms, compared to 188.8 ms for SSHv2 and 190.9 ms for Mosh. In the low-volatility network scenario, SSH3 and SSHv2 were nearly equal at 75.5 ms and 76.1 ms, respectively, while Mosh achieved 82.2 ms. The difference became apparent when network volatility was at High, where SSH3 achieved 307.5 ms, outperforming Mosh at 317.3 ms and SSHv2 at 367.0 ms. This result shows that the QUIC-based terminal channel of SSH3 handles short response loops efficiently. QUIC integrates encryption, encapsulation, acknowledgment, and loss recovery at the transport layer \cite{Martin2021}. In SSH3, this gives the tested terminal channel a shorter W1 completion path compared to SSHv2 over TCP and Mosh over SSP. SSHv2 preserves the completeness of the byte stream, but the loss and recovery of the stream are delayed, increasing completion latency in faulty paths. Mosh is optimized for more intuitive responsiveness rather than full byte command loop completion, so it offers less advantage to W1 as reflected by the W1 latency and output-completeness results in Figure~\ref{fig:latency-w1}.
+
+% W2 emphasizes the full transmission of every byte of large terminal output. Mosh has the fastest latency; however, the W2 output-latency and output-completeness results in Figure~\ref{fig:latency-w2} indicate that it only receives 1.43\%, 4.19\%, 1.75\%, and 1.24\% of the expected W2 bytes in the VPN, Low, Medium, and High network scenarios, respectively, because the protocol's SSP synchronizes terminal screen state rather than each intermediate byte \cite{Winstein2012}. Among the methods for full output transmission, SSHv2 is faster than SSH3: for example, SSHv2 completes W2 in 4213.5 ms compared to 47732.6 ms for SSH3 over VPN, and 36363.8 ms compared to 74664.5 ms in a High-level dynamic network scenario. The main reason is that W2 uses terminal sessions and sends the command output sequentially through a shell stream. QUIC avoids head-of-line blocking across independent streams, but bytes within a single stream are still transmitted in order. Therefore, because W2 uses only one stream, SSH3 does not benefit from QUIC's multi-stream recovery behavior \cite{Iyengar2021}. In this single-stream mode, both SSHv2 and SSH3 experience bottlenecks due to sequential transmission. SSHv2 benefits from the TCP path already implemented and optimized in the operating system kernel. Conversely, QUIC stacks are often implemented in user space via UDP, which adds to packet processing. This result is consistent with recent implementation results showing that QUIC throughput depends on application usage, stream concurrency, implementation behavior, and packet processing overhead \cite{Konig2025}.
+
+
+% W3 evaluates keystroke-to-echo latency to capture client-visible responsiveness during interactive terminal use. Overall, Mosh consistently outperforms the two byte-stream protocols (SSH3 and SSHv2). In the 1p \texttt{tmux} layout in Figure~\ref{fig:latency-w3-1p}, Mosh demonstrates a substantial advantage on impaired paths, maintaining a latency of just 25.3 ms under High impairment. In contrast, both SSHv2 and SSH3 experience severe degradation, with both exceeding 220 ms under the same conditions. This behavioral gap in the 1p scenario stems from fundamental architectural differences. Mosh achieves Low latency through predictive local echo and screen-state synchronization, hiding network delay from client-visible rendering \cite{Winstein2012}. Conversely, both SSH3 and SSHv2 operate strictly as end-to-end byte streams. Regardless of whether they utilize modern QUIC or legacy TCP, both protocols must wait for the remote server to process the keystroke and send the output back, making their responsiveness entirely dependent on network round-trip time and terminal rendering overhead. Moving to the more complex 5p layout in Figure~\ref{fig:latency-w3-5p}, the performance gap between Mosh and the byte-stream protocols widens further. Mosh remains highly responsive, recording only 31.3 ms under High impairment. Meanwhile, the latency for both SSH3 and SSHv2 scales up significantly. This magnified delay occurs because increasing the number of panes increases the volume of screen state updates that the server must push to the client. Since SSH3 and SSHv2 are obligated to transmit every byte of the terminal redrawing sequence, their interactive latency inherently inflates. In contrast, Mosh efficiently coalesces these complex layout updates and predicts visible changes locally, preventing the network from becoming a rendering bottleneck. Consequently, W3 represents a fundamentally different operational regime compared to W1 and W2. While SSH3 and SSHv2 exhibit restrictive, network-bound characteristics during interactive editing, Mosh stands out as the definitively superior choice for masking network impairments and preserving human-driven responsiveness.
+
+
+% Returning to our central research question, our evaluation reveals that no single transport universally satisfies all phases of agent interaction. Instead, the optimal protocol is workload-dependent. For agile interactions requiring rapid session establishment and low command response latency, SSH3’s QUIC-based transport provides the most efficient feedback channel. However, when automated clients need to collect and parse large command outputs, legacy SSHv2 remains the superior choice, delivering the fastest byte-complete transmission despite its TCP roots. Crucially, our results demonstrate that transport mechanisms optimized for human visual responsiveness, such as Mosh, inherently conflict with the programmatic needs of automated clients, sacrificing critical byte-completeness in heavy-output scenarios.
+
+%trungnt
+\subsection{Experiment Results}
+\label{subsec:experiment-results}
+
+This section evaluates SSHv2, SSH3, and Mosh in terms of session
+setup latency, workload latency, interactive responsiveness, and output
+completeness. These metrics capture different aspects of agent-like
+interactive terminal workloads. Session setup latency reflects how quickly
+a remote-control loop can become usable. W1 measures short command-response
+interactions with small outputs. W2 evaluates large-output delivery, where
+byte completeness is critical for programmatic parsing. W3 measures
+keystroke-to-echo latency under interactive editing, where client-visible
+responsiveness is the dominant factor.
+
+\begin{figure}[h]
+    \centering
+    \makebox[\columnwidth][c]{%
+    \hspace*{0.08\columnwidth}%
+    \includegraphics[width=0.68\columnwidth,trim=235bp 6bp 160bp 6bp,clip]{figs/latency_workload_legend.pdf}%
+    }
+    \par\vspace{1.2ex}
+    \includegraphics[width=0.9\columnwidth]
+    {figs/session_setup_bar.pdf}
+    \captionsetup{font=captionplus}
+    \caption{Mean session setup latency across the VPN path and three controlled network dynamicity levels.}
+    \label{fig:session-setup}
+\end{figure}
+
+\begin{figure*}[t]
+    \centering
+    \includegraphics[width=0.8\textwidth]{figs/latency_workload_legend.pdf}\\[-0.4ex]
+    \subfloat[W1: Small-output latency and output completeness]{%
+        \includegraphics[width=0.44\textwidth]{figs/latency_completeness_w1_by_scenario.pdf}%
+        \label{fig:latency-w1}
+    }\hfill
+    \subfloat[W2: Large-output latency and output completeness]{%
+        \includegraphics[width=0.44\textwidth]{figs/latency_completeness_w2_by_scenario.pdf}%
+        \label{fig:latency-w2}
+    }
+    \caption{Mean latency and 95\% confidence intervals for W1 and W2,
+    excluding warmup samples. Bars show workload latency, while markers
+    show output completeness as the percentage of expected bytes received.}
+    \label{fig:w1-w2-performance}
+\end{figure*}
+
+\begin{figure*}[t]
+    \centering
+    \includegraphics[width=0.8\textwidth]{figs/latency_workload_legend.pdf}\\[-0.4ex]
+    \subfloat[W3-1p: Single-pane]{%
+        \includegraphics[width=0.44\textwidth]{figs/latency_w3_1p_by_scenario.pdf}%
+        \label{fig:latency-w3-1p}
+    }\hfill
+    \subfloat[W3-5p: Five-pane]{%
+        \includegraphics[width=0.44\textwidth]{figs/latency_w3_5p_by_scenario.pdf}%
+        \label{fig:latency-w3-5p}
+    }
+    \caption{Mean keystroke-to-echo latency and 95\% confidence intervals
+    for the W3 interactive-editing workload under single-pane and five-pane
+    terminal layouts.}
+    \label{fig:w3-performance}
+\end{figure*}
+\captionsetup{font=normalsize}
+\captionsetup[subfloat]{font=normalsize}
+
+\textbf{Session setup.}
+Figure~\ref{fig:session-setup} shows that SSH3 provides the shortest
+session setup latency across the evaluated scenarios. This behavior is
+consistent with its QUIC-based design, where transport and cryptographic
+negotiation are integrated into the connection establishment process.
+In contrast, SSHv2 requires a TCP connection followed by SSH key exchange
+and authentication, making its setup latency more sensitive to RTT. Mosh
+has the longest setup time because it first relies on SSHv2 to authenticate
+and bootstrap the session before switching to its UDP-based State
+Synchronization Protocol (SSP) channel~\cite{Winstein2012}. This setup
+overhead is particularly relevant for agent-like workflows that frequently
+open new sessions, recover from disconnections, or launch many short
+remote-control loops.
+
+\textbf{W1: short command-response loops.}
+W1 captures short terminal interactions in which the command output is
+small and the client waits for a prompt or completion marker before issuing
+the next action. As shown in Figure~\ref{fig:latency-w1}, SSH3 achieves
+the lowest mean W1 latency across the VPN path and all three controlled
+dynamicity levels. On the VPN path, SSH3 completes the command loop in
+177.9~ms, compared with 188.8~ms for SSHv2 and 190.9~ms for Mosh. Under
+Low dynamicity, SSH3 and SSHv2 are nearly identical, at 75.5~ms and
+76.1~ms, respectively, while Mosh records 82.2~ms. The advantage of SSH3
+becomes clearer under High dynamicity, where SSH3 reaches 307.5~ms,
+compared with 317.3~ms for Mosh and 367.0~ms for SSHv2.
+
+These results indicate that SSH3 is well suited to short command-response
+loops. In W1, the output is small enough that the workload is dominated by
+control latency rather than sustained throughput. SSH3 benefits from the
+QUIC-based terminal channel, while SSHv2 remains exposed to TCP
+head-of-line blocking when loss and delay variation increase. Mosh does
+not provide a clear advantage for W1 because this workload requires
+observable command completion rather than only locally responsive typing.
+Therefore, for small-output automated command loops, SSH3 provides the most
+efficient feedback channel among the evaluated protocols.
+
+\textbf{W2: large-output delivery.}
+W2 stresses a different requirement: the client must receive large terminal
+outputs that may be parsed by an automated workflow. Figure~\ref{fig:latency-w2}
+shows that Mosh reports the lowest observable completion latency. However,
+this latency should not be interpreted as byte-complete delivery. Its output
+completeness is only 1.43\%, 4.19\%, 1.75\%, and 1.24\% of the expected W2
+bytes in the VPN, Low, Medium, and High scenarios, respectively. This
+behavior follows from Mosh's SSP design, which synchronizes the latest
+visible terminal state rather than delivering every intermediate byte
+printed by the command~\cite{Winstein2012}. As a result, Mosh can appear
+fast while discarding most of the output required by programmatic parsing.
+
+Among the byte-preserving protocols, SSHv2 is substantially faster than
+SSH3 for W2. For example, SSHv2 completes W2 in 4213.5~ms on the VPN path,
+whereas SSH3 requires 47732.6~ms. Under High dynamicity, SSHv2 completes
+the workload in 36363.8~ms, compared with 74664.5~ms for SSH3. This result
+highlights that QUIC's removal of head-of-line blocking across independent
+streams does not automatically benefit a large terminal output produced
+through a single ordered shell stream. In such a setting, bytes within the
+same stream must still be delivered in order before the output can be
+considered complete. Moreover, SSHv2 benefits from the mature TCP stack
+implemented in the operating system kernel, whereas QUIC implementations
+often run in user space over UDP and can incur additional packet-processing
+overhead. This observation is consistent with recent findings that QUIC
+throughput depends on stream usage, implementation behavior, concurrency,
+and packet-processing overhead~\cite{Konig2025}.
+
+\textbf{W3: interactive editing.}
+W3 measures keystroke-to-echo latency, which reflects client-visible
+responsiveness during interactive terminal use. Unlike W1 and W2, this
+workload prioritizes how quickly a typed character becomes visible at the
+client rather than whether a command output is byte-complete. As shown in
+Figure~\ref{fig:latency-w3-1p}, Mosh consistently outperforms SSHv2 and
+SSH3 in the single-pane layout. Under High dynamicity, Mosh maintains a
+latency of only 25.3~ms, while both byte-stream protocols exceed 220~ms.
+
+This gap is explained by the design of Mosh. Predictive local echo and
+screen-state synchronization allow Mosh to hide network delay from
+client-visible rendering~\cite{Winstein2012}. By contrast, SSHv2 and SSH3
+operate as end-to-end byte-stream protocols for the terminal session. A
+typed character must be sent to the remote side, processed by the server,
+and returned to the client before it becomes visible. Their responsiveness
+therefore remains closely tied to network RTT and terminal redraw overhead.
+
+The same trend becomes stronger in the five-pane layout shown in
+Figure~\ref{fig:latency-w3-5p}. Mosh remains responsive, recording
+31.3~ms under High dynamicity. In contrast, the latency of SSHv2 and SSH3
+increases substantially as the terminal layout becomes more complex. The
+additional panes generate more screen updates and redraw activity, which
+the byte-stream protocols must transmit as terminal output. Mosh can
+coalesce screen-state updates and prioritize the latest visible state,
+thereby preventing terminal redraw traffic from becoming a client-visible
+latency bottleneck. This makes Mosh the most suitable protocol for
+human-visible interactive responsiveness, although the W2 results show that
+this advantage does not extend to output-sensitive automated parsing.
+
+\textbf{Summary of findings.}
+The results show that no single protocol dominates all phases of
+agent-like interactive terminal workloads. SSH3 is the best choice for
+fast session setup and short command-response loops, where latency is more
+important than sustained output throughput. SSHv2 remains the stronger
+choice for large-output commands that require byte-complete delivery, even
+though it relies on TCP. Mosh provides the best client-visible responsiveness
+for interactive editing, especially under high network dynamicity and
+multi-pane terminal activity, but its state-synchronization model makes it
+unsuitable for workloads that require complete command output. Therefore,
+protocol selection for automated and AI-agent-oriented terminal workflows
+must be workload-dependent rather than based on a single notion of
+responsiveness.

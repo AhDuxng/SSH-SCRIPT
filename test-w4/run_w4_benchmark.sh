@@ -34,21 +34,23 @@ esac
 
 PROTOCOLS="${PROTOCOLS:-ssh ssh3 mosh}"
 FIXTURE_DIR="${FIXTURE_DIR:-/tmp}"
+FIXTURE_FILE="${FIXTURE_FILE:-$FIXTURE_DIR/w4_paths_100kb.txt}"
+FIXTURE_BYTES="${FIXTURE_BYTES:-102400}"
 
 COMMANDS=(
-  "cat $FIXTURE_DIR/w4_paths_2mb.txt"
+  "cat $FIXTURE_FILE"
 )
 
-ITERATIONS="${ITERATIONS:-50}"
+ITERATIONS="${ITERATIONS:-20}"
 TRIALS="${TRIALS:-10}"
-TIMEOUT="${TIMEOUT:-20}"
-SAMPLE_TIMEOUT="${SAMPLE_TIMEOUT:-300}"
-COMMAND_IDLE_TIMEOUT="${COMMAND_IDLE_TIMEOUT:-60}"
+TIMEOUT="${TIMEOUT:-60}"
+SAMPLE_TIMEOUT="${SAMPLE_TIMEOUT:-900}"
+COMMAND_IDLE_TIMEOUT="${COMMAND_IDLE_TIMEOUT:-180}"
 MAX_OUTPUT_LINES="${MAX_OUTPUT_LINES:-0}"
 MAXREAD="${MAXREAD:-65535}"
 SEED="${SEED:-42}"
 
-OUTPUT_ROOT="${OUTPUT_ROOT:-w4_results_2mb}"
+OUTPUT_ROOT="${OUTPUT_ROOT:-w4_results_trungnt/100KB}"
 OUTPUT_DIR="${OUTPUT_DIR:-$OUTPUT_ROOT/$SCENARIO}"
 PROMPT="${PROMPT:-__W4_PROMPT__# }"
 
@@ -101,12 +103,21 @@ CMD=(
 [[ "$REOPEN_ON_FAILURE" == "true" ]] && CMD+=(--reopen-on-failure)
 [[ "$RESUME" == "true" ]] && CMD+=(--resume)
 
-echo "=== W4 Real Large Output Benchmark ==="
+if [[ "$FIXTURE_BYTES" -ge 1048576 && $((FIXTURE_BYTES % 1048576)) -eq 0 ]]; then
+  FIXTURE_LABEL="$((FIXTURE_BYTES / 1048576)) MiB"
+elif [[ "$FIXTURE_BYTES" -ge 1024 && $((FIXTURE_BYTES % 1024)) -eq 0 ]]; then
+  FIXTURE_LABEL="$((FIXTURE_BYTES / 1024)) KiB"
+else
+  FIXTURE_LABEL="${FIXTURE_BYTES} bytes"
+fi
+
+echo "=== W4 $FIXTURE_LABEL Cat Benchmark ==="
 echo "Host      : $USER_NAME@$HOST"
 echo "Scenario  : $SCENARIO"
 echo "Source IP : $SOURCE_IP"
 echo "Protocols : $PROTOCOLS"
-echo "Fixture   : $FIXTURE_DIR/w4_paths_2mb.txt (2 MiB)"
+echo "Fixture   : $FIXTURE_FILE ($FIXTURE_LABEL)"
+echo "Timeouts  : session=${TIMEOUT}s sample=${SAMPLE_TIMEOUT}s idle=${COMMAND_IDLE_TIMEOUT}s"
 echo "Max lines : $MAX_OUTPUT_LINES per command sample"
 echo "Resume    : $RESUME"
 echo "Commands  :"

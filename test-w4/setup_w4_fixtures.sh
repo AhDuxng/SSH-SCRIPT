@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # setup_w4_fixtures.sh - run on the benchmark server before W4.
 #
-# It creates a static 2 MiB ASCII text fixture in /tmp. W4 then runs `cat` on
-# this file through ssh/ssh3/mosh, so received_pct is compared against fixed byte
-# counts instead of moving outputs like `ps aux` or live `docker logs`.
+# It creates a static ASCII text fixture in /tmp. W4 then runs `cat` on this file
+# through ssh/ssh3/mosh, so received_pct is compared against fixed byte counts
+# instead of moving outputs like `ps aux` or live `docker logs`.
 #
 # From the client:
 #   ssh user@host 'bash -s' < setup_w4_fixtures.sh
@@ -14,9 +14,9 @@ set -euo pipefail
 
 FIXTURE_DIR="${FIXTURE_DIR:-/tmp}"
 SOURCE_FILE="$FIXTURE_DIR/w4_paths_source.txt"
-FIXTURE_FILE="$FIXTURE_DIR/w4_paths_2mb.txt"
+FIXTURE_FILE="${FIXTURE_FILE:-$FIXTURE_DIR/w4_paths_100kb.txt}"
 
-FIXTURE_BYTES="${FIXTURE_BYTES:-2097152}" # 2 MiB
+FIXTURE_BYTES="${FIXTURE_BYTES:-102400}" # 100 KiB
 
 generate_source() {
   local target_bytes="$1"
@@ -59,6 +59,7 @@ copy_exact_bytes() {
 
 echo "=== W4 static fixture setup ==="
 echo "Directory: $FIXTURE_DIR"
+echo "Fixture file : $FIXTURE_FILE"
 echo "Fixture bytes: $FIXTURE_BYTES"
 echo
 
@@ -81,4 +82,4 @@ echo "=== Commands for W4 ==="
 printf 'cat %s\n' "$FIXTURE_FILE"
 
 echo
-echo "Done. Static 2 MiB W4 fixture is ready."
+echo "Done. Static W4 fixture is ready."

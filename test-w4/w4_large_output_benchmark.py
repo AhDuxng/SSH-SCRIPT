@@ -28,9 +28,12 @@ except ImportError as exc:
 
 DEFAULT_PROTOCOLS = ["ssh", "ssh3", "mosh"]
 DEFAULT_COMMANDS = [
-    "cat /tmp/w4_paths_2mb.txt",
+    "cat /tmp/w4_paths_100kb.txt",
 ]
 COMMAND_LABELS = {
+    "cat /tmp/w4_paths_500b.txt": "fixture 500b",
+    "cat /tmp/w4_paths_100kb.txt": "fixture 100kb",
+    "cat /tmp/w4_paths_small.txt": "fixture small",
     "cat /tmp/w4_paths_2mb.txt": "fixture 2mb",
     "find /": "find /",
     "docker logs $(docker ps -q | head -n 1)": "docker logs",
@@ -496,6 +499,11 @@ class W4Benchmark:
             parts = []
         if len(parts) == 2 and parts[0] == "cat":
             fixture_labels = {
+                "w4_paths_500b.txt": "fixture 500b",
+                "w4_paths_100kb.txt": "fixture 100kb",
+                "w4_paths_small.txt": "fixture small",
+                "w4_paths_medium.txt": "fixture medium",
+                "w4_paths_large.txt": "fixture large",
                 "w4_paths_2mb.txt": "fixture 2mb",
             }
             label = fixture_labels.get(Path(parts[1]).name)
@@ -638,6 +646,7 @@ class W4Benchmark:
     def _wait_for_marker(
         self,
         child: pexpect.spawn,
+        protocol: str,
         start_marker: str,
         end_marker: str,
     ) -> tuple[int, str]:
@@ -698,6 +707,20 @@ class W4Benchmark:
             buffer += clean_chunk
 
             if not capturing:
+                end_match = end_re.search(buffer)
+                if protocol == "mosh" and end_match is not None:
+                    # Mosh synchronizes terminal state, not a byte stream. Under
+                    # bursty large output it can deliver the final marker and
+                    # prompt after dropping earlier scrollback, including the
+                    # start marker. Count the visible payload instead of
+                    # classifying a completed command as a timeout.
+                    final_text = buffer[: end_match.start()]
+                    if final_text.endswith("\n"):
+                        final_text = final_text[:-1]
+                    final_bytes = self._payload_bytes(final_text)
+                    output_hash.update(final_bytes)
+                    return output_bytes + len(final_bytes), output_hash.hexdigest()
+
                 start_match = start_re.search(buffer)
                 if start_match is None:
                     if len(buffer) > 4096:
@@ -727,6 +750,7 @@ class W4Benchmark:
     def _measure_output_delivery(
         self,
         child: pexpect.spawn,
+        protocol: str,
         command: str,
         start_marker: str,
         end_marker: str,
@@ -736,7 +760,7 @@ class W4Benchmark:
         start_ns = time.perf_counter_ns()
         child.sendline(wrapped)
         output_bytes, received_sha256 = self._wait_for_marker(
-            child, start_marker, end_marker
+            child, protocol, start_marker, end_marker
         )
         end_ns = time.perf_counter_ns()
         return (end_ns - start_ns) / 1_000_000.0, output_bytes, received_sha256
@@ -773,7 +797,7 @@ class W4Benchmark:
             end_marker = f"W4_END_{marker}"
             try:
                 latency_ms, output_bytes, received_sha256 = self._measure_output_delivery(
-                    child, command, start_marker, end_marker
+                    child, protocol, command, start_marker, end_marker
                 )
                 throughput = (
                     (output_bytes / 1024.0) / (latency_ms / 1000.0)
@@ -1171,7 +1195,7 @@ class W4Benchmark:
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="W4 real large-output benchmark")
+    parser = argparse.ArgumentParser(description="W4 cat-file benchmark")
     parser.add_argument("--host", default="192.168.8.102")
     parser.add_argument("--user", default="trungnt")
     parser.add_argument("--source-ip", default="192.168.8.100")
@@ -1183,13 +1207,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--commands", nargs="+", default=DEFAULT_COMMANDS)
     parser.add_argument("--trials", type=int, default=5)
     parser.add_argument("--iterations", type=int, default=30)
-    parser.add_argument("--timeout", type=int, default=20)
-    parser.add_argument("--sample-timeout", type=float, default=60.0)
-    parser.add_argument("--command-idle-timeout", type=float, default=60.0)
+    parser.add_argument("--timeout", type=int, default=60)
+    parser.add_argument("--sample-timeout", type=float, default=900.0)
+    parser.add_argument("--command-idle-timeout", type=float, default=180.0)
     parser.add_argument("--max-output-lines", type=int, default=1000)
     parser.add_argument("--maxread", type=int, default=65535)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--output-dir", default="w4_results")
+    parser.add_argument("--output-dir", default="w4_results_trungnt/100KB/default")
     parser.add_argument("--prompt", default=DEFAULT_PROMPT)
     parser.add_argument("--ssh3-path", default=DEFAULT_SSH3_PATH)
     parser.add_argument("--ssh3-insecure", action="store_true")

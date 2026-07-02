@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# run_all_scenarios.sh — Orchestrate W4 LAN low/medium/high runs end-to-end.
+# run_all_scenarios.sh — Orchestrate W4 LAN high/medium/low runs end-to-end.
 #
 # Run this script on the Pi client that is connected to the Pi server over LAN.
 # The default/Tailscale scenario is intentionally not part of this orchestrator;
@@ -11,13 +11,13 @@
 # set_network.sh calls between scenarios do NOT re-prompt for the password.
 #
 # For each scenario:
-#   1. prepare the static 2 MiB W4 fixture on the server
+#   1. prepare the static 100 KiB W4 fixture on the server
 #   2. clear tc on client AND server, sleep SETTLE_SEC
 #   3. apply scenario on client AND server, sleep SETTLE_SEC
 #   4. run W4 benchmark -> writes OUTPUT_ROOT/<scenario>/
 #
 # Usage:
-#   ./run_all_scenarios.sh                # runs low, medium, high over LAN
+#   ./run_all_scenarios.sh                # runs high, medium, low over LAN
 #   ./run_all_scenarios.sh low high       # subset / reorder
 #
 # Overridable via env vars:
@@ -45,9 +45,10 @@ LOCAL_SET_NETWORK="${LOCAL_SET_NETWORK:-../set_network.sh}"
 REMOTE_SET_NETWORK="${REMOTE_SET_NETWORK:-~/set_network.sh}"
 
 SETTLE_SEC="${SETTLE_SEC:-30}"
-OUTPUT_ROOT="${OUTPUT_ROOT:-w4_results_2mb}"
+OUTPUT_ROOT="${OUTPUT_ROOT:-w4_results_trungnt/100KB}"
 FIXTURE_DIR="${FIXTURE_DIR:-/tmp}"
-FIXTURE_BYTES="${FIXTURE_BYTES:-2097152}"
+FIXTURE_FILE="${FIXTURE_FILE:-$FIXTURE_DIR/w4_paths_100kb.txt}"
+FIXTURE_BYTES="${FIXTURE_BYTES:-102400}"
 FIXTURE_SCRIPT="${FIXTURE_SCRIPT:-setup_w4_fixtures.sh}"
 SETUP_FIXTURES="${SETUP_FIXTURES:-true}"
 RESUME="${RESUME:-false}"
@@ -79,7 +80,7 @@ ssh_pi_tty() {
 if [[ $# -gt 0 ]]; then
   SCENARIOS=("$@")
 else
-  SCENARIOS=(low medium high)
+  SCENARIOS=(high medium low)
 fi
 
 # --- Helpers -----------------------------------------------------------------
@@ -115,11 +116,13 @@ setup_fixtures() {
     exit 2
   fi
   local fixture_dir_q
+  local fixture_file_q
   local fixture_bytes_q
   printf -v fixture_dir_q '%q' "$FIXTURE_DIR"
+  printf -v fixture_file_q '%q' "$FIXTURE_FILE"
   printf -v fixture_bytes_q '%q' "$FIXTURE_BYTES"
-  log "Preparing static W4 fixture on $USER_NAME@$HOST in $FIXTURE_DIR (${FIXTURE_BYTES} bytes)"
-  ssh_pi "FIXTURE_DIR=$fixture_dir_q FIXTURE_BYTES=$fixture_bytes_q bash -s" < "$FIXTURE_SCRIPT"
+  log "Preparing static W4 fixture on $USER_NAME@$HOST: $FIXTURE_FILE (${FIXTURE_BYTES} bytes)"
+  ssh_pi "FIXTURE_DIR=$fixture_dir_q FIXTURE_FILE=$fixture_file_q FIXTURE_BYTES=$fixture_bytes_q bash -s" < "$FIXTURE_SCRIPT"
 }
 
 sleep_with_dots() {
@@ -206,7 +209,7 @@ log "=== W4 orchestrator ==="
 log "Scenarios: ${SCENARIOS[*]}"
 log "Client iface=$CLIENT_IFACE  Server iface=$SERVER_IFACE  settle=${SETTLE_SEC}s"
 log "LAN target=$USER_NAME@$HOST  LAN source IP=$SOURCE_IP"
-log "Output root=$OUTPUT_ROOT  Fixture dir=$FIXTURE_DIR  Fixture bytes=$FIXTURE_BYTES"
+log "Output root=$OUTPUT_ROOT  Fixture file=$FIXTURE_FILE  Fixture bytes=$FIXTURE_BYTES"
 log "Resume=$RESUME"
 log "Local  : $LOCAL_SET_NETWORK"
 log "Remote : $REMOTE_SET_NETWORK (on $USER_NAME@$HOST)"
@@ -268,6 +271,8 @@ for scenario in "${SCENARIOS[@]}"; do
   IDENTITY_FILE="$IDENTITY_FILE" \
   OUTPUT_ROOT="$OUTPUT_ROOT" \
   FIXTURE_DIR="$FIXTURE_DIR" \
+  FIXTURE_FILE="$FIXTURE_FILE" \
+  FIXTURE_BYTES="$FIXTURE_BYTES" \
   RESUME="$RESUME" \
     ./run_w4_benchmark.sh "$scenario"
   log "--- benchmark for $scenario done"
