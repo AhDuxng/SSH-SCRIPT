@@ -106,6 +106,11 @@ class ProtocolRunner:
 
     def ssh3_extra_args(self, target: str, profile: str, role: str) -> list:
         args = []
+        if bool_cfg(self.cfg, "SSH3_INSECURE", "0"):
+            args.append("-insecure")
+        privkey = self.cfg.get("SSH3_PRIVKEY", "").strip()
+        if privkey:
+            args.extend(["-privkey", os.path.expanduser(privkey)])
         if bool_cfg(self.cfg, "SSH3_VERBOSE", "1"):
             args.append("-v")
         keylog_template = self.cfg.get("SSH3_KEYLOG_TEMPLATE", "").strip()
@@ -130,6 +135,7 @@ class ProtocolRunner:
             port=self.port,
             cmd=cmd,
             ssh3_extra_args=extra_args,
+            ssh3_path=self.cfg.get("SSH3_PATH", ""),
         )
 
     def child_pids(self, pid: int) -> list:
@@ -365,7 +371,7 @@ class ProtocolRunner:
             ], False
 
         if self.protocol == "ssh3":
-            tmpl = self.cfg.get("SSH3_INTERACTIVE_TEMPLATE", "ssh3 {ssh3_extra_args} {user}@{host}")
+            tmpl = self.cfg.get("SSH3_INTERACTIVE_TEMPLATE", "ssh3 {ssh3_extra_args} {user}@{host}{ssh3_path}")
             cmd = self.format_ssh3_template(tmpl, target, profile, "interactive")
             return cmd, True
 
@@ -407,7 +413,7 @@ class ProtocolRunner:
         if self.protocol == "ssh3":
             # For true SSH3 multiplexing, replace this template with an instrumented ssh3 client
             # that opens several session channels inside one SSH3 conversation.
-            tmpl = self.cfg.get("SSH3_COMMAND_TEMPLATE", "ssh3 {ssh3_extra_args} {user}@{host} -- {cmd}")
+            tmpl = self.cfg.get("SSH3_COMMAND_TEMPLATE", "ssh3 {ssh3_extra_args} {user}@{host}{ssh3_path} {cmd}")
             cmd = self.format_ssh3_template(tmpl, target, profile, bg_name, cmd=q(remote_cmd))
             return cmd, True
 
