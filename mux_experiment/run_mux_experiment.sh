@@ -76,7 +76,7 @@ for protocol in $(csv_to_words "$PROTOCOLS"); do
   echo "[SERVER] start $protocol"
   remote_log="$REMOTE_DIR/logs/server_${protocol}_${RUN_ID}.log"
   ssh "${SSH_PORT_ARGS[@]}" "$REMOTE" \
-    "cd '$REMOTE_DIR' && nohup '$REMOTE_PYTHON_BIN' mux_bench.py server --protocol '$protocol' --host 0.0.0.0 --port '$MUX_PORT' --cert certs/mux_cert.pem --key certs/mux_key.pem > '$remote_log' 2>&1 & echo \$! > 'server_${protocol}.pid'"
+    "cd '$REMOTE_DIR' && nohup '$REMOTE_PYTHON_BIN' mux_bench.py server --protocol '$protocol' --host 0.0.0.0 --port '$MUX_PORT' --cert certs/mux_cert.pem --key certs/mux_key.pem </dev/null > '$remote_log' 2>&1 & echo \$! > 'server_${protocol}.pid'"
   sleep 2
 
   start_capture "$protocol"

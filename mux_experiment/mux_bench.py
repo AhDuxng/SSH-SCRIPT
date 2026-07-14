@@ -442,12 +442,16 @@ async def run_quic_client_profile(args: argparse.Namespace, profile: str, output
         keylog_file = open(args.keylog, "a", encoding="utf-8")
         configuration.secrets_log_file = keylog_file
     try:
-        async with connect(
+        print(f"[client/quic] connecting to {args.host}:{args.port}", flush=True)
+        connect_cm = connect(
             args.host,
             args.port,
             configuration=configuration,
             create_protocol=lambda *a, **kw: MuxQuicClientProtocol(router, *a, **kw),
-        ) as protocol:
+        )
+        protocol = await asyncio.wait_for(connect_cm.__aenter__(), timeout=args.timeout)
+        try:
+            print(f"[client/quic] connected to {args.host}:{args.port}", flush=True)
             roles = ["interactive"] + profile_roles(profile)
             role_streams: dict[str, int] = {}
             for role in roles:
@@ -472,6 +476,8 @@ async def run_quic_client_profile(args: argparse.Namespace, profile: str, output
                 args, outputs, "quic", profile, ROLE_CHANNELS["interactive"],
                 str(role_streams["interactive"]), send, router,
             )
+        finally:
+            await connect_cm.__aexit__(None, None, None)
     finally:
         if keylog_file is not None:
             keylog_file.close()
