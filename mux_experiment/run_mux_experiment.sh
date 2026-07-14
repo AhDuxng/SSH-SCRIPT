@@ -23,21 +23,47 @@ case ",$PROTOCOLS," in
   *,quic,*) need_quic=1 ;;
 esac
 
-if [[ "$need_quic" == "1" ]]; then
-  if ! "$LOCAL_PYTHON_BIN" -c 'import aioquic' >/dev/null 2>&1; then
+ensure_local_aioquic() {
+  if [[ "$need_quic" != "1" ]]; then
+    return
+  fi
+  if "$LOCAL_PYTHON_BIN" -c 'import aioquic' >/dev/null 2>&1; then
+    return
+  fi
+  if [[ "${AUTO_INSTALL_AIOQUIC:-1}" != "1" ]]; then
     echo "Missing local aioquic. Install: $LOCAL_PYTHON_BIN -m pip install aioquic" >&2
     exit 2
   fi
-fi
+  echo "[SETUP] local aioquic missing; creating/updating local venv"
+  "${LOCAL_BOOTSTRAP_PYTHON:-python3}" -m venv .venv
+  "$LOCAL_PYTHON_BIN" -m pip install --upgrade pip
+  "$LOCAL_PYTHON_BIN" -m pip install aioquic
+}
+
+ensure_remote_aioquic() {
+  if [[ "$need_quic" != "1" ]]; then
+    return
+  fi
+  if ssh "${SSH_PORT_ARGS[@]}" "$REMOTE" "'$REMOTE_PYTHON_BIN' -c 'import aioquic'" >/dev/null 2>&1; then
+    return
+  fi
+  if [[ "${AUTO_INSTALL_AIOQUIC:-1}" != "1" ]]; then
+    echo "Missing remote aioquic. Install on Pi: $REMOTE_PYTHON_BIN -m pip install aioquic" >&2
+    exit 2
+  fi
+  echo "[SETUP] remote aioquic missing; creating/updating remote venv on $REMOTE"
+  ssh "${SSH_PORT_ARGS[@]}" "$REMOTE" \
+    "cd '$REMOTE_DIR' && '${REMOTE_BOOTSTRAP_PYTHON:-python3}' -m venv .venv && '$REMOTE_PYTHON_BIN' -m pip install --upgrade pip && '$REMOTE_PYTHON_BIN' -m pip install aioquic"
+}
+
+ensure_local_aioquic
 
 ssh "${SSH_PORT_ARGS[@]}" "$REMOTE" "mkdir -p '$REMOTE_DIR/certs' '$REMOTE_DIR/logs'"
 scp "${SCP_PORT_ARGS[@]}" mux_bench.py analyze_mux.py "$REMOTE:$REMOTE_DIR/"
 
+ensure_remote_aioquic
+
 if [[ "$need_quic" == "1" ]]; then
-  if ! ssh "${SSH_PORT_ARGS[@]}" "$REMOTE" "'$REMOTE_PYTHON_BIN' -c 'import aioquic'" >/dev/null 2>&1; then
-    echo "Missing remote aioquic. Install on Pi: $REMOTE_PYTHON_BIN -m pip install aioquic" >&2
-    exit 2
-  fi
   ssh "${SSH_PORT_ARGS[@]}" "$REMOTE" \
     "cd '$REMOTE_DIR' && if [ ! -f certs/mux_cert.pem ] || [ ! -f certs/mux_key.pem ]; then openssl req -x509 -newkey rsa:2048 -nodes -keyout certs/mux_key.pem -out certs/mux_cert.pem -subj /CN=muxbench -days 7 >/dev/null 2>&1; fi"
 fi
@@ -72,12 +98,32 @@ csv_to_words() {
   echo "$1" | tr ',' ' '
 }
 
-for protocol in $(csv_to_words "$PROTOCOLS"); do
+start_remote_server() {
+  local protocol="$1"
+  local remote_log="$2"
   echo "[SERVER] start $protocol"
-  remote_log="$REMOTE_DIR/logs/server_${protocol}_${RUN_ID}.log"
-  ssh "${SSH_PORT_ARGS[@]}" "$REMOTE" \
-    "cd '$REMOTE_DIR' && nohup '$REMOTE_PYTHON_BIN' mux_bench.py server --protocol '$protocol' --host 0.0.0.0 --port '$MUX_PORT' --cert certs/mux_cert.pem --key certs/mux_key.pem </dev/null > '$remote_log' 2>&1 & echo \$! > 'server_${protocol}.pid'"
+  ssh -n "${SSH_PORT_ARGS[@]}" "$REMOTE" "
+cd '$REMOTE_DIR' || exit 1
+if [ -f 'server_${protocol}.pid' ]; then
+  kill \$(cat 'server_${protocol}.pid') >/dev/null 2>&1 || true
+  rm -f 'server_${protocol}.pid'
+fi
+nohup '$REMOTE_PYTHON_BIN' mux_bench.py server --protocol '$protocol' --host 0.0.0.0 --port '$MUX_PORT' --cert certs/mux_cert.pem --key certs/mux_key.pem </dev/null > '$remote_log' 2>&1 &
+echo \$! > 'server_${protocol}.pid'
+"
+  echo "[SERVER] start command returned for $protocol"
   sleep 2
+  if ! ssh "${SSH_PORT_ARGS[@]}" "$REMOTE" "cd '$REMOTE_DIR' && test -s 'server_${protocol}.pid' && kill -0 \$(cat 'server_${protocol}.pid') >/dev/null 2>&1"; then
+    echo "[SERVER] $protocol failed to stay running. Remote log:" >&2
+    ssh "${SSH_PORT_ARGS[@]}" "$REMOTE" "tail -80 '$remote_log'" >&2 || true
+    exit 1
+  fi
+  echo "[SERVER] $protocol is running"
+}
+
+for protocol in $(csv_to_words "$PROTOCOLS"); do
+  remote_log="$REMOTE_DIR/logs/server_${protocol}_${RUN_ID}.log"
+  start_remote_server "$protocol" "$remote_log"
 
   start_capture "$protocol"
   keylog_arg=()
