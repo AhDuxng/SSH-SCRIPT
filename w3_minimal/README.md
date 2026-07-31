@@ -9,6 +9,7 @@ Benchmark độ trễ gõ phím của SSH, SSH3 và Mosh trong Vim và Nano.
 - Mỗi connection gõ đúng một lượt toàn bộ [`payloads/probe_text.c`](payloads/probe_text.c): **80 ký tự**, kể cả 6 ký tự xuống dòng. CSV đánh số `char_index=1/80 ... 80/80`.
 - Mỗi block chứa đủ mọi tổ hợp rồi được xáo trộn bằng `RANDOM_SEED`; thứ tự thật được lưu tại `experiment_order.csv`.
 - Chỉ bắt đầu đo sau khi interactive channel và mọi tải nền đã READY, sau đó warm-up đồng nhất 5 giây.
+- Sau khi đóng xong một connection, runner nghỉ đồng nhất 3 giây trước trial kế tiếp để connection cũ có thời gian hoàn tất cleanup.
 - `c0_only`: không tải nền.
 - `c0_bg4`: `log + ping + sysmon + output` với output 100 KiB/s.
 - `c0_bg4_heavy`: cùng bốn tải nhưng output 1 MiB/s.

@@ -58,6 +58,9 @@ def main():
     run_id = cfg.get("RUN_ID", "").strip() or time.strftime("%Y%m%dT%H%M%S")
     seed = int(cfg.get("RANDOM_SEED", "20260724"))
     trial_count = int(cfg.get("TRIALS_PER_COMBINATION", "5"))
+    inter_trial_delay = float(cfg.get("INTER_TRIAL_DELAY_SECONDS", "3.0"))
+    if inter_trial_delay < 0:
+        raise ValueError("INTER_TRIAL_DELAY_SECONDS must be non-negative")
 
     generated = (
         "samples.csv", "trials.csv", "experiment_order.csv", "metadata.json",
@@ -104,6 +107,7 @@ def main():
         "probe_text_file": str(probe_path),
         "characters_per_trial": probe_chars,
         "warmup_seconds": float(cfg.get("WARMUP_SECONDS", "5")),
+        "inter_trial_delay_seconds": inter_trial_delay,
         "normal_output_rate_bps": int(cfg.get("NORMAL_OUTPUT_RATE_BPS", "102400")),
         "heavy_output_rate_bps": int(cfg.get("HEAVY_OUTPUT_RATE_BPS", "1048576")),
         "timeout_penalty_ms": float(cfg.get("TIMEOUT_PENALTY_MS", "2000")),
@@ -116,7 +120,7 @@ def main():
     with out_path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=SAMPLE_FIELDS)
         writer.writeheader()
-        for trial in schedule:
+        for trial_index, trial in enumerate(schedule):
             print(
                 f"[RUN] order={trial['trial_order']:03d}/{len(schedule):03d} "
                 f"block={trial['block_id']:02d}/{trial_count:02d} "
@@ -133,6 +137,12 @@ def main():
                 writer,
             )
             handle.flush()
+            if inter_trial_delay > 0 and trial_index + 1 < len(schedule):
+                print(
+                    f"[COOLDOWN] waiting {inter_trial_delay:.1f}s before next trial",
+                    flush=True,
+                )
+                time.sleep(inter_trial_delay)
 
     print(f"Saved {len(schedule)} independent trials to {out_path}")
 

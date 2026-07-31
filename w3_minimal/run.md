@@ -19,7 +19,9 @@ Giữ `.venv`; `run_w3.sh` đang dùng `.venv/bin/python`. Sửa `SERVER_USER`, 
 
 ## Chạy thí nghiệm đầy đủ
 
-`config.env` hiện chỉ đo Vim và Nano, chạy 3 trial độc lập cho mỗi tổ hợp; mỗi trial đo đủ 80 ký tự. Tổng cộng: `3 giao thức × 2 editor × 3 mức tải × 3 trial = 54 trial`.
+`config.env` chỉ đo Vim và Nano; số connection độc lập của mỗi tổ hợp do `TRIALS_PER_COMBINATION` quy định. Mỗi connection đo đủ 80 ký tự. Tổng trial là `3 giao thức × 2 editor × 3 mức tải × TRIALS_PER_COMBINATION`.
+
+Runner mặc định nghỉ `INTER_TRIAL_DELAY_SECONDS=3.00` sau khi đóng mỗi connection và trước trial kế tiếp. Cooldown này áp dụng cho cả SSH, SSH3 và Mosh.
 
 ```bash
 bash run_w3.sh config.env
