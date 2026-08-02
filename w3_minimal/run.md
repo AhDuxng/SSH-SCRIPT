@@ -73,6 +73,25 @@ Bốn hình có thể tạo từ thống kê gộp mẫu thành công:
 
 Mỗi lệnh tạo một hình PNG và PDF, với SSH, SSH3 và Mosh chung một biểu đồ.
 
+## Thống kê và vẽ thời gian session setup
+
+Phép đo này chạy độc lập với thí nghiệm Vim/Nano và dùng cùng định nghĩa với
+`test-w1`: từ sau khi spawn client đến khi nhận shell prompt đầu tiên. Mỗi mẫu
+mở một phiên mới; không dùng ControlMaster, không mở tải nền và không mở editor.
+
+```bash
+.venv/bin/python tools/measure_session_setup.py config.env
+
+.venv/bin/python tools/plot_setup.py \
+  artifacts/results/setup_summary.csv \
+  artifacts/figures \
+  --metric median
+```
+
+Lệnh đo tạo `setup_samples.csv` và `setup_summary.csv`; lệnh vẽ tạo
+`figure_5_session_setup_median.png` và PDF tương ứng. `SETUP_TRIALS` trong
+`config.env` quy định số phiên độc lập của mỗi giao thức.
+
 ## Xác minh SSH3 nhiều stream
 
 ```bash
@@ -101,6 +120,8 @@ bash -n run_w3.sh scripts/*.sh
 artifacts/results/experiment_order.csv   # thứ tự trial đã random
 artifacts/results/samples.csv            # từng ký tự, có char_index/char_total
 artifacts/results/trials.csv             # thống kê từng connection
+artifacts/results/setup_samples.csv       # từng phép đo mở phiên mới
+artifacts/results/setup_summary.csv       # thống kê session setup theo connection
 artifacts/results/trial_analysis.csv     # thống kê từng connection sau analyze
 artifacts/results/summary.csv            # mean/median/P90/P95 gộp mẫu thành công
 artifacts/results/connection_audit.csv   # bằng chứng TCP/UDP connection
