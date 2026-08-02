@@ -23,6 +23,11 @@ Giữ `.venv`; `run_w3.sh` đang dùng `.venv/bin/python`. Sửa `SERVER_USER`, 
 
 Runner mặc định nghỉ `INTER_TRIAL_DELAY_SECONDS=3.00` sau khi đóng mỗi connection và trước trial kế tiếp. Cooldown này áp dụng cho cả SSH, SSH3 và Mosh.
 
+Với `RUN_SESSION_SETUP=1`, cuối lượt chạy runner tự mở thêm `SETUP_TRIALS`
+phiên độc lập cho mỗi giao thức và lưu `setup_samples.csv` cùng
+`setup_summary.csv`. Đặt `RUN_SESSION_SETUP=0` chỉ khi chủ động muốn bỏ phép đo
+setup.
+
 ```bash
 bash run_w3.sh config.env
 ```
@@ -75,9 +80,11 @@ Mỗi lệnh tạo một hình PNG và PDF, với SSH, SSH3 và Mosh chung một
 
 ## Thống kê và vẽ thời gian session setup
 
-Phép đo này chạy độc lập với thí nghiệm Vim/Nano và dùng cùng định nghĩa với
+Phép đo này độc lập với thí nghiệm Vim/Nano và dùng cùng định nghĩa với
 `test-w1`: từ sau khi spawn client đến khi nhận shell prompt đầu tiên. Mỗi mẫu
 mở một phiên mới; không dùng ControlMaster, không mở tải nền và không mở editor.
+`run_w3.sh` tự chạy bước này khi `RUN_SESSION_SETUP=1`; lệnh dưới đây dùng khi
+cần chạy lại riêng phần setup mà không chạy lại 180 trial tương tác.
 
 ```bash
 .venv/bin/python tools/measure_session_setup.py config.env

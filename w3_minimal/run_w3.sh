@@ -62,4 +62,9 @@ if [[ ",$PROTOCOLS," == *,ssh3,* ]]; then
   "${PYTHON_BIN:-python}" tools/verify_ssh3_mux.py "${RESULT_DIR:-artifacts/results}"
 fi
 
-echo "Done. See ${RESULT_DIR:-artifacts/results}/samples.csv and ${RESULT_DIR:-artifacts/results}/summary.csv"
+# Đo và lưu riêng thời gian mở phiên mới sau khi hoàn tất ma trận tương tác.
+if [[ "${RUN_SESSION_SETUP:-1}" == "1" ]]; then
+  "${PYTHON_BIN:-python}" tools/measure_session_setup.py "$CONFIG"
+fi
+
+echo "Done. See ${RESULT_DIR:-artifacts/results}/summary.csv and ${RESULT_DIR:-artifacts/results}/setup_summary.csv"
