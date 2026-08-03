@@ -13,9 +13,10 @@
 #   ./set_network.sh <iface> {low|medium|high|clear|show}
 #
 # Scenarios (OWD = one-way delay, RTT = 2 × OWD):
-#   low    : BW=100Mbps, OWD=10ms,  jitter=0ms,  loss=0%   → RTT ≈ 20ms
-#   medium : BW=40Mbps,  OWD=50ms,  jitter=4ms,  loss=1.5% → RTT ≈ 100ms ± 8ms
-#   high   : BW=10Mbps,  OWD=100ms, jitter=16ms, loss=3%   → RTT ≈ 200ms ± 32ms
+#   Cố định cả ba mức: BW=40Mbps, OWD=20ms → RTT ≈ 40ms.
+#   low    : jitter=0ms,  loss=0%
+#   medium : jitter=4ms,  loss=1.5%
+#   high   : jitter=16ms, loss=3%
 
 set -euo pipefail
 
@@ -34,29 +35,29 @@ show_tc() {
 case "$SCENARIO" in
     low)
         echo "[INFO] Apply LOW dynamicity on $IFACE"
-        echo "       BW=100Mbps, OWD=10ms, jitter=0ms, loss=0%"
-        echo "       RTT (nếu áp cả 2 đầu) = 2 × 10ms = ~20ms"
+        echo "       BW=40Mbps, OWD=20ms, jitter=0ms, loss=0%"
+        echo "       RTT (nếu áp cả 2 đầu) = 2 × 20ms = ~40ms"
         clear_tc
-        sudo tc qdisc add dev "$IFACE" root handle 1: tbf rate 100mbit burst 32kbit latency 400ms
-        sudo tc qdisc add dev "$IFACE" parent 1:1 handle 10: netem delay 10ms loss 0%
+        sudo tc qdisc add dev "$IFACE" root handle 1: tbf rate 40mbit burst 32kbit latency 400ms
+        sudo tc qdisc add dev "$IFACE" parent 1:1 handle 10: netem delay 20ms loss 0%
         show_tc
         ;;
     medium)
         echo "[INFO] Apply MEDIUM dynamicity on $IFACE"
-        echo "       BW=40Mbps, OWD=50ms, jitter=4ms, loss=1.5%"
-        echo "       RTT (nếu áp cả 2 đầu) = 2 × 50ms = ~100ms ± 8ms"
+        echo "       BW=40Mbps, OWD=20ms, jitter=4ms, loss=1.5%"
+        echo "       RTT trung tâm (nếu áp cả 2 đầu) = 2 × 20ms = ~40ms; jitter cấu hình 4ms mỗi chiều"
         clear_tc
         sudo tc qdisc add dev "$IFACE" root handle 1: tbf rate 40mbit burst 32kbit latency 400ms
-        sudo tc qdisc add dev "$IFACE" parent 1:1 handle 10: netem delay 50ms 4ms distribution normal loss 1.5%
+        sudo tc qdisc add dev "$IFACE" parent 1:1 handle 10: netem delay 20ms 4ms distribution normal loss 1.5%
         show_tc
         ;;
     high)
         echo "[INFO] Apply HIGH dynamicity on $IFACE"
-        echo "       BW=10Mbps, OWD=100ms, jitter=16ms, loss=3%"
-        echo "       RTT (nếu áp cả 2 đầu) = 2 × 100ms = ~200ms ± 32ms"
+        echo "       BW=40Mbps, OWD=20ms, jitter=16ms, loss=3%"
+        echo "       RTT trung tâm (nếu áp cả 2 đầu) = 2 × 20ms = ~40ms; jitter cấu hình 16ms mỗi chiều"
         clear_tc
-        sudo tc qdisc add dev "$IFACE" root handle 1: tbf rate 10mbit burst 32kbit latency 400ms
-        sudo tc qdisc add dev "$IFACE" parent 1:1 handle 10: netem delay 100ms 16ms distribution normal loss 3%
+        sudo tc qdisc add dev "$IFACE" root handle 1: tbf rate 40mbit burst 32kbit latency 400ms
+        sudo tc qdisc add dev "$IFACE" parent 1:1 handle 10: netem delay 20ms 16ms distribution normal loss 3%
         show_tc
         ;;
     clear|reset)
@@ -74,9 +75,9 @@ case "$SCENARIO" in
         echo "QUAN TRỌNG: Chạy script này trên CẢ client VÀ server để RTT = 2 × OWD"
         echo
         echo "Examples:"
-        echo "  [client]  $0 eth0 high   # thêm OWD 100ms outgoing"
-        echo "  [server]  $0 eth0 high   # thêm OWD 100ms outgoing (= return path)"
-        echo "  → RTT đo được sẽ ≈ 200ms ± 32ms"
+        echo "  [client]  $0 eth0 high   # thêm OWD 20ms outgoing"
+        echo "  [server]  $0 eth0 high   # thêm OWD 20ms outgoing (= return path)"
+        echo "  → RTT trung tâm đo được sẽ ≈ 40ms; high có jitter/loss lớn hơn"
         echo
         echo "  $0 eth0 clear   # xóa hết"
         exit 1
