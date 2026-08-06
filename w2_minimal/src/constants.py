@@ -1,10 +1,11 @@
 PROTOCOLS = ("ssh", "ssh3", "mosh")
-WORKLOADS = ("top", "tail", "ping")
+WORKLOADS = ("find_usr", "docker_logs", "journalctl", "large_file")
 
 DISPLAY_WORKLOAD = {
-    "top": "top-like monitor",
-    "tail": "tail -f",
-    "ping": "ping -D",
+    "find_usr": "find /usr",
+    "docker_logs": "docker logs",
+    "journalctl": "journalctl",
+    "large_file": "cat large_file.txt",
 }
 
 SAMPLE_FIELDS = (

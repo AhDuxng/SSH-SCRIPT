@@ -1,45 +1,40 @@
-# W2 minimal — Continuous monitoring
+# W2 minimal — Large-output responsiveness
 
-Benchmark độ trễ hiển thị của các sự kiện liên tục qua SSH, SSH3 và Mosh. Thiết
-kế lấy mẫu được rút gọn từ `test-w2`: mỗi connection thu nhiều marker có timestamp
-phía server thay vì coi toàn bộ một lệnh output lớn là một mẫu.
+W2 giữ nguyên bốn workload:
 
-## Workload
+```text
+find /usr
+docker logs w2-log-source
+journalctl --no-pager
+cat /tmp/w2_large_file.txt
+```
 
-- `top`: màn hình giám sát được làm mới định kỳ; Mosh dùng marker dạng dòng như
-  `test-w2` để tránh raw PTY redraw làm hỏng timestamp.
-- `tail`: writer thêm dòng timestamp vào file tạm và client chạy `tail -f`.
-- `ping`: lấy timestamp `ping -D` ở đầu từng dòng reply.
+Phương pháp lấy mẫu tham khảo `test-w2`, nhưng không thay workload: mỗi
+connection chạy liên tục đúng lệnh output tương ứng, đồng thời phía server xen
+marker `sequence + timestamp` theo chu kỳ. Client đo thời gian marker được nhìn
+thấy dưới tải output đang chạy.
 
 ## Một trial
 
-1. Mở một connection mới và đo session setup đến prompt đầu tiên.
-2. Dùng nhiều round-trip probe để ước lượng chênh lệch clock Pi1–Pi2.
-3. Khởi động workload liên tục và bỏ `WARMUP_SAMPLES` marker đầu.
-4. Ghi đúng `SAMPLES_PER_TRIAL` marker tiếp theo vào `samples.csv`.
-5. Tính `latency = client_receive - server_event - clock_offset`.
-6. Đóng connection; nghỉ rồi chuyển sang tổ hợp kế tiếp.
+1. Mở connection mới và đo session setup đến prompt đầu tiên.
+2. Ước lượng chênh lệch clock Pi1–Pi2 bằng nhiều round-trip probe.
+3. Chạy workload một lần với output bỏ đi để xác nhận exit code bằng 0.
+4. Lặp workload liên tục và phát marker timestamp mỗi 100 ms trên cùng terminal.
+5. Bỏ `WARMUP_SAMPLES` marker đầu rồi ghi đúng `SAMPLES_PER_TRIAL` mẫu.
+6. Tính `latency = client_receive - server_event - clock_offset`.
 
-Regex marker cho phép ANSI, newline và backspace xen giữa từng ký tự để chịu được
-cách Mosh cập nhật trạng thái màn hình. Sequence phải tăng nên cùng một marker
-không được tính hai lần.
+Marker cho phép ANSI/redraw xen giữa từng ký tự và sequence phải tăng. Điều này
+giúp đo Mosh theo dữ liệu thực sự xuất hiện trên màn hình, thay vì giả định Mosh
+là một byte stream giống SSH/SSH3.
 
-Nếu trial dừng sớm, mỗi vị trí mẫu còn thiếu vẫn có một hàng timeout/failure. Do
-đó success rate luôn dùng đúng mẫu số cấu hình, không chỉ đếm mẫu thành công.
+Đây là **event-display latency dưới tải output**, không phải throughput và cũng
+không phải thời gian hoàn thành một lần chạy lệnh. Nếu trial timeout, các vị trí
+mẫu còn thiếu vẫn được ghi vào CSV để success rate có mẫu số đúng.
 
-## Cài và chạy
+## Chuẩn bị target
 
-Trên client:
-
-```bash
-cd ~/SSH-SCRIPT/w2_minimal
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
-bash run_w2.sh config.env 2>&1 | tee artifacts/full_run.log
-```
-
-Target cần `bash`, GNU `date`, `ping`, `tail`, `sleep` và endpoint của ba giao
-thức. Docker, journalctl và file 16 MiB không còn thuộc W2 này.
+Target cần `find`, `docker`, `journalctl`, GNU `date`, `sleep`, `yes`, `head`,
+`wc` và một container tên `w2-log-source`. `run_w2.sh` tự tạo file text 16 MiB.
 
 ## Kết quả
 
@@ -56,5 +51,4 @@ artifacts/figures/*.png
 artifacts/figures/*.pdf
 ```
 
-`clock_offsets.csv` là dẫn chứng cho số probe hợp lệ, offset và median RTT của
-từng connection. Mỗi hình latency ghi cả success rate trên từng cột.
+Mỗi hình latency có đủ SSH, SSH3, Mosh và ghi success rate trên từng cột.

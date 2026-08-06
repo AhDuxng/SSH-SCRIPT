@@ -32,6 +32,34 @@ if [[ ! -x "${PYTHON_BIN:-.venv/bin/python}" ]]; then
   exit 2
 fi
 
+SSH_PORT_ARGS=()
+SCP_PORT_ARGS=()
+SSH_OPTION_ARGS=()
+if [[ -n "${SERVER_PORT:-}" ]]; then
+  SSH_PORT_ARGS=(-p "$SERVER_PORT")
+  SCP_PORT_ARGS=(-P "$SERVER_PORT")
+fi
+if [[ "${SSH_STRICT_HOST_KEY_CHECKING:-0}" == "1" ]]; then
+  SSH_OPTION_ARGS=(-o StrictHostKeyChecking=yes)
+else
+  SSH_OPTION_ARGS=(-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null)
+fi
+if [[ "${SSH_BATCH_MODE:-1}" == "1" ]]; then
+  SSH_OPTION_ARGS+=(-o BatchMode=yes)
+fi
+if [[ -n "${SSH_IDENTITY_FILE:-}" ]]; then
+  SSH_OPTION_ARGS+=(-i "${SSH_IDENTITY_FILE/#\~/$HOME}")
+fi
+
+if [[ "${PREPARE_LARGE_FILE:-1}" == "1" ]]; then
+  scp "${SSH_OPTION_ARGS[@]}" ${SCP_PORT_ARGS[@]+"${SCP_PORT_ARGS[@]}"} \
+    scripts/prepare_large_file.sh \
+    "${SERVER_USER}@${SERVER_HOST}:${REMOTE_PREPARE_SCRIPT}"
+  ssh "${SSH_OPTION_ARGS[@]}" ${SSH_PORT_ARGS[@]+"${SSH_PORT_ARGS[@]}"} \
+    "${SERVER_USER}@${SERVER_HOST}" \
+    "bash '${REMOTE_PREPARE_SCRIPT}' '${LARGE_FILE_PATH}' '${LARGE_FILE_SIZE_BYTES}'"
+fi
+
 "${PYTHON_BIN:-.venv/bin/python}" src/run_w2.py "$CONFIG"
 "${PYTHON_BIN:-.venv/bin/python}" tools/analyze_w2.py "${RESULT_DIR:-artifacts/results}"
 

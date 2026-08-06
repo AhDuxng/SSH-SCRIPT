@@ -12,6 +12,7 @@ from constants import (
     TRIAL_FIELDS, WORKLOADS,
 )
 from trial import run_trial
+from workloads import workload_commands
 
 
 # Tạo randomized complete blocks cho mọi tổ hợp protocol × workload.
@@ -69,6 +70,7 @@ def main():
     seed = int(cfg.get("RANDOM_SEED", "20260724"))
     result_dir = Path(cfg.get("RESULT_DIR", "artifacts/results"))
     result_dir.mkdir(parents=True, exist_ok=True)
+    commands = workload_commands(cfg)
     schedule = build_schedule(protocols, workloads, trials, seed, run_id, network_profile)
 
     write_csv(result_dir / "experiment_order.csv", ORDER_FIELDS, schedule)
@@ -79,6 +81,7 @@ def main():
         "network_profile": network_profile,
         "protocols": protocols,
         "workloads": workloads,
+        "commands": {name: commands[name] for name in workloads},
         "ordering": "randomized_complete_blocks",
         "random_seed": seed,
         "trials_per_combination": trials,
@@ -98,7 +101,8 @@ def main():
             f"block={trial['block_id']:02d}/{trials:02d} trial={trial['trial_id']} "
             f"samples={samples_per_trial}", flush=True,
         )
-        trial_rows, setup, clock, trial_audit = run_trial(cfg, trial, samples_per_trial)
+        trial_cfg = {**cfg, "_WORKLOAD_COMMAND": commands[trial["workload"]]}
+        trial_rows, setup, clock, trial_audit = run_trial(trial_cfg, trial, samples_per_trial)
         samples.extend(trial_rows)
         setups.append(setup)
         clocks.append(clock)

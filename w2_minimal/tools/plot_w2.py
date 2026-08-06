@@ -16,8 +16,13 @@ import numpy as np
 
 
 PROTOCOLS = ("ssh", "ssh3", "mosh")
-WORKLOADS = ("top", "tail", "ping")
-WORKLOAD_LABELS = {"top": "Top-like monitor", "tail": "Tail -f", "ping": "Ping"}
+WORKLOADS = ("find_usr", "docker_logs", "journalctl", "large_file")
+WORKLOAD_LABELS = {
+    "find_usr": "find /usr",
+    "docker_logs": "docker logs",
+    "journalctl": "journalctl",
+    "large_file": "cat large_file.txt",
+}
 COLORS = {"ssh": "#1696D2", "ssh3": "#E69F00", "mosh": "#009E73"}
 HATCHES = {"ssh": "///", "ssh3": "--", "mosh": "\\\\\\"}
 LABELS = {"ssh": "SSH", "ssh3": "SSH3", "mosh": "Mosh"}
