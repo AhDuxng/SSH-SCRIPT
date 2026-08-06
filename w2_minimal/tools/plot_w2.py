@@ -16,25 +16,15 @@ import numpy as np
 
 
 PROTOCOLS = ("ssh", "ssh3", "mosh")
-WORKLOADS = ("find_usr", "docker_logs", "journalctl", "large_file")
-WORKLOAD_LABELS = {
-    "find_usr": "find /usr",
-    "docker_logs": "docker logs",
-    "journalctl": "journalctl",
-    "large_file": "cat large_file.txt",
-}
+WORKLOADS = ("top", "tail", "ping")
+WORKLOAD_LABELS = {"top": "Top-like monitor", "tail": "Tail -f", "ping": "Ping"}
 COLORS = {"ssh": "#1696D2", "ssh3": "#E69F00", "mosh": "#009E73"}
 HATCHES = {"ssh": "///", "ssh3": "--", "mosh": "\\\\\\"}
 LABELS = {"ssh": "SSH", "ssh3": "SSH3", "mosh": "Mosh"}
-METRICS = {
-    "mean": "mean",
-    "median": "median",
-    "p90": "p90",
-    "p95": "p95",
-}
+METRICS = {"mean": "mean", "median": "median", "p90": "p90", "p95": "p95"}
 
 
-# Đọc một bảng summary CSV phục vụ vẽ hình.
+# Đọc một bảng CSV phục vụ vẽ hình.
 def load_rows(path):
     with path.open(newline="", encoding="utf-8") as handle:
         return list(csv.DictReader(handle))
@@ -46,7 +36,7 @@ def number(row, field):
     return float(value) if value else 0.0
 
 
-# Lưu đồng thời bản PNG và PDF của một figure.
+# Lưu đồng thời PNG và PDF.
 def save_figure(fig, output_dir, stem):
     output_dir.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_dir / f"{stem}.png", dpi=180, bbox_inches="tight")
@@ -54,48 +44,47 @@ def save_figure(fig, output_dir, stem):
     plt.close(fig)
 
 
-# Ghi metric và success rate phía trên từng cột.
-def annotate(ax, bars, rows, values, decimals=2):
+# Ghi metric và tỷ lệ nhận đủ mẫu phía trên cột.
+def annotate(ax, bars, rows, values):
     top = max(values) if values else 1.0
     for bar, row, value in zip(bars, rows, values):
         rate = row.get("success_rate_pct", "0") if row else "0"
-        shown = f"{value:.{decimals}f}" if value else "N/A"
+        shown = f"{value:.1f}" if row and row.get("mean_ms", "") else "N/A"
         ax.text(
             bar.get_x() + bar.get_width() / 2,
-            value + max(top * 0.015, 0.001),
+            value + max(top * 0.015, 0.01),
             f"{shown}\n({rate}%)", ha="center", va="bottom", fontsize=7,
         )
 
 
-# Vẽ grouped bar cho bốn workload và ba giao thức.
-def plot_workloads(rows, output_dir, field, title, ylabel, stem, scale=1.0, decimals=2):
+# Vẽ event-display latency của ba workload trên một hình.
+def plot_latency(rows, output_dir, field, metric):
     lookup = {(row["protocol"], row["workload"]): row for row in rows}
     x = np.arange(len(WORKLOADS))
     width = 0.24
-    fig, ax = plt.subplots(figsize=(11, 5.8))
-    all_values = []
-    plotted = []
+    fig, ax = plt.subplots(figsize=(10, 5.8))
+    plotted, all_values = [], []
     for index, protocol in enumerate(PROTOCOLS):
         selected = [lookup.get((protocol, workload)) for workload in WORKLOADS]
-        values = [number(row, field) / scale for row in selected]
+        values = [number(row, field) for row in selected]
         bars = ax.bar(
             x + (index - 1) * width, values, width,
             label=LABELS[protocol], color=COLORS[protocol],
             edgecolor="black", linewidth=0.6, hatch=HATCHES[protocol],
         )
-        all_values.extend(values)
         plotted.append((bars, selected, values))
-    ax.set_title(title)
-    ax.set_ylabel(ylabel)
+        all_values.extend(values)
+    ax.set_title(f"W2 continuous event display latency — {metric.upper()}")
+    ax.set_ylabel("Latency (ms)")
     ax.set_xticks(x, [WORKLOAD_LABELS[name] for name in WORKLOADS])
     ax.grid(axis="y", alpha=0.25)
     ax.legend()
     ceiling = max(all_values) if all_values else 1.0
-    ax.set_ylim(0, max(0.01, ceiling * 1.25))
+    ax.set_ylim(0, max(1.0, ceiling * 1.25))
     for bars, selected, values in plotted:
-        annotate(ax, bars, selected, values, decimals=decimals)
+        annotate(ax, bars, selected, values)
     fig.tight_layout()
-    save_figure(fig, output_dir, stem)
+    save_figure(fig, output_dir, f"figure_1_event_latency_{metric}")
 
 
 # Vẽ session setup theo giao thức.
@@ -113,43 +102,30 @@ def plot_setup(rows, output_dir, field, metric):
     ax.set_title(f"W2 session setup — {metric.upper()}")
     ax.set_ylabel("Latency (ms)")
     ax.grid(axis="y", alpha=0.25)
-    ceiling = max(values) if values else 1.0
-    ax.set_ylim(0, max(1.0, ceiling * 1.20))
-    annotate(ax, bars, selected, values, decimals=1)
+    ax.set_ylim(0, max(1.0, max(values or [1.0]) * 1.20))
+    annotate(ax, bars, selected, values)
     fig.tight_layout()
-    save_figure(fig, output_dir, f"figure_4_session_setup_{metric}")
+    save_figure(fig, output_dir, f"figure_2_session_setup_{metric}")
 
 
-# Đọc tham số, nạp summary và sinh bốn nhóm figure.
+# Đọc tham số và sinh hai nhóm figure.
 def main():
-    parser = argparse.ArgumentParser(description="Plot W2 large-output benchmark")
+    parser = argparse.ArgumentParser(description="Plot W2 continuous-event benchmark")
     parser.add_argument("result_dir", type=Path)
     parser.add_argument("output_dir", type=Path)
     parser.add_argument("--metric", choices=METRICS, default="median")
     args = parser.parse_args()
     metric = METRICS[args.metric]
-    rows = load_rows(args.result_dir / "summary.csv")
-    setup_rows = load_rows(args.result_dir / "setup_summary.csv")
-
-    plot_workloads(
-        rows, args.output_dir, f"{metric}_ms",
-        f"W2 output completion latency — {metric.upper()}", "Latency (ms)",
-        f"figure_1_latency_{metric}", decimals=1,
+    plot_latency(
+        load_rows(args.result_dir / "summary.csv"), args.output_dir,
+        f"{metric}_ms", metric,
     )
-    plot_workloads(
-        rows, args.output_dir, f"throughput_mib_s_{metric}",
-        f"W2 display throughput — {metric.upper()}", "Throughput (MiB/s)",
-        f"figure_2_throughput_{metric}", decimals=2,
+    plot_setup(
+        load_rows(args.result_dir / "setup_summary.csv"), args.output_dir,
+        f"{metric}_ms", metric,
     )
-    plot_workloads(
-        rows, args.output_dir, f"output_bytes_{metric}",
-        f"W2 received output — {metric.upper()}", "Output (MiB)",
-        f"figure_3_output_size_{metric}", scale=1024.0 * 1024.0, decimals=2,
-    )
-    plot_setup(setup_rows, args.output_dir, f"{metric}_ms", metric)
     print(f"Saved W2 {metric} figures to {args.output_dir}")
 
 
 if __name__ == "__main__":
     main()
-

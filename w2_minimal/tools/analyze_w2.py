@@ -77,11 +77,10 @@ def status_stats(group, values):
         "timeout_count": counts["timeout"],
         "eof_count": counts["eof"],
         "failure_count": counts["failure"],
-        "command_error_count": counts["command_error"],
     }
 
 
-# Tổng hợp latency, dung lượng và throughput theo protocol × workload.
+# Tổng hợp event-display latency theo protocol × workload.
 def summarize_samples(rows):
     groups = defaultdict(list)
     for row in rows:
@@ -90,21 +89,12 @@ def summarize_samples(rows):
     for (protocol, workload), group in sorted(groups.items()):
         successful = [row for row in group if row["status"] == "success"]
         latencies = [float(row["latency_ms"]) for row in successful if row["latency_ms"]]
-        byte_values = [float(row["output_bytes"]) for row in successful if row["output_bytes"]]
-        line_values = [float(row["output_lines"]) for row in successful if row["output_lines"]]
-        throughput = [
-            float(row["throughput_mib_s"])
-            for row in successful if row["throughput_mib_s"]
-        ]
         output.append({
             "protocol": protocol,
             "workload": workload,
             "connections": len({row["trial_id"] for row in group}),
             **status_stats(group, latencies),
             **latency_stats(latencies),
-            **numeric_stats(byte_values, "output_bytes"),
-            **numeric_stats(line_values, "output_lines"),
-            **numeric_stats(throughput, "throughput_mib_s"),
         })
     return output
 
@@ -146,8 +136,7 @@ def main():
     samples = load_csv(
         result_dir / "samples.csv",
         {
-            "trial_id", "protocol", "workload", "status", "latency_ms",
-            "output_bytes", "output_lines", "throughput_mib_s",
+            "trial_id", "protocol", "workload", "sample_index", "status", "latency_ms",
         },
     )
     setups = load_csv(

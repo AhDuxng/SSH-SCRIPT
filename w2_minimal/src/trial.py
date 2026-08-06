@@ -2,111 +2,147 @@ import time
 
 import pexpect
 
+from clock_sync import estimate_clock_offset
 from config import bool_cfg
+from continuous_workloads import measure_workload
 from protocol_runner import ProtocolRunner
-from terminal_io import drain_pending_output, wait_for_marker
-from workloads import wrap_command
 
 
-# Tạo dòng setup mặc định trước khi thử mở session.
+# Tạo bản ghi session setup mặc định trước khi mở connection.
 def setup_row(trial):
-    row = {key: value for key, value in trial.items() if key != "command"}
     return {
-        **row,
+        **trial,
         "status": "trial_unavailable",
         "session_setup_ms": "",
         "note": "",
     }
 
 
-# Tạo dòng kết quả cho một workload output lớn.
-def sample_row(
-    trial, status, latency_ms="", output_bytes="", output_lines="",
-    throughput_mib_s="", exit_code="", note="",
-):
+# Tạo bản ghi clock audit mặc định cho một connection.
+def clock_row(trial, requested):
     return {
         **trial,
+        "status": "unavailable",
+        "requested_probes": requested,
+        "valid_probes": 0,
+        "clock_offset_ns": "",
+        "clock_offset_ms": "",
+        "median_rtt_ms": "",
+        "method": "",
+        "note": "",
+    }
+
+
+# Tạo một hàng mẫu sự kiện thành công hoặc thất bại.
+def sample_row(trial, index, status, sequence="", latency="", remote_ns="", recv_ns="", note=""):
+    return {
+        **trial,
+        "sample_index": index,
+        "remote_sequence": sequence,
         "status": status,
-        "latency_ms": latency_ms,
-        "output_bytes": output_bytes,
-        "output_lines": output_lines,
-        "throughput_mib_s": throughput_mib_s,
-        "exit_code": exit_code,
+        "latency_ms": latency,
+        "remote_event_ns": remote_ns,
+        "recv_local_ns": recv_ns,
         "note": note,
     }
 
 
-# Chuyển trạng thái sample lúc mở session thành trạng thái setup cụ thể.
-def setup_failure_status(sample_status):
-    if sample_status == "timeout":
+# Tạo audit tổng quát cho toàn bộ connection/trial.
+def trial_row(trial, status, expected, successful, stage="", note=""):
+    return {
+        **trial,
+        "status": status,
+        "expected_samples": expected,
+        "successful_samples": successful,
+        "failure_stage": stage,
+        "note": note,
+    }
+
+
+# Chuyển exception sang trạng thái ổn định trong CSV.
+def failure_status(exc):
+    if isinstance(exc, pexpect.TIMEOUT):
         return "timeout"
-    if sample_status == "eof":
+    if isinstance(exc, pexpect.EOF):
         return "eof"
     return "failure"
 
 
-# Chạy một workload duy nhất trên một session độc lập và nhận hết output.
-def run_trial(cfg, trial):
-    prompt_marker = f"__W2_{trial['trial_order']:03d}_{trial['trial_id']}_PROMPT__# "
-    done_marker = f"__W2_DONE_{trial['trial_order']:03d}_{time.time_ns()}__"
-    runner = ProtocolRunner(cfg, trial["protocol"], prompt_marker)
+# Chạy một connection độc lập và thu nhiều mẫu sự kiện như test-w2.
+def run_trial(cfg, trial, sample_count):
+    prompt = f"__W2_{trial['trial_order']:03d}_{trial['trial_id']}_PROMPT__# "
+    runner = ProtocolRunner(cfg, trial["protocol"], prompt)
     setup = setup_row(trial)
+    requested_probes = int(cfg.get("CLOCK_OFFSET_PROBES", "5"))
+    clock = clock_row(trial, requested_probes)
+    rows = []
     child = None
+    stage = "session_setup"
+
     try:
         child, setup_ms = runner.open()
         setup.update(status="success", session_setup_ms=f"{setup_ms:.3f}")
         if bool_cfg(cfg, "LIVE_PROGRESS", "1"):
-            print(
-                f"[READY] trial={trial['trial_id']} session_setup_ms={setup_ms:.3f}",
-                flush=True,
-            )
+            print(f"[READY] trial={trial['trial_id']} session_setup_ms={setup_ms:.3f}", flush=True)
 
-        warmup = float(cfg.get("WARMUP_SECONDS", "2"))
-        if warmup > 0:
-            time.sleep(warmup)
-        max_lines = int(cfg.get("MAX_OUTPUT_LINES", "0"))
-        wrapped = wrap_command(trial["command"], done_marker, max_lines)
-        drain_pending_output(child)
-        started = time.perf_counter_ns()
-        child.sendline(wrapped)
-        output_bytes, output_lines, exit_code = wait_for_marker(
-            child,
-            done_marker,
-            float(cfg.get("SAMPLE_TIMEOUT", "180")),
-            float(cfg.get("COMMAND_IDLE_TIMEOUT", "20")),
-            int(cfg.get("MAX_READ_BYTES", "65536")),
+        stage = "clock_sync"
+        sync = estimate_clock_offset(
+            child, runner, requested_probes,
+            int(cfg.get("CLOCK_OFFSET_MIN_PROBES", "3")),
+            float(cfg.get("EVENT_TIMEOUT", "20")),
         )
-        latency_ms = (time.perf_counter_ns() - started) / 1_000_000.0
-        throughput = (
-            output_bytes / (1024.0 * 1024.0) / (latency_ms / 1000.0)
-            if latency_ms > 0 else 0.0
+        clock.update(
+            status="success",
+            valid_probes=sync["valid_probes"],
+            clock_offset_ns=sync["clock_offset_ns"],
+            clock_offset_ms=f"{sync['clock_offset_ns'] / 1_000_000.0:.6f}",
+            median_rtt_ms=f"{sync['median_rtt_ms']:.6f}",
+            method=sync["method"],
         )
-        status = "success" if exit_code == 0 else "command_error"
-        row = sample_row(
-            trial, status, f"{latency_ms:.3f}", output_bytes, output_lines,
-            f"{throughput:.6f}", exit_code,
-            "" if exit_code == 0 else f"remote command exited with {exit_code}",
+        trial_cfg = {**cfg, "_CLOCK_OFFSET_NS": str(sync["clock_offset_ns"])}
+
+        def record(index, sequence, latency_ms, remote_ns, recv_ns):
+            maximum = float(cfg.get("MAX_VALID_LATENCY_MS", "60000"))
+            minimum = float(cfg.get("MIN_VALID_LATENCY_MS", "-50"))
+            if not minimum <= latency_ms <= maximum:
+                raise ValueError(
+                    f"latency {latency_ms:.3f} outside [{minimum}, {maximum}] ms"
+                )
+            rows.append(sample_row(
+                trial, index, "success", sequence, f"{max(0.0, latency_ms):.6f}",
+                remote_ns, recv_ns,
+            ))
+            if bool_cfg(cfg, "LIVE_PROGRESS", "1"):
+                print(
+                    f"[LIVE] trial={trial['trial_id']} sample={index:03d}/{sample_count:03d} "
+                    f"remote_seq={sequence} status=success latency_ms={max(0.0, latency_ms):.3f}",
+                    flush=True,
+                )
+
+        stage = "workload"
+        measure_workload(
+            child, runner, trial["protocol"], trial["workload"], trial_cfg, record
         )
-        if bool_cfg(cfg, "LIVE_PROGRESS", "1"):
-            print(
-                f"[LIVE] trial={trial['trial_id']} status={status} "
-                f"latency_ms={latency_ms:.3f} bytes={output_bytes} "
-                f"throughput_mib_s={throughput:.3f}",
-                flush=True,
-            )
-        return row, setup
-    except pexpect.TIMEOUT as exc:
-        row = sample_row(trial, "timeout", note=str(exc))
-    except pexpect.EOF as exc:
-        row = sample_row(trial, "eof", note=str(exc))
+        return rows, setup, clock, trial_row(trial, "success", sample_count, len(rows))
     except Exception as exc:
-        row = sample_row(trial, "failure", note=repr(exc))
+        status = failure_status(exc)
+        note = repr(exc)[:1000]
+        if setup["status"] != "success":
+            setup.update(status=status, note=note)
+            clock.update(status=status, note="clock sync not attempted because session setup failed")
+        elif clock["status"] != "success":
+            clock.update(status=status, note=note)
+        successful = len(rows)
+        for index in range(len(rows) + 1, sample_count + 1):
+            rows.append(sample_row(trial, index, status, note=note))
+        print(
+            f"[FAIL] trial={trial['trial_id']} collected={len([r for r in rows if r['status'] == 'success'])}"
+            f"/{sample_count} status={status} note={note}", flush=True,
+        )
+        return rows, setup, clock, trial_row(
+            trial, "partial" if successful else status,
+            sample_count, successful, stage, note,
+        )
     finally:
         if child is not None:
             runner.close(child)
-
-    if setup["status"] != "success":
-        setup["status"] = setup_failure_status(row["status"])
-        setup["note"] = row["note"]
-    print(f"[FAIL] trial={trial['trial_id']} status={row['status']} note={row['note']}", flush=True)
-    return row, setup

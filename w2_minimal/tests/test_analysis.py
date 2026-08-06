@@ -1,3 +1,5 @@
+import re
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -8,81 +10,110 @@ sys.path.insert(0, str(PROJECT_DIR / "src"))
 sys.path.insert(0, str(PROJECT_DIR / "tools"))
 
 from analyze_w2 import summarize_samples
+import pexpect
+
+from clock_sync import estimate_clock_offset
+from continuous_workloads import SEQUENCE, TIMESTAMP_19, measure_ping, measure_tail, measure_top
 from run_w2 import build_schedule
-from terminal_io import wait_for_marker
-from workloads import wrap_command
+from terminal_io import ECHO_GAP, clean_digits, gapped_literal
 
 
-# Tạo một dòng sample tối giản cho analyzer.
-def make_sample(protocol, workload, latency, size, throughput):
+# Tạo một sample event tối giản cho analyzer.
+def make_sample(protocol, workload, index, status, latency=""):
     return {
         "trial_id": f"{protocol}_{workload}_r01",
         "protocol": protocol,
         "workload": workload,
-        "status": "success",
+        "sample_index": str(index),
+        "status": status,
         "latency_ms": str(latency),
-        "output_bytes": str(size),
-        "output_lines": "10",
-        "throughput_mib_s": str(throughput),
     }
 
 
-class FakeChild:
-    # Khởi tạo nguồn chunk giả cho terminal reader.
-    def __init__(self, chunks):
-        self.chunks = list(chunks)
-
-    # Trả lần lượt từng chunk giống API pexpect.
-    def read_nonblocking(self, size, timeout):
-        del size, timeout
-        return self.chunks.pop(0)
-
-
 class AnalysisTests(unittest.TestCase):
-    # Mỗi block phải chứa đầy đủ mọi tổ hợp protocol × workload.
+    # Mỗi block chứa đầy đủ mọi tổ hợp protocol × workload.
     def test_schedule_uses_complete_blocks(self):
-        protocols = ["ssh", "ssh3"]
-        workloads = ["find_usr", "large_file"]
-        commands = {"find_usr": "find /usr", "large_file": "cat /tmp/file"}
-        rows = build_schedule(protocols, workloads, commands, 2, 42, "test", "low")
-        self.assertEqual(len(rows), 8)
-        first = {(row["protocol"], row["workload"]) for row in rows[:4]}
-        self.assertEqual(len(first), 4)
+        rows = build_schedule(
+            ["ssh", "ssh3"], ["top", "tail", "ping"], 2, 42, "test", "low"
+        )
+        self.assertEqual(len(rows), 12)
+        first = {(row["protocol"], row["workload"]) for row in rows[:6]}
+        self.assertEqual(len(first), 6)
 
-    # Summary phải có cả latency, output bytes và throughput.
-    def test_summary_reports_large_output_metrics(self):
+    # Summary chỉ tính latency thành công nhưng tỷ lệ dùng toàn bộ mẫu kỳ vọng.
+    def test_summary_reports_event_latency_and_completion(self):
         rows = [
-            make_sample("ssh", "large_file", 100, 1000, 1.0),
-            make_sample("ssh", "large_file", 200, 3000, 2.0),
+            make_sample("ssh", "tail", 1, "success", 100),
+            make_sample("ssh", "tail", 2, "success", 200),
+            make_sample("ssh", "tail", 3, "timeout"),
         ]
         summary = summarize_samples(rows)[0]
         self.assertEqual(summary["mean_ms"], "150.000000")
-        self.assertEqual(summary["output_bytes_mean"], "2000.000000")
-        self.assertEqual(summary["throughput_mib_s_mean"], "1.500000")
+        self.assertEqual(summary["samples"], 3)
+        self.assertEqual(summary["success"], 2)
+        self.assertEqual(summary["success_rate_pct"], "66.667")
 
-    # Reader chỉ dừng sau marker và không tính newline phân cách của wrapper.
-    def test_marker_reader_counts_complete_output(self):
-        marker = "__W2_DONE_TEST__"
-        child = FakeChild(["abc\n", "\n__W2_DONE_TEST__ exit_code=0\n"])
-        byte_count, line_count, exit_code = wait_for_marker(child, marker, 1, 0, 4096)
-        self.assertEqual(byte_count, 4)
-        self.assertEqual(line_count, 1)
-        self.assertEqual(exit_code, 0)
+    # Marker gapped phải nhận ANSI và newline xen giữa ký tự như Mosh redraw.
+    def test_gapped_event_marker(self):
+        pattern = re.compile(
+            gapped_literal("W2_CUI_") + SEQUENCE + ECHO_GAP + ":" + ECHO_GAP + TIMESTAMP_19
+        )
+        text = "W2_CUI_12:\x1b[31m1785988222614578891"
+        match = pattern.search(text)
+        self.assertIsNotNone(match)
+        self.assertEqual(clean_digits(match.group(1)), "12")
+        self.assertEqual(clean_digits(match.group(2)), "1785988222614578891")
 
-    # Marker vẫn phải nhận được khi ANSI redraw bị chia giữa hai chunk.
-    def test_marker_reader_handles_split_ansi(self):
-        marker = "__W2_DONE_TEST__"
-        child = FakeChild(["abc\n\n__W2_\x1b[", "31mDONE_TEST__ exit_code=0\n"])
-        byte_count, _line_count, exit_code = wait_for_marker(child, marker, 1, 0, 4096)
-        self.assertEqual(byte_count, 4)
-        self.assertEqual(exit_code, 0)
+    # Các sequence có ANSI xen giữa vẫn được khôi phục chính xác.
+    def test_clean_digits(self):
+        self.assertEqual(clean_digits("1\x1b[31m2\r\n3"), "123")
 
-    # Wrapper phải giữ stderr và phát exit code sau output.
-    def test_command_wrapper_contains_completion_marker(self):
-        wrapped = wrap_command("find /usr", "DONE", 0)
-        self.assertIn("2>&1", wrapped)
-        self.assertIn("DONE", wrapped)
-        self.assertIn("exit_code=%d", wrapped)
+    # Các shell command sinh ra cho workload và clock probe phải hợp lệ cú pháp Bash.
+    def test_generated_shell_commands_are_valid(self):
+        class FakeChild:
+            def __init__(self):
+                self.commands = []
+
+            def sendline(self, command):
+                self.commands.append(command)
+
+            def sendcontrol(self, _char):
+                pass
+
+            def expect(self, _pattern, timeout=None):
+                del timeout
+                raise pexpect.TIMEOUT("stop after command capture")
+
+        class FakeRunner:
+            def expect_prompt(self, _child, _timeout=None):
+                pass
+
+        cfg = {
+            "SAMPLES_PER_TRIAL": "1", "WARMUP_SAMPLES": "0",
+            "EVENT_TIMEOUT": "1", "_CLOCK_OFFSET_NS": "0",
+        }
+        captured = []
+        for function, args in (
+            (measure_top, (FakeRunner(), "ssh", cfg, lambda *items: None)),
+            (measure_top, (FakeRunner(), "mosh", cfg, lambda *items: None)),
+            (measure_tail, (FakeRunner(), cfg, lambda *items: None)),
+            (measure_ping, (FakeRunner(), cfg, lambda *items: None)),
+        ):
+            child = FakeChild()
+            try:
+                function(child, *args)
+            except pexpect.TIMEOUT:
+                pass
+            captured.extend(child.commands)
+
+        clock_child = FakeChild()
+        with self.assertRaises(RuntimeError):
+            estimate_clock_offset(clock_child, FakeRunner(), 1, 1, 1)
+        captured.extend(clock_child.commands)
+
+        for command in captured:
+            result = subprocess.run(["bash", "-n", "-c", command], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, msg=f"{command}\n{result.stderr}")
 
 
 if __name__ == "__main__":

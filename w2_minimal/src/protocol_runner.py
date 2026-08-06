@@ -66,37 +66,56 @@ class ProtocolRunner:
             return command
         raise ValueError(f"unsupported protocol: {self.protocol}")
 
+    # Chờ prompt riêng của trial, chịu được ANSI/redraw xen giữa ký tự.
+    def expect_prompt(self, child, timeout=None):
+        child.expect(
+            prompt_pattern(self.prompt_marker),
+            timeout=timeout if timeout is not None else float(self.cfg.get("SESSION_TIMEOUT", "20")),
+        )
+
     # Mở session, đo đến prompt đầu tiên rồi cài prompt riêng và tắt input echo.
     def open(self):
         command = self.session_command()
         timeout = float(self.cfg.get("SESSION_TIMEOUT", "20"))
-        started = time.perf_counter_ns()
-        child = pexpect.spawn(
-            command[0], command[1:], encoding="utf-8", codec_errors="replace",
-            timeout=timeout,
-            env={**os.environ, "TERM": self.cfg.get("TERMINAL_TYPE", "xterm-256color")},
-        )
-        child.delaybeforesend = 0
-        child.maxread = int(self.cfg.get("MAX_READ_BYTES", "65536"))
-        child.setwinsize(50, 200)
-        try:
-            child.expect(INITIAL_PROMPT_RE, timeout=timeout)
-            setup_ms = (time.perf_counter_ns() - started) / 1_000_000.0
-            child.sendline("stty -echo")
-            child.expect(INITIAL_PROMPT_RE, timeout=timeout)
-            child.sendline(f"export PS1={shlex.quote(self.prompt_marker)}; export COLUMNS=200")
-            child.expect(prompt_pattern(self.prompt_marker), timeout=timeout)
-            drain_pending_output(child)
-            return child, setup_ms
-        except Exception:
-            child.close(force=True)
-            raise
+        retries = int(self.cfg.get("SESSION_RETRIES", "3"))
+        last_error = None
+        for attempt in range(1, retries + 1):
+            child = None
+            try:
+                started = time.perf_counter_ns()
+                child = pexpect.spawn(
+                    command[0], command[1:], encoding="utf-8", codec_errors="replace",
+                    timeout=timeout,
+                    env={**os.environ, "TERM": self.cfg.get("TERMINAL_TYPE", "xterm-256color")},
+                )
+                child.delaybeforesend = 0
+                child.maxread = int(self.cfg.get("MAX_READ_BYTES", "65536"))
+                child.setwinsize(50, 200)
+                child.expect(INITIAL_PROMPT_RE, timeout=timeout * attempt)
+                setup_ms = (time.perf_counter_ns() - started) / 1_000_000.0
+                child.sendline("stty -echo")
+                child.expect(INITIAL_PROMPT_RE, timeout=timeout)
+                child.sendline(f"export PS1={shlex.quote(self.prompt_marker)}; export COLUMNS=200")
+                self.expect_prompt(child, timeout)
+                drain_pending_output(child)
+                return child, setup_ms
+            except (pexpect.TIMEOUT, pexpect.EOF) as exc:
+                last_error = exc
+                if child is not None:
+                    child.close(force=True)
+                if attempt < retries:
+                    time.sleep(2 * attempt)
+            except Exception:
+                if child is not None:
+                    child.close(force=True)
+                raise
+        raise last_error or RuntimeError("session open failed")
 
     # Đóng session nhẹ nhàng và buộc đóng nếu client không thoát đúng hạn.
     def close(self, child):
         try:
+            child.sendcontrol("c")
             child.sendline("exit")
             child.expect(pexpect.EOF, timeout=3)
         except Exception:
             child.close(force=True)
-
