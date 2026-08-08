@@ -16,11 +16,10 @@ import numpy as np
 
 
 PROTOCOLS = ("ssh", "ssh3", "mosh")
-WORKLOADS = ("find_usr", "docker_logs", "journalctl", "large_file")
+WORKLOADS = ("find_usr", "docker_logs", "large_file")
 WORKLOAD_LABELS = {
     "find_usr": "find /usr",
     "docker_logs": "docker logs",
-    "journalctl": "journalctl",
     "large_file": "cat large_file.txt",
 }
 COLORS = {"ssh": "#1696D2", "ssh3": "#E69F00", "mosh": "#009E73"}
@@ -29,19 +28,16 @@ LABELS = {"ssh": "SSH", "ssh3": "SSH3", "mosh": "Mosh"}
 METRICS = {"mean": "mean", "median": "median", "p90": "p90", "p95": "p95"}
 
 
-# Đọc một bảng CSV phục vụ vẽ hình.
 def load_rows(path):
     with path.open(newline="", encoding="utf-8") as handle:
         return list(csv.DictReader(handle))
 
 
-# Chuyển một ô metric thành số và dùng 0 cho giá trị thiếu.
 def number(row, field):
     value = row.get(field, "") if row else ""
-    return float(value) if value else 0.0
+    return float(value) if value else None
 
 
-# Lưu đồng thời PNG và PDF.
 def save_figure(fig, output_dir, stem):
     output_dir.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_dir / f"{stem}.png", dpi=180, bbox_inches="tight")
@@ -49,20 +45,19 @@ def save_figure(fig, output_dir, stem):
     plt.close(fig)
 
 
-# Ghi metric và tỷ lệ nhận đủ mẫu phía trên cột.
 def annotate(ax, bars, rows, values):
-    top = max(values) if values else 1.0
+    valid = [v for v in values if v is not None]
+    top = max(valid) if valid else 1.0
     for bar, row, value in zip(bars, rows, values):
         rate = row.get("success_rate_pct", "0") if row else "0"
-        shown = f"{value:.1f}" if row and row.get("mean_ms", "") else "N/A"
+        shown = f"{value:.1f}" if value is not None else "N/A"
         ax.text(
             bar.get_x() + bar.get_width() / 2,
-            value + max(top * 0.015, 0.01),
+            (value if value is not None else 0) + max(top * 0.015, 0.01),
             f"{shown}\n({rate}%)", ha="center", va="bottom", fontsize=7,
         )
 
 
-# Vẽ event-display latency của ba workload trên một hình.
 def plot_latency(rows, output_dir, field, metric):
     lookup = {(row["protocol"], row["workload"]): row for row in rows}
     x = np.arange(len(WORKLOADS))
@@ -78,7 +73,7 @@ def plot_latency(rows, output_dir, field, metric):
             edgecolor="black", linewidth=0.6, hatch=HATCHES[protocol],
         )
         plotted.append((bars, selected, values))
-        all_values.extend(values)
+        all_values.extend([v for v in values if v is not None])
     ax.set_title(f"W2 continuous event display latency — {metric.upper()}")
     ax.set_ylabel("Latency (ms)")
     ax.set_xticks(x, [WORKLOAD_LABELS[name] for name in WORKLOADS])
@@ -92,7 +87,6 @@ def plot_latency(rows, output_dir, field, metric):
     save_figure(fig, output_dir, f"figure_1_event_latency_{metric}")
 
 
-# Vẽ session setup theo giao thức.
 def plot_setup(rows, output_dir, field, metric):
     lookup = {row["protocol"]: row for row in rows}
     selected = [lookup.get(protocol) for protocol in PROTOCOLS]
@@ -107,13 +101,13 @@ def plot_setup(rows, output_dir, field, metric):
     ax.set_title(f"W2 session setup — {metric.upper()}")
     ax.set_ylabel("Latency (ms)")
     ax.grid(axis="y", alpha=0.25)
-    ax.set_ylim(0, max(1.0, max(values or [1.0]) * 1.20))
+    valid = [v for v in values if v is not None]
+    ax.set_ylim(0, max(1.0, max(valid or [1.0]) * 1.20))
     annotate(ax, bars, selected, values)
     fig.tight_layout()
     save_figure(fig, output_dir, f"figure_2_session_setup_{metric}")
 
 
-# Đọc tham số và sinh hai nhóm figure.
 def main():
     parser = argparse.ArgumentParser(description="Plot W2 continuous-event benchmark")
     parser.add_argument("result_dir", type=Path)

@@ -26,6 +26,8 @@ bash run_w2.sh config.env 2>&1 | tee /tmp/w2_smoke.log
 ```
 
 Kết quả đúng: ba trial đạt `sample=005/005` và `samples.csv` có 15 hàng dữ liệu.
+Kiểm tra thêm `load_summary.csv`: tốc độ thực nhận của SSH và SSH3 phải gần với
+`OUTPUT_RATE_BYTES_PER_SEC` trước khi so sánh latency.
 
 ## Chạy đầy đủ
 
@@ -34,8 +36,8 @@ mkdir -p artifacts
 bash run_w2.sh config.env 2>&1 | tee artifacts/full_run.log
 ```
 
-Cấu hình mặc định tạo `3 protocol × 4 workload × 10 connection = 120
-connection`; mỗi connection ghi 100 mẫu, tổng cộng 12.000 mẫu.
+Cấu hình mặc định tạo `3 protocol × 3 workload × 10 connection = 90
+connection`; mỗi connection ghi 100 mẫu, tổng cộng 9.000 mẫu.
 
 ## Phân tích và vẽ lại
 

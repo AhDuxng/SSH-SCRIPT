@@ -7,7 +7,6 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 
-# Tính percentile bằng nội suy tuyến tính.
 def percentile(values, probability):
     ordered = sorted(values)
     if not ordered:
@@ -19,12 +18,10 @@ def percentile(values, probability):
     return ordered[lower] + (ordered[upper] - ordered[lower]) * (position - lower)
 
 
-# Định dạng số thực ổn định cho CSV.
 def fmt(value):
     return "" if value == "" else f"{value:.6f}"
 
 
-# Đọc CSV và xác minh các cột bắt buộc.
 def load_csv(path, required):
     with path.open(newline="", encoding="utf-8") as handle:
         reader = csv.DictReader(handle)
@@ -37,7 +34,6 @@ def load_csv(path, required):
     return rows
 
 
-# Tính các metric chung và thêm prefix/suffix vào tên cột.
 def numeric_stats(values, prefix, suffix=""):
     result = {
         f"{prefix}_min{suffix}": fmt(min(values) if values else ""),
@@ -55,7 +51,6 @@ def numeric_stats(values, prefix, suffix=""):
     return result
 
 
-# Tính metric latency với tên cột tương thích W1/W3.
 def latency_stats(values):
     base = numeric_stats(values, "latency", "_ms")
     renamed = {key.replace("latency_", "", 1): value for key, value in base.items()}
@@ -66,7 +61,6 @@ def latency_stats(values):
     return renamed
 
 
-# Đếm tỷ lệ hoàn thành và từng loại lỗi của một nhóm trial.
 def status_stats(group, values):
     counts = Counter(row["status"] for row in group)
     total = len(group)
@@ -77,10 +71,10 @@ def status_stats(group, values):
         "timeout_count": counts["timeout"],
         "eof_count": counts["eof"],
         "failure_count": counts["failure"],
+        "clock_invalid_count": counts.get("clock_invalid", 0),
     }
 
 
-# Tổng hợp event-display latency theo protocol × workload.
 def summarize_samples(rows):
     groups = defaultdict(list)
     for row in rows:
@@ -99,7 +93,6 @@ def summarize_samples(rows):
     return output
 
 
-# Tổng hợp thời gian mở session độc lập theo giao thức.
 def summarize_setup(rows):
     groups = defaultdict(list)
     for row in rows:
@@ -122,7 +115,33 @@ def summarize_setup(rows):
     return output
 
 
-# Ghi bảng summary ra CSV.
+# Tổng hợp tốc độ terminal thực nhận để kiểm tra tải giữa các giao thức tương đương.
+def summarize_load(rows):
+    groups = defaultdict(list)
+    for row in rows:
+        groups[(row["protocol"], row["workload"])].append(row)
+    output = []
+    for (protocol, workload), group in sorted(groups.items()):
+        measured = [row for row in group if row.get("observed_rate_bytes_per_sec")]
+        rates = [float(row["observed_rate_bytes_per_sec"]) for row in measured]
+        ratios = [
+            100.0 * float(row["observed_rate_bytes_per_sec"])
+            / float(row["configured_rate_bytes_per_sec"])
+            for row in measured
+            if row.get("configured_rate_bytes_per_sec")
+            and float(row["configured_rate_bytes_per_sec"]) > 0
+        ]
+        output.append({
+            "protocol": protocol,
+            "workload": workload,
+            "connections": len(group),
+            "measured_connections": len(measured),
+            **numeric_stats(rates, "observed_rate", "_bytes_per_sec"),
+            "mean_configured_rate_pct": fmt(statistics.mean(ratios) if ratios else ""),
+        })
+    return output
+
+
 def write_csv(path, rows):
     with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
@@ -130,7 +149,6 @@ def write_csv(path, rows):
         writer.writerows(rows)
 
 
-# Đọc raw CSV và tạo lại summary workload cùng session setup.
 def main():
     result_dir = Path(sys.argv[1] if len(sys.argv) > 1 else "artifacts/results")
     samples = load_csv(
@@ -143,9 +161,14 @@ def main():
         result_dir / "setup_samples.csv",
         {"trial_id", "protocol", "status", "session_setup_ms"},
     )
+    trials = load_csv(
+        result_dir / "trials.csv",
+        {"trial_id", "protocol", "workload", "status"},
+    )
     write_csv(result_dir / "summary.csv", summarize_samples(samples))
     write_csv(result_dir / "setup_summary.csv", summarize_setup(setups))
-    print(f"Saved W2 workload and session-setup summaries to {result_dir}")
+    write_csv(result_dir / "load_summary.csv", summarize_load(trials))
+    print(f"Saved W2 latency, load and session-setup summaries to {result_dir}")
 
 
 if __name__ == "__main__":

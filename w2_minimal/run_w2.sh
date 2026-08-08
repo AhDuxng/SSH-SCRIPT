@@ -10,7 +10,6 @@ if [[ ! -f "$CONFIG" ]]; then
   exit 2
 fi
 
-# Đọc config nhưng giữ quyền ghi đè của biến môi trường từ command line.
 while IFS= read -r line || [[ -n "$line" ]]; do
   [[ -z "$line" || "$line" == \#* || "$line" != *=* ]] && continue
   key="${line%%=*}"
@@ -58,6 +57,15 @@ if [[ "${PREPARE_LARGE_FILE:-1}" == "1" ]]; then
   ssh "${SSH_OPTION_ARGS[@]}" ${SSH_PORT_ARGS[@]+"${SSH_PORT_ARGS[@]}"} \
     "${SERVER_USER}@${SERVER_HOST}" \
     "bash '${REMOTE_PREPARE_SCRIPT}' '${LARGE_FILE_PATH}' '${LARGE_FILE_SIZE_BYTES}'"
+fi
+
+if [[ -n "${REMOTE_RATE_LIMIT_SCRIPT:-}" ]]; then
+  scp "${SSH_OPTION_ARGS[@]}" ${SCP_PORT_ARGS[@]+"${SCP_PORT_ARGS[@]}"} \
+    scripts/rate_limit_stream.py \
+    "${SERVER_USER}@${SERVER_HOST}:${REMOTE_RATE_LIMIT_SCRIPT}"
+  ssh "${SSH_OPTION_ARGS[@]}" ${SSH_PORT_ARGS[@]+"${SSH_PORT_ARGS[@]}"} \
+    "${SERVER_USER}@${SERVER_HOST}" \
+    "chmod +x '${REMOTE_RATE_LIMIT_SCRIPT}'"
 fi
 
 "${PYTHON_BIN:-.venv/bin/python}" src/run_w2.py "$CONFIG"

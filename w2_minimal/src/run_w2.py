@@ -62,8 +62,12 @@ def main():
     samples_per_trial = int(cfg.get("SAMPLES_PER_TRIAL", "100"))
     warmup_samples = int(cfg.get("WARMUP_SAMPLES", "10"))
     cooldown = float(cfg.get("INTER_TRIAL_DELAY_SECONDS", "3"))
+    output_rate = int(cfg.get("OUTPUT_RATE_BYTES_PER_SEC", "1048576"))
+    output_chunk = int(cfg.get("OUTPUT_RATE_CHUNK_BYTES", "4096"))
     if min(trials, samples_per_trial) <= 0 or min(warmup_samples, cooldown) < 0:
         raise ValueError("trial/sample counts must be positive and delays non-negative")
+    if min(output_rate, output_chunk) <= 0:
+        raise ValueError("output rate and chunk size must be positive")
 
     run_id = cfg.get("RUN_ID", "").strip() or time.strftime("%Y%m%dT%H%M%S")
     network_profile = cfg.get("NETWORK_PROFILE", "unspecified").strip() or "unspecified"
@@ -90,8 +94,11 @@ def main():
         "connection_total": len(schedule),
         "expected_recorded_samples": len(schedule) * samples_per_trial,
         "sample_definition": "corrected server event timestamp to client observation",
+        "output_path": "one server-side writer paces workload and inserts ordered markers",
+        "configured_output_rate_bytes_per_sec": output_rate,
+        "configured_output_chunk_bytes": output_chunk,
         "session_setup_definition": "before client spawn to first shell prompt",
-        "clock_method": "midpoint round-trip probes; median offset",
+        "clock_method": "median offset from the three lowest-RTT midpoint probes",
     }, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
     samples, setups, clocks, trial_audits = [], [], [], []

@@ -8,7 +8,7 @@ from continuous_workloads import measure_workload
 from protocol_runner import ProtocolRunner
 
 
-# Tạo bản ghi session setup mặc định trước khi mở connection.
+# Tạo bản ghi thời gian thiết lập session.
 def setup_row(trial):
     return {
         **trial,
@@ -18,7 +18,7 @@ def setup_row(trial):
     }
 
 
-# Tạo bản ghi clock audit mặc định cho một connection.
+# Tạo bản ghi kiểm tra đồng bộ clock.
 def clock_row(trial, requested):
     return {
         **trial,
@@ -33,7 +33,7 @@ def clock_row(trial, requested):
     }
 
 
-# Tạo một hàng mẫu sự kiện thành công hoặc thất bại.
+# Tạo một hàng mẫu marker thành công hoặc thất bại.
 def sample_row(trial, index, status, sequence="", latency="", remote_ns="", recv_ns="", note=""):
     return {
         **trial,
@@ -47,19 +47,32 @@ def sample_row(trial, index, status, sequence="", latency="", remote_ns="", recv
     }
 
 
-# Tạo audit tổng quát cho toàn bộ connection/trial.
-def trial_row(trial, status, expected, successful, stage="", note=""):
+# Tạo audit trial cùng lượng dữ liệu và tốc độ thực nhận.
+def trial_row(trial, status, expected, successful, stage="", note="", measurement=None, cfg=None):
+    measurement = measurement or {}
+    cfg = cfg or {}
     return {
         **trial,
         "status": status,
         "expected_samples": expected,
         "successful_samples": successful,
+        "received_bytes": measurement.get("received_bytes", ""),
+        "receive_duration_s": (
+            f"{measurement['receive_duration_s']:.6f}"
+            if "receive_duration_s" in measurement else ""
+        ),
+        "observed_rate_bytes_per_sec": (
+            f"{measurement['observed_rate_bytes_per_sec']:.3f}"
+            if "observed_rate_bytes_per_sec" in measurement else ""
+        ),
+        "configured_rate_bytes_per_sec": cfg.get("OUTPUT_RATE_BYTES_PER_SEC", ""),
+        "configured_chunk_bytes": cfg.get("OUTPUT_RATE_CHUNK_BYTES", ""),
         "failure_stage": stage,
         "note": note,
     }
 
 
-# Chuyển exception sang trạng thái ổn định trong CSV.
+# Chuẩn hóa exception thành trạng thái CSV.
 def failure_status(exc):
     if isinstance(exc, pexpect.TIMEOUT):
         return "timeout"
@@ -68,12 +81,12 @@ def failure_status(exc):
     return "failure"
 
 
-# Chạy một connection độc lập và thu nhiều mẫu sự kiện như test-w2.
+# Chạy một connection độc lập và thu đủ các marker của trial.
 def run_trial(cfg, trial, sample_count):
     prompt = f"__W2_{trial['trial_order']:03d}_{trial['trial_id']}_PROMPT__# "
     runner = ProtocolRunner(cfg, trial["protocol"], prompt)
     setup = setup_row(trial)
-    requested_probes = int(cfg.get("CLOCK_OFFSET_PROBES", "5"))
+    requested_probes = int(cfg.get("CLOCK_OFFSET_PROBES", "9"))
     clock = clock_row(trial, requested_probes)
     rows = []
     child = None
@@ -88,7 +101,7 @@ def run_trial(cfg, trial, sample_count):
         stage = "clock_sync"
         sync = estimate_clock_offset(
             child, runner, requested_probes,
-            int(cfg.get("CLOCK_OFFSET_MIN_PROBES", "3")),
+            int(cfg.get("CLOCK_OFFSET_MIN_PROBES", "5")),
             float(cfg.get("EVENT_TIMEOUT", "20")),
         )
         clock.update(
@@ -103,27 +116,40 @@ def run_trial(cfg, trial, sample_count):
 
         def record(index, sequence, latency_ms, remote_ns, recv_ns):
             maximum = float(cfg.get("MAX_VALID_LATENCY_MS", "60000"))
-            minimum = float(cfg.get("MIN_VALID_LATENCY_MS", "-50"))
+            minimum = float(cfg.get("MIN_VALID_LATENCY_MS", "0"))
             if not minimum <= latency_ms <= maximum:
-                raise ValueError(
-                    f"latency {latency_ms:.3f} outside [{minimum}, {maximum}] ms"
-                )
+                rows.append(sample_row(
+                    trial, index, "clock_invalid", sequence, f"{latency_ms:.6f}",
+                    remote_ns, recv_ns,
+                ))
+                if bool_cfg(cfg, "LIVE_PROGRESS", "1"):
+                    print(
+                        f"[LIVE] trial={trial['trial_id']} sample={index:03d}/{sample_count:03d} "
+                        f"remote_seq={sequence} status=clock_invalid latency_ms={latency_ms:.3f}",
+                        flush=True,
+                    )
+                return False
             rows.append(sample_row(
-                trial, index, "success", sequence, f"{max(0.0, latency_ms):.6f}",
+                trial, index, "success", sequence, f"{latency_ms:.6f}",
                 remote_ns, recv_ns,
             ))
             if bool_cfg(cfg, "LIVE_PROGRESS", "1"):
                 print(
                     f"[LIVE] trial={trial['trial_id']} sample={index:03d}/{sample_count:03d} "
-                    f"remote_seq={sequence} status=success latency_ms={max(0.0, latency_ms):.3f}",
+                    f"remote_seq={sequence} status=success latency_ms={latency_ms:.3f}",
                     flush=True,
                 )
+            return True
 
         stage = "workload"
-        measure_workload(
+        measurement = measure_workload(
             child, runner, trial["protocol"], trial["workload"], trial_cfg, record
         )
-        return rows, setup, clock, trial_row(trial, "success", sample_count, len(rows))
+        successful = sum(row["status"] == "success" for row in rows)
+        return rows, setup, clock, trial_row(
+            trial, "success" if successful == sample_count else "partial",
+            sample_count, successful, measurement=measurement, cfg=cfg,
+        )
     except Exception as exc:
         status = failure_status(exc)
         note = repr(exc)[:1000]
@@ -132,7 +158,7 @@ def run_trial(cfg, trial, sample_count):
             clock.update(status=status, note="clock sync not attempted because session setup failed")
         elif clock["status"] != "success":
             clock.update(status=status, note=note)
-        successful = len(rows)
+        successful = sum(row["status"] == "success" for row in rows)
         for index in range(len(rows) + 1, sample_count + 1):
             rows.append(sample_row(trial, index, status, note=note))
         print(
@@ -141,7 +167,7 @@ def run_trial(cfg, trial, sample_count):
         )
         return rows, setup, clock, trial_row(
             trial, "partial" if successful else status,
-            sample_count, successful, stage, note,
+            sample_count, successful, stage, note, cfg=cfg,
         )
     finally:
         if child is not None:
