@@ -37,7 +37,7 @@ bash run_w2.sh config.env 2>&1 | tee artifacts/full_run.log
 
 Cấu hình mặc định tạo `3 protocol × 3 workload × 10 connection = 90
 connection`; mỗi connection chạy 10 warm-up và ghi 100 lần hoàn thành lệnh,
-tổng cộng 9.000 mẫu. Với file 64 MiB, cấu hình này truyền một lượng dữ liệu rất
+tổng cộng 9.000 mẫu. Với file 10 MiB, cấu hình này vẫn truyền một lượng dữ liệu
 lớn; nên chạy smoke test trước và giảm số mẫu nếu thời gian không phù hợp.
 
 ## Phân tích và vẽ lại
