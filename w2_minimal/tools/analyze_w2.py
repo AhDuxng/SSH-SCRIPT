@@ -71,7 +71,7 @@ def status_stats(group, values):
         "timeout_count": counts["timeout"],
         "eof_count": counts["eof"],
         "failure_count": counts["failure"],
-        "clock_invalid_count": counts.get("clock_invalid", 0),
+        "command_error_count": counts.get("command_error", 0),
     }
 
 
@@ -115,29 +115,26 @@ def summarize_setup(rows):
     return output
 
 
-# Tổng hợp tốc độ terminal thực nhận để kiểm tra tải giữa các giao thức tương đương.
+# Tổng hợp byte và throughput của từng lần chạy lệnh thành công.
 def summarize_load(rows):
     groups = defaultdict(list)
     for row in rows:
         groups[(row["protocol"], row["workload"])].append(row)
     output = []
     for (protocol, workload), group in sorted(groups.items()):
-        measured = [row for row in group if row.get("observed_rate_bytes_per_sec")]
-        rates = [float(row["observed_rate_bytes_per_sec"]) for row in measured]
-        ratios = [
-            100.0 * float(row["observed_rate_bytes_per_sec"])
-            / float(row["configured_rate_bytes_per_sec"])
-            for row in measured
-            if row.get("configured_rate_bytes_per_sec")
-            and float(row["configured_rate_bytes_per_sec"]) > 0
+        measured = [
+            row for row in group
+            if row["status"] == "success" and row.get("throughput_bytes_per_sec")
         ]
+        rates = [float(row["throughput_bytes_per_sec"]) for row in measured]
+        sizes = [float(row["output_bytes"]) for row in measured if row.get("output_bytes")]
         output.append({
             "protocol": protocol,
             "workload": workload,
-            "connections": len(group),
-            "measured_connections": len(measured),
+            "connections": len({row["trial_id"] for row in group}),
+            "measured_samples": len(measured),
+            **numeric_stats(sizes, "output", "_bytes"),
             **numeric_stats(rates, "observed_rate", "_bytes_per_sec"),
-            "mean_configured_rate_pct": fmt(statistics.mean(ratios) if ratios else ""),
         })
     return output
 
@@ -161,14 +158,10 @@ def main():
         result_dir / "setup_samples.csv",
         {"trial_id", "protocol", "status", "session_setup_ms"},
     )
-    trials = load_csv(
-        result_dir / "trials.csv",
-        {"trial_id", "protocol", "workload", "status"},
-    )
     write_csv(result_dir / "summary.csv", summarize_samples(samples))
     write_csv(result_dir / "setup_summary.csv", summarize_setup(setups))
-    write_csv(result_dir / "load_summary.csv", summarize_load(trials))
-    print(f"Saved W2 latency, load and session-setup summaries to {result_dir}")
+    write_csv(result_dir / "load_summary.csv", summarize_load(samples))
+    print(f"Saved W2 completion-time, load and session-setup summaries to {result_dir}")
 
 
 if __name__ == "__main__":

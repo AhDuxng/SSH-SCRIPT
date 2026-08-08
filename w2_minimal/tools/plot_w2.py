@@ -74,8 +74,8 @@ def plot_latency(rows, output_dir, field, metric):
         )
         plotted.append((bars, selected, values))
         all_values.extend([v for v in values if v is not None])
-    ax.set_title(f"W2 continuous event display latency — {metric.upper()}")
-    ax.set_ylabel("Latency (ms)")
+    ax.set_title(f"W2 end-to-end command completion time — {metric.upper()}")
+    ax.set_ylabel("Completion time (ms)")
     ax.set_xticks(x, [WORKLOAD_LABELS[name] for name in WORKLOADS])
     ax.grid(axis="y", alpha=0.25)
     ax.legend()
@@ -84,7 +84,7 @@ def plot_latency(rows, output_dir, field, metric):
     for bars, selected, values in plotted:
         annotate(ax, bars, selected, values)
     fig.tight_layout()
-    save_figure(fig, output_dir, f"figure_1_event_latency_{metric}")
+    save_figure(fig, output_dir, f"figure_1_command_completion_{metric}")
 
 
 def plot_setup(rows, output_dir, field, metric):
@@ -109,7 +109,7 @@ def plot_setup(rows, output_dir, field, metric):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Plot W2 continuous-event benchmark")
+    parser = argparse.ArgumentParser(description="Plot W2 command-completion benchmark")
     parser.add_argument("result_dir", type=Path)
     parser.add_argument("output_dir", type=Path)
     parser.add_argument("--metric", choices=METRICS, default="median")

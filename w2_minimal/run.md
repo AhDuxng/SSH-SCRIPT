@@ -11,8 +11,8 @@ python3 -m venv .venv
 
 ## Smoke test
 
-Mỗi giao thức mở một connection cho `docker logs`; mỗi connection bỏ hai marker
-warm-up và ghi năm mẫu:
+Mỗi giao thức mở một connection cho `docker logs`; mỗi connection chạy hai lệnh
+warm-up rồi đo năm lần hoàn thành toàn bộ lệnh:
 
 ```bash
 PROTOCOLS=ssh,ssh3,mosh \
@@ -26,8 +26,7 @@ bash run_w2.sh config.env 2>&1 | tee /tmp/w2_smoke.log
 ```
 
 Kết quả đúng: ba trial đạt `sample=005/005` và `samples.csv` có 15 hàng dữ liệu.
-Kiểm tra thêm `load_summary.csv`: tốc độ thực nhận của SSH và SSH3 phải gần với
-`OUTPUT_RATE_BYTES_PER_SEC` trước khi so sánh latency.
+Mỗi dòng `[LIVE]` phải có `latency_ms` và `bytes` lớn hơn 0.
 
 ## Chạy đầy đủ
 
@@ -37,7 +36,9 @@ bash run_w2.sh config.env 2>&1 | tee artifacts/full_run.log
 ```
 
 Cấu hình mặc định tạo `3 protocol × 3 workload × 10 connection = 90
-connection`; mỗi connection ghi 100 mẫu, tổng cộng 9.000 mẫu.
+connection`; mỗi connection chạy 10 warm-up và ghi 100 lần hoàn thành lệnh,
+tổng cộng 9.000 mẫu. Với file 64 MiB, cấu hình này truyền một lượng dữ liệu rất
+lớn; nên chạy smoke test trước và giảm số mẫu nếu thời gian không phù hợp.
 
 ## Phân tích và vẽ lại
 

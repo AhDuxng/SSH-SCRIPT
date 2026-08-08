@@ -8,8 +8,7 @@ from pathlib import Path
 
 from config import load_env, split_csv
 from constants import (
-    CLOCK_FIELDS, ORDER_FIELDS, PROTOCOLS, SAMPLE_FIELDS, SETUP_FIELDS,
-    TRIAL_FIELDS, WORKLOADS,
+    ORDER_FIELDS, PROTOCOLS, SAMPLE_FIELDS, SETUP_FIELDS, TRIAL_FIELDS, WORKLOADS,
 )
 from trial import run_trial
 from workloads import workload_commands
@@ -62,12 +61,8 @@ def main():
     samples_per_trial = int(cfg.get("SAMPLES_PER_TRIAL", "100"))
     warmup_samples = int(cfg.get("WARMUP_SAMPLES", "10"))
     cooldown = float(cfg.get("INTER_TRIAL_DELAY_SECONDS", "3"))
-    output_rate = int(cfg.get("OUTPUT_RATE_BYTES_PER_SEC", "1048576"))
-    output_chunk = int(cfg.get("OUTPUT_RATE_CHUNK_BYTES", "4096"))
     if min(trials, samples_per_trial) <= 0 or min(warmup_samples, cooldown) < 0:
         raise ValueError("trial/sample counts must be positive and delays non-negative")
-    if min(output_rate, output_chunk) <= 0:
-        raise ValueError("output rate and chunk size must be positive")
 
     run_id = cfg.get("RUN_ID", "").strip() or time.strftime("%Y%m%dT%H%M%S")
     network_profile = cfg.get("NETWORK_PROFILE", "unspecified").strip() or "unspecified"
@@ -93,15 +88,14 @@ def main():
         "warmup_samples_per_trial": warmup_samples,
         "connection_total": len(schedule),
         "expected_recorded_samples": len(schedule) * samples_per_trial,
-        "sample_definition": "corrected server event timestamp to client observation",
-        "output_path": "one server-side writer paces workload and inserts ordered markers",
-        "configured_output_rate_bytes_per_sec": output_rate,
-        "configured_output_chunk_bytes": output_chunk,
+        "sample_definition": "client sendline start to client receipt of completion marker after output",
+        "output_path": "one complete remote command execution per sample",
         "session_setup_definition": "before client spawn to first shell prompt",
-        "clock_method": "median offset from the three lowest-RTT midpoint probes",
+        "clock_method": "not required; both timestamps are measured on the client",
+        "mosh_limitation": "completion marker confirms final terminal state, not delivery of every intermediate byte",
     }, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
-    samples, setups, clocks, trial_audits = [], [], [], []
+    samples, setups, trial_audits = [], [], []
     for index, trial in enumerate(schedule):
         print(
             f"[RUN] order={trial['trial_order']:03d}/{len(schedule):03d} "
@@ -109,19 +103,17 @@ def main():
             f"samples={samples_per_trial}", flush=True,
         )
         trial_cfg = {**cfg, "_WORKLOAD_COMMAND": commands[trial["workload"]]}
-        trial_rows, setup, clock, trial_audit = run_trial(trial_cfg, trial, samples_per_trial)
+        trial_rows, setup, trial_audit = run_trial(trial_cfg, trial, samples_per_trial)
         samples.extend(trial_rows)
         setups.append(setup)
-        clocks.append(clock)
         trial_audits.append(trial_audit)
         write_csv(result_dir / "samples.csv", SAMPLE_FIELDS, samples)
         write_csv(result_dir / "setup_samples.csv", SETUP_FIELDS, setups)
-        write_csv(result_dir / "clock_offsets.csv", CLOCK_FIELDS, clocks)
         write_csv(result_dir / "trials.csv", TRIAL_FIELDS, trial_audits)
         if cooldown > 0 and index + 1 < len(schedule):
             time.sleep(cooldown)
 
-    print(f"Saved {len(samples)} W2 event samples from {len(schedule)} connections to {result_dir}")
+    print(f"Saved {len(samples)} W2 command-completion samples from {len(schedule)} connections to {result_dir}")
 
 
 if __name__ == "__main__":

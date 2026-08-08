@@ -59,15 +59,6 @@ if [[ "${PREPARE_LARGE_FILE:-1}" == "1" ]]; then
     "bash '${REMOTE_PREPARE_SCRIPT}' '${LARGE_FILE_PATH}' '${LARGE_FILE_SIZE_BYTES}'"
 fi
 
-if [[ -n "${REMOTE_RATE_LIMIT_SCRIPT:-}" ]]; then
-  scp "${SSH_OPTION_ARGS[@]}" ${SCP_PORT_ARGS[@]+"${SCP_PORT_ARGS[@]}"} \
-    scripts/rate_limit_stream.py \
-    "${SERVER_USER}@${SERVER_HOST}:${REMOTE_RATE_LIMIT_SCRIPT}"
-  ssh "${SSH_OPTION_ARGS[@]}" ${SSH_PORT_ARGS[@]+"${SSH_PORT_ARGS[@]}"} \
-    "${SERVER_USER}@${SERVER_HOST}" \
-    "chmod +x '${REMOTE_RATE_LIMIT_SCRIPT}'"
-fi
-
 "${PYTHON_BIN:-.venv/bin/python}" src/run_w2.py "$CONFIG"
 "${PYTHON_BIN:-.venv/bin/python}" tools/analyze_w2.py "${RESULT_DIR:-artifacts/results}"
 
