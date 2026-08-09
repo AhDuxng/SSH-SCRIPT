@@ -11,7 +11,7 @@ sys.path.insert(0, str(PROJECT_DIR / "tools"))
 
 from analyze_w2 import summarize_load, summarize_samples
 from command_measurement import build_measured_command, wait_for_completion
-from plot_w2 import bar_heights
+from plot_w2 import bar_heights, remove_legacy_figures
 from run_w2 import build_schedule
 
 
@@ -44,6 +44,19 @@ class FakeChild:
 
 
 class AnalysisTests(unittest.TestCase):
+    def test_plot_cleanup_removes_only_legacy_w2_figures(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            old = root / "figure_1_event_latency_mean.png"
+            current = root / "figure_1_command_completion_mean.png"
+            old.touch()
+            current.touch()
+            remove_legacy_figures(root)
+            self.assertFalse(old.exists())
+            self.assertTrue(current.exists())
+
     def test_missing_plot_value_uses_zero_height(self):
         self.assertEqual(bar_heights([1.5, None, 2.5]), [1.5, 0.0, 2.5])
 

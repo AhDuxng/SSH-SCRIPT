@@ -50,6 +50,15 @@ def save_figure(fig, output_dir, stem):
     plt.close(fig)
 
 
+# Xóa hình event-latency của thiết kế cũ để không nhầm với command completion.
+def remove_legacy_figures(output_dir):
+    if not output_dir.exists():
+        return
+    for path in output_dir.glob("figure_1_event_latency_*"):
+        if path.is_file() and path.suffix in {".png", ".pdf"}:
+            path.unlink()
+
+
 def annotate(ax, bars, rows, values):
     valid = [v for v in values if v is not None]
     top = max(valid) if valid else 1.0
@@ -120,6 +129,7 @@ def main():
     parser.add_argument("--metric", choices=METRICS, default="median")
     args = parser.parse_args()
     metric = METRICS[args.metric]
+    remove_legacy_figures(args.output_dir)
     plot_latency(
         load_rows(args.result_dir / "summary.csv"), args.output_dir,
         f"{metric}_ms", metric,
