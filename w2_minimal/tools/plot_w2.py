@@ -38,6 +38,11 @@ def number(row, field):
     return float(value) if value else None
 
 
+# Matplotlib không nhận chiều cao None; dùng 0 để giữ vị trí cột N/A.
+def bar_heights(values):
+    return [value if value is not None else 0.0 for value in values]
+
+
 def save_figure(fig, output_dir, stem):
     output_dir.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_dir / f"{stem}.png", dpi=180, bbox_inches="tight")
@@ -68,7 +73,7 @@ def plot_latency(rows, output_dir, field, metric):
         selected = [lookup.get((protocol, workload)) for workload in WORKLOADS]
         values = [number(row, field) for row in selected]
         bars = ax.bar(
-            x + (index - 1) * width, values, width,
+            x + (index - 1) * width, bar_heights(values), width,
             label=LABELS[protocol], color=COLORS[protocol],
             edgecolor="black", linewidth=0.6, hatch=HATCHES[protocol],
         )
@@ -93,7 +98,7 @@ def plot_setup(rows, output_dir, field, metric):
     values = [number(row, field) for row in selected]
     fig, ax = plt.subplots(figsize=(7.5, 5.5))
     bars = ax.bar(
-        [LABELS[p] for p in PROTOCOLS], values,
+        [LABELS[p] for p in PROTOCOLS], bar_heights(values),
         color=[COLORS[p] for p in PROTOCOLS], edgecolor="black", linewidth=0.7,
     )
     for bar, protocol in zip(bars, PROTOCOLS):
