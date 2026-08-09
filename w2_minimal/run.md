@@ -27,6 +27,8 @@ bash run_w2.sh config.env 2>&1 | tee /tmp/w2_smoke.log
 
 Kết quả đúng: ba trial đạt `sample=005/005` và `samples.csv` có 15 hàng dữ liệu.
 Mỗi dòng `[LIVE]` phải có `latency_ms` và `bytes` lớn hơn 0.
+Với Mosh, `bytes` là lượng redraw terminal quan sát được và có thể thấp hơn
+output do lệnh sinh ra; marker hoàn thành được tìm trên màn hình VT100 dựng lại.
 
 ## Chạy đầy đủ
 

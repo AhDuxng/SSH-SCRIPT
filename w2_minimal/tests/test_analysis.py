@@ -10,9 +10,12 @@ sys.path.insert(0, str(PROJECT_DIR / "src"))
 sys.path.insert(0, str(PROJECT_DIR / "tools"))
 
 from analyze_w2 import summarize_load, summarize_samples
-from command_measurement import build_measured_command, wait_for_completion
+from command_measurement import (
+    build_measured_command, screen_completion_exit_code, wait_for_completion,
+)
 from plot_w2 import bar_heights, remove_legacy_figures
 from run_w2 import build_schedule
+from terminal_screen import TerminalScreen
 
 
 # Tạo một sample tối thiểu cho test phần thống kê.
@@ -44,6 +47,15 @@ class FakeChild:
 
 
 class AnalysisTests(unittest.TestCase):
+    def test_mosh_completion_uses_reconstructed_screen_delta(self):
+        screen = TerminalScreen(rows=4, columns=80)
+        old_marker = "__W2_DONE_A__"
+        new_marker = "__W2_DONE_B__"
+        screen.feed(f"\x1b[1;1H{old_marker}:0")
+        changed_column = new_marker.index("B") + 1
+        screen.feed(f"\x1b[1;{changed_column}HB")
+        self.assertEqual(screen_completion_exit_code(screen, new_marker), 0)
+
     def test_plot_cleanup_removes_only_legacy_w2_figures(self):
         import tempfile
 

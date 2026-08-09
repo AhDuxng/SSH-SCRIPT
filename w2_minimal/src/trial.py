@@ -88,8 +88,9 @@ def run_trial(cfg, trial, sample_count):
         stage = "warmup"
         warmups = int(cfg.get("WARMUP_SAMPLES", "10"))
         command = cfg["_WORKLOAD_COMMAND"]
+        measurement_cfg = {**cfg, "_PROTOCOL": trial["protocol"]}
         for index in range(1, warmups + 1):
-            measure_command(child, command, cfg)
+            measure_command(child, command, measurement_cfg, runner.tracker)
             if bool_cfg(cfg, "LIVE_PROGRESS", "1"):
                 print(
                     f"[WARMUP] trial={trial['trial_id']} sample={index:03d}/{warmups:03d}",
@@ -99,7 +100,9 @@ def run_trial(cfg, trial, sample_count):
         stage = "workload"
         for index in range(1, sample_count + 1):
             try:
-                measurement = measure_command(child, command, cfg)
+                measurement = measure_command(
+                    child, command, measurement_cfg, runner.tracker,
+                )
                 rows.append(sample_row(trial, index, "success", measurement))
                 if bool_cfg(cfg, "LIVE_PROGRESS", "1"):
                     print(

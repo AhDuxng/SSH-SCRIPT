@@ -23,14 +23,28 @@ def build_measured_command(command, marker):
     )
 
 
+# Tìm marker hoàn chỉnh trong trạng thái màn hình đã dựng lại của Mosh.
+def screen_completion_exit_code(screen, marker):
+    if screen is None:
+        return None
+    with screen.lock:
+        visible = "\n".join("".join(row) for row in screen.screen)
+    match = re.search(re.escape(marker) + r":(\d+)", visible)
+    return int(match.group(1)) if match else None
+
+
 # Đọc terminal đến marker kết thúc và đếm lượng dữ liệu đứng trước marker.
-def wait_for_completion(child, marker, cfg):
+def wait_for_completion(child, marker, cfg, screen=None):
     pattern = re.compile(
         gapped_literal(marker) + ECHO_GAP + ":" + ECHO_GAP
         + rf"(\d(?:{ECHO_GAP}\d)*)"
     )
-    total_timeout = float(cfg.get("COMMAND_TIMEOUT", "180"))
-    idle_timeout = float(cfg.get("COMMAND_IDLE_TIMEOUT", "20"))
+    if cfg.get("_PROTOCOL") == "mosh":
+        total_timeout = float(cfg.get("MOSH_COMMAND_TIMEOUT", "600"))
+        idle_timeout = float(cfg.get("MOSH_COMMAND_IDLE_TIMEOUT", "0"))
+    else:
+        total_timeout = float(cfg.get("COMMAND_TIMEOUT", "180"))
+        idle_timeout = float(cfg.get("COMMAND_IDLE_TIMEOUT", "20"))
     read_size = int(cfg.get("COMMAND_READ_BYTES", "65536"))
     keep_chars = int(cfg.get("COMMAND_PARSE_BUFFER_CHARS", "131072"))
     deadline = time.monotonic() + total_timeout
@@ -67,6 +81,11 @@ def wait_for_completion(child, marker, cfg):
             output_bytes += len(buffer[:match.start()].encode("utf-8", errors="replace"))
             return output_bytes, int(clean_digits(match.group(1))), time.perf_counter_ns()
 
+        screen_exit_code = screen_completion_exit_code(screen, marker)
+        if screen_exit_code is not None:
+            output_bytes += len(buffer.encode("utf-8", errors="replace"))
+            return output_bytes, screen_exit_code, time.perf_counter_ns()
+
         if len(buffer) > keep_chars:
             dropped = buffer[:-keep_chars]
             output_bytes += len(dropped.encode("utf-8", errors="replace"))
@@ -74,13 +93,14 @@ def wait_for_completion(child, marker, cfg):
 
 
 # Đo một lần chạy lệnh từ trước sendline đến khi client nhận marker sau output.
-def measure_command(child, command, cfg):
+def measure_command(child, command, cfg, tracker=None):
     marker = f"__W2_DONE_{uuid.uuid4().hex.upper()}__"
     wrapped = build_measured_command(command, marker)
     drain_pending_output(child)
     started_ns = time.perf_counter_ns()
     child.sendline(wrapped)
-    output_bytes, exit_code, ended_ns = wait_for_completion(child, marker, cfg)
+    screen = tracker.screen if tracker is not None else None
+    output_bytes, exit_code, ended_ns = wait_for_completion(child, marker, cfg, screen)
     duration_s = (ended_ns - started_ns) / 1_000_000_000.0
     measurement = {
         "latency_ms": duration_s * 1000.0,

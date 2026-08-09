@@ -6,6 +6,7 @@ import pexpect
 
 from config import bool_cfg
 from terminal_io import INITIAL_PROMPT_RE, drain_pending_output, prompt_pattern
+from terminal_screen import TerminalTracker
 
 
 # Quản lý lệnh client và vòng đời một session SSH, SSH3 hoặc Mosh.
@@ -15,6 +16,7 @@ class ProtocolRunner:
         self.cfg = cfg
         self.protocol = protocol
         self.prompt_marker = prompt_marker
+        self.tracker = None
 
     # Tạo các tham số SSH dùng cho SSH trực tiếp và bootstrap của Mosh.
     def ssh_common(self, tty=False):
@@ -88,6 +90,9 @@ class ProtocolRunner:
                     timeout=timeout,
                     env={**os.environ, "TERM": self.cfg.get("TERMINAL_TYPE", "xterm-256color")},
                 )
+                if self.protocol == "mosh":
+                    self.tracker = TerminalTracker(rows=50, columns=200)
+                    child.logfile_read = self.tracker
                 child.delaybeforesend = 0
                 child.maxread = int(self.cfg.get("MAX_READ_BYTES", "65536"))
                 child.setwinsize(50, 200)

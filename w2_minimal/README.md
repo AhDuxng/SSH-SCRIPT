@@ -24,6 +24,10 @@ Với SSH và SSH3, byte stream có thứ tự nên nhận marker đồng nghĩa
 đứng trước marker đã tới client. Với Mosh, marker chỉ xác nhận trạng thái terminal
 cuối đã được hiển thị; Mosh có thể bỏ qua trạng thái màn hình trung gian, vì vậy
 không được diễn giải `output_bytes` của Mosh là toàn bộ byte do lệnh sinh ra.
+W2 giữ một màn hình VT100 ảo xuyên suốt session Mosh và tìm marker trong trạng
+thái đã dựng lại, vì raw output của Mosh chỉ chứa các cell thay đổi chứ không
+nhất thiết chứa nguyên chuỗi marker. Mosh dùng timeout tổng riêng và không áp
+idle timeout cho các khoảng không có redraw.
 
 ## Một trial
 
