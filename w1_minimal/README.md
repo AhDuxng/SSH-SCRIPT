@@ -95,3 +95,4 @@ w1_minimal/
 │   └── figures/              # PNG/PDF sinh ra
 └── .venv/                    # môi trường Python cục bộ
 ```
+
