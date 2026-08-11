@@ -1,0 +1,288 @@
+diff --git a/client/client.go b/client/client.go
+index 4855b84..25a638c 100644
+--- a/client/client.go
++++ b/client/client.go
+@@ -4,6 +4,8 @@ import (
+ 	"bytes"
+ 	"context"
+ 	"crypto/tls"
++	"encoding/base64"
++	"encoding/json"
+ 	"errors"
+ 	"fmt"
+ 	"io"
+@@ -11,7 +13,9 @@ import (
+ 	"net/http"
+ 	"net/url"
+ 	"os"
++	"strconv"
+ 	"strings"
++	"sync"
+ 	"syscall"
+ 	"time"
+ 
+@@ -35,6 +39,47 @@ type ExitStatus struct {
+ 	StatusCode int
+ }
+ 
++// MuxStreamSpec mô tả một session channel trong conversation hiện tại.
++type MuxStreamSpec struct {
++	Role       string
++	Command    string
++	RequestPTY bool
++}
++
++// MuxBridgeFrame là frame JSON trao đổi giữa SSH3 client và workload driver.
++type MuxBridgeFrame struct {
++	Type                 string  `json:"type"`
++	Role                 string  `json:"role,omitempty"`
++	StreamID             uint64  `json:"stream_id,omitempty"`
++	ConversationStreamID uint64  `json:"conversation_stream_id,omitempty"`
++	DataBase64           string  `json:"data_b64,omitempty"`
++	DataType             uint64  `json:"data_type,omitempty"`
++	ExitStatus           *uint64 `json:"exit_status,omitempty"`
++	Message              string  `json:"message,omitempty"`
++}
++
++type muxFrameWriter struct {
++	mu      sync.Mutex
++	encoder *json.Encoder
++}
++
++// write ghi tuần tự một frame để các goroutine không xen dữ liệu.
++func (w *muxFrameWriter) write(frame MuxBridgeFrame) error {
++	w.mu.Lock()
++	defer w.mu.Unlock()
++	return w.encoder.Encode(frame)
++}
++
++// muxEnvDimension đọc kích thước terminal từ biến môi trường.
++func muxEnvDimension(name string, fallback uint64) uint64 {
++	raw := os.Getenv(name)
++	value, err := strconv.ParseUint(raw, 10, 64)
++	if err != nil || value == 0 {
++		return fallback
++	}
++	return value
++}
++
+ func (e ExitStatus) Error() string {
+ 	return fmt.Sprintf("exited with status %d", e.StatusCode)
+ }
+@@ -660,3 +705,146 @@ func (c *Client) RunSession(tty *os.File, forwardSSHAgent bool, command ...strin
+ 		}
+ 	}
+ }
++
++// RunMuxStdio mở các channel và bridge dữ liệu qua stdin/stdout có framing.
++// Hàm Dial nằm bên ngoài để mọi channel dùng chung connection và conversation.
++func (c *Client) RunMuxStdio(specs []MuxStreamSpec, input io.Reader, output io.Writer) error {
++	if len(specs) == 0 {
++		return fmt.Errorf("at least one mux stream is required")
++	}
++
++	writer := &muxFrameWriter{encoder: json.NewEncoder(output)}
++	channels := make(map[string]ssh3.Channel, len(specs))
++	for _, spec := range specs {
++		if spec.Role == "" || spec.Command == "" {
++			return fmt.Errorf("mux stream role and command must be non-empty")
++		}
++		if _, exists := channels[spec.Role]; exists {
++			return fmt.Errorf("duplicate mux stream role %q", spec.Role)
++		}
++		channel, err := c.OpenChannel("session", 30000, 0)
++		if err != nil {
++			return fmt.Errorf("could not open mux stream %s: %w", spec.Role, err)
++		}
++		if spec.RequestPTY {
++			termName := os.Getenv("SSH3_MUX_TERM")
++			if termName == "" {
++				termName = "xterm-256color"
++			}
++			if err := channel.SendRequest(&ssh3Messages.ChannelRequestMessage{
++				WantReply: true,
++				ChannelRequest: &ssh3Messages.PtyRequest{
++					Term:       termName,
++					CharWidth:  muxEnvDimension("SSH3_MUX_COLUMNS", 80),
++					CharHeight: muxEnvDimension("SSH3_MUX_ROWS", 24),
++				},
++			}); err != nil {
++				channel.Close()
++				return fmt.Errorf("could not request PTY for mux stream %s: %w", spec.Role, err)
++			}
++		}
++		if err := channel.SendRequest(&ssh3Messages.ChannelRequestMessage{
++			WantReply:      true,
++			ChannelRequest: &ssh3Messages.ExecRequest{Command: spec.Command},
++		}); err != nil {
++			channel.Close()
++			return fmt.Errorf("could not start mux stream %s: %w", spec.Role, err)
++		}
++		channels[spec.Role] = channel
++		if err := writer.write(MuxBridgeFrame{
++			Type: "stream_open", Role: spec.Role,
++			StreamID:             uint64(channel.ChannelID()),
++			ConversationStreamID: channel.ConversationStreamID(),
++		}); err != nil {
++			channel.Close()
++			return err
++		}
++
++		go func(role string, ch ssh3.Channel) {
++			defer ch.Close()
++			for {
++				message, err := ch.NextMessage()
++				if err != nil {
++					if err != io.EOF {
++						_ = writer.write(MuxBridgeFrame{
++							Type: "error", Role: role, Message: err.Error(),
++						})
++					}
++					return
++				}
++				switch message := message.(type) {
++				case *ssh3Messages.DataOrExtendedDataMessage:
++					_ = writer.write(MuxBridgeFrame{
++						Type: "data", Role: role,
++						DataBase64: base64.StdEncoding.EncodeToString([]byte(message.Data)),
++						DataType:   uint64(message.DataType),
++					})
++				case *ssh3Messages.ChannelRequestMessage:
++					switch request := message.ChannelRequest.(type) {
++					case *ssh3Messages.ExitStatusRequest:
++						status := request.ExitStatus
++						_ = writer.write(MuxBridgeFrame{
++							Type: "exit", Role: role, ExitStatus: &status,
++						})
++						return
++					case *ssh3Messages.ExitSignalRequest:
++						_ = writer.write(MuxBridgeFrame{
++							Type: "exit", Role: role,
++							Message: request.SignalNameWithoutSig + ": " + request.ErrorMessageUTF8,
++						})
++						return
++					}
++				}
++			}
++		}(spec.Role, channel)
++	}
++
++	if err := writer.write(MuxBridgeFrame{Type: "connection_ready"}); err != nil {
++		return err
++	}
++
++	decoder := json.NewDecoder(input)
++	for {
++		var frame MuxBridgeFrame
++		if err := decoder.Decode(&frame); err != nil {
++			if err == io.EOF {
++				break
++			}
++			return fmt.Errorf("invalid mux control frame: %w", err)
++		}
++		if frame.Type == "shutdown" {
++			break
++		}
++		if frame.Type != "data" {
++			_ = writer.write(MuxBridgeFrame{
++				Type: "error", Role: frame.Role,
++				Message: "unsupported control frame type " + frame.Type,
++			})
++			continue
++		}
++		channel, ok := channels[frame.Role]
++		if !ok {
++			_ = writer.write(MuxBridgeFrame{
++				Type: "error", Role: frame.Role, Message: "unknown mux role",
++			})
++			continue
++		}
++		data, err := base64.StdEncoding.DecodeString(frame.DataBase64)
++		if err != nil {
++			_ = writer.write(MuxBridgeFrame{
++				Type: "error", Role: frame.Role, Message: "invalid base64 payload",
++			})
++			continue
++		}
++		if _, err := channel.WriteData(data, ssh3Messages.SSH_EXTENDED_DATA_NONE); err != nil {
++			_ = writer.write(MuxBridgeFrame{
++				Type: "error", Role: frame.Role, Message: err.Error(),
++			})
++		}
++	}
++
++	for _, channel := range channels {
++		channel.Close()
++	}
++	return nil
++}
+diff --git a/cmd/ssh3.go b/cmd/ssh3.go
+index 1e638d7..dceec1c 100644
+--- a/cmd/ssh3.go
++++ b/cmd/ssh3.go
+@@ -328,6 +328,19 @@ type FlagValue struct {
+ 	client_config.CLIOptionParser
+ }
+ 
++type stringListFlag []string
++
++// String ghép các giá trị cờ để phục vụ flag package.
++func (v *stringListFlag) String() string {
++	return strings.Join(*v, ",")
++}
++
++// Set thêm một giá trị cho cờ có thể lặp lại.
++func (v *stringListFlag) Set(value string) error {
++	*v = append(*v, value)
++	return nil
++}
++
+ func NewFlagValue(optionName client_config.OptionName, parser client_config.CLIOptionParser) *FlagValue {
+ 	return &FlagValue{
+ 		pluginOptionName: optionName,
+@@ -382,6 +395,10 @@ func ClientMain() int {
+ 	forwardUDP := flag.String("forward-udp", "", "if set, take a localport/remoteip@remoteport forwarding localhost@localport towards remoteip@remoteport")
+ 	forwardTCP := flag.String("forward-tcp", "", "if set, take a localport/remoteip@remoteport forwarding localhost@localport towards remoteip@remoteport")
+ 	proxyJump := flag.String("proxy-jump", "", "if set, performs a proxy jump using the specified remote host as proxy (requires server with version >= 0.1.5)")
++	var muxStreams stringListFlag
++	flag.Var(&muxStreams, "mux-stream", "open role=command on a distinct session channel in one SSH3 conversation; repeatable")
++	var muxPtyStreams stringListFlag
++	flag.Var(&muxPtyStreams, "mux-pty-stream", "open role=command with a PTY on a distinct session channel; repeatable")
+ 
+ 	var flagValues []*FlagValue
+ 	cliParsers, err := internal.GetPluginsCLIArgs()
+@@ -697,6 +714,34 @@ func ClientMain() int {
+ 		log.Error().Msgf("could not dial %s: %s", options.CanonicalHostFormat(), err)
+ 		return -1
+ 	}
++	if len(muxStreams) > 0 || len(muxPtyStreams) > 0 {
++		specs := make([]client.MuxStreamSpec, 0, len(muxStreams)+len(muxPtyStreams))
++		for _, raw := range muxStreams {
++			role, streamCommand, found := strings.Cut(raw, "=")
++			if !found || role == "" || streamCommand == "" {
++				log.Error().Msgf("invalid -mux-stream %q: expected role=command", raw)
++				return -1
++			}
++			specs = append(specs, client.MuxStreamSpec{
++				Role: role, Command: streamCommand, RequestPTY: false,
++			})
++		}
++		for _, raw := range muxPtyStreams {
++			role, streamCommand, found := strings.Cut(raw, "=")
++			if !found || role == "" || streamCommand == "" {
++				log.Error().Msgf("invalid -mux-pty-stream %q: expected role=command", raw)
++				return -1
++			}
++			specs = append(specs, client.MuxStreamSpec{
++				Role: role, Command: streamCommand, RequestPTY: true,
++			})
++		}
++		if err := c.RunMuxStdio(specs, os.Stdin, os.Stdout); err != nil {
++			log.Error().Msgf("multiplexed stdio session failed: %s", err)
++			return -1
++		}
++		return 0
++	}
+ 	if localTCPAddr != nil && remoteTCPAddr != nil {
+ 		_, err := c.ForwardTCP(ctx, localTCPAddr, remoteTCPAddr)
+ 		if err != nil {
