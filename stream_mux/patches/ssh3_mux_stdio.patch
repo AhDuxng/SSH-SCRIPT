@@ -1,5 +1,5 @@
 diff --git a/client/client.go b/client/client.go
-index 4855b84..25a638c 100644
+index 4855b84..9c049e4 100644
 --- a/client/client.go
 +++ b/client/client.go
 @@ -4,6 +4,8 @@ import (
@@ -36,8 +36,8 @@ index 4855b84..25a638c 100644
 +type MuxBridgeFrame struct {
 +	Type                 string  `json:"type"`
 +	Role                 string  `json:"role,omitempty"`
-+	StreamID             uint64  `json:"stream_id,omitempty"`
-+	ConversationStreamID uint64  `json:"conversation_stream_id,omitempty"`
++	StreamID             *uint64 `json:"stream_id,omitempty"`
++	ConversationStreamID *uint64 `json:"conversation_stream_id,omitempty"`
 +	DataBase64           string  `json:"data_b64,omitempty"`
 +	DataType             uint64  `json:"data_type,omitempty"`
 +	ExitStatus           *uint64 `json:"exit_status,omitempty"`
@@ -69,7 +69,7 @@ index 4855b84..25a638c 100644
  func (e ExitStatus) Error() string {
  	return fmt.Sprintf("exited with status %d", e.StatusCode)
  }
-@@ -660,3 +705,146 @@ func (c *Client) RunSession(tty *os.File, forwardSSHAgent bool, command ...strin
+@@ -660,3 +705,148 @@ func (c *Client) RunSession(tty *os.File, forwardSSHAgent bool, command ...strin
  		}
  	}
  }
@@ -119,10 +119,12 @@ index 4855b84..25a638c 100644
 +			return fmt.Errorf("could not start mux stream %s: %w", spec.Role, err)
 +		}
 +		channels[spec.Role] = channel
++		streamID := uint64(channel.ChannelID())
++		conversationStreamID := channel.ConversationStreamID()
 +		if err := writer.write(MuxBridgeFrame{
 +			Type: "stream_open", Role: spec.Role,
-+			StreamID:             uint64(channel.ChannelID()),
-+			ConversationStreamID: channel.ConversationStreamID(),
++			StreamID:             &streamID,
++			ConversationStreamID: &conversationStreamID,
 +		}); err != nil {
 +			channel.Close()
 +			return err

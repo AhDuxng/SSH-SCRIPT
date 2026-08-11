@@ -209,3 +209,7 @@ Binary và mã băm patch được tạo tại:
 stream_mux/bin/ssh3-mux-stdio
 stream_mux/bin/ssh3-mux-stdio.patch.sha256
 ```
+
+Source build nằm trong cache `.build/` có tên theo commit và checksum patch. Khi
+patch thay đổi, script tự dùng cache mới nên không tái sử dụng source đã áp dụng
+patch cũ.

@@ -68,11 +68,26 @@ def socket_rows(pids: list[int], protocol: str) -> list[str]:
                 text=True, check=False,
             )
         except FileNotFoundError:
-            return []
+            break
         for line in checked.stdout.splitlines()[1:]:
             parts = line.split()
             if len(parts) >= 9:
                 rows.append(f"pid={pid} {' '.join(parts[8:])}")
+    if rows or protocol != "udp":
+        return sorted(set(rows))
+
+    try:
+        checked = subprocess.run(
+            ["ss", "-H", "-u", "-a", "-p", "-n"],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            text=True, check=False,
+        )
+    except FileNotFoundError:
+        return []
+    wanted = {f"pid={pid}," for pid in pids}
+    for line in checked.stdout.splitlines():
+        if any(marker in line for marker in wanted):
+            rows.append(line.strip())
     return sorted(set(rows))
 
 

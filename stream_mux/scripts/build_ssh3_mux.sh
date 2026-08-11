@@ -6,9 +6,11 @@ cd "$SHARED_DIR"
 
 UPSTREAM_URL="${SSH3_UPSTREAM_URL:-https://github.com/francoismichel/ssh3.git}"
 UPSTREAM_COMMIT="${SSH3_UPSTREAM_COMMIT:-5b4b242db02a5cfbb9ebf9dfc5aad2c32e10f245}"
-BUILD_DIR="${SSH3_BUILD_DIR:-.build/ssh3}"
 OUTPUT_BIN="${SSH3_MUX_BIN:-bin/ssh3-mux-stdio}"
 PATCH_PATH="$SHARED_DIR/patches/ssh3_mux_stdio.patch"
+PATCH_HASH="$(shasum -a 256 "$PATCH_PATH" | awk '{print $1}')"
+DEFAULT_BUILD_DIR=".build/ssh3-${UPSTREAM_COMMIT:0:12}-${PATCH_HASH:0:12}"
+BUILD_DIR="${SSH3_BUILD_DIR:-$DEFAULT_BUILD_DIR}"
 
 if [[ "$BUILD_DIR" == /* ]]; then
   BUILD_PATH="$BUILD_DIR"
@@ -50,6 +52,5 @@ fi
 if [[ "$(uname -s)" == "Darwin" ]]; then
   codesign --force --sign - "$OUTPUT_PATH"
 fi
-PATCH_HASH="$(shasum -a 256 "$PATCH_PATH" | awk '{print $1}')"
 printf '%s\n' "$PATCH_HASH" > "${OUTPUT_PATH}.patch.sha256"
 echo "Built $OUTPUT_PATH from SSH3 commit $UPSTREAM_COMMIT"

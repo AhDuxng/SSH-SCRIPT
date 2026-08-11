@@ -13,7 +13,7 @@ import threading
 import time
 
 from .base import ConnectionAudit, MultiplexConnection, RawStream, StreamSpec
-from .common import JSONPipeReader, cfg_bool, process_tree, socket_rows
+from .common import JSONPipeReader, PipeReader, cfg_bool, process_tree, socket_rows
 
 
 class SSH3Connection(MultiplexConnection):
@@ -24,8 +24,23 @@ class SSH3Connection(MultiplexConnection):
         self.trial_tag = trial_tag
         self.process: subprocess.Popen | None = None
         self.reader: JSONPipeReader | None = None
+        self.stderr_reader: PipeReader | None = None
         self.control_events: queue.Queue[dict] = queue.Queue()
         self._write_lock = threading.Lock()
+        self._stderr_lock = threading.Lock()
+        self._stderr_buffer = bytearray()
+
+    # Giữ phần cuối stderr để chẩn đoán lỗi khởi động.
+    def _capture_stderr(self, data: bytes) -> None:
+        with self._stderr_lock:
+            self._stderr_buffer.extend(data)
+            if len(self._stderr_buffer) > 131072:
+                del self._stderr_buffer[:-131072]
+
+    # Chuyển stderr đã giữ thành văn bản ngắn.
+    def _stderr_text(self) -> str:
+        with self._stderr_lock:
+            return bytes(self._stderr_buffer).decode("utf-8", errors="replace").strip()
 
     # Gửi một frame điều khiển tới Go bridge.
     def _send_bridge_frame(self, payload: dict):
@@ -117,8 +132,12 @@ class SSH3Connection(MultiplexConnection):
             })
         self.process = subprocess.Popen(
             command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL, start_new_session=True, env=process_env,
+            stderr=subprocess.PIPE, start_new_session=True, env=process_env,
         )
+        self.stderr_reader = PipeReader(
+            self.process.stderr, self._capture_stderr, "ssh3-mux-stderr"
+        )
+        self.stderr_reader.start()
         self.reader = JSONPipeReader(
             self.process.stdout, self._dispatch, "ssh3-mux-stdout"
         )
@@ -132,10 +151,12 @@ class SSH3Connection(MultiplexConnection):
         ):
             try:
                 event = self.control_events.get(
-                    timeout=max(0.01, deadline - time.monotonic())
+                    timeout=min(0.1, max(0.01, deadline - time.monotonic()))
                 )
             except queue.Empty:
-                break
+                if self.process.poll() is not None:
+                    break
+                continue
             if event.get("type") == "error":
                 raise RuntimeError(event.get("message", "SSH3 mux bridge error"))
             if event.get("type") == "stream_open":
@@ -145,7 +166,12 @@ class SSH3Connection(MultiplexConnection):
 
         if set(opened) != set(self.roles) or not connection_ready:
             missing = sorted(set(self.roles) - set(opened))
-            raise TimeoutError(f"SSH3 streams not opened: {missing}")
+            if self.process.poll() is not None and self.stderr_reader is not None:
+                self.stderr_reader.thread.join(timeout=0.5)
+            raise RuntimeError(
+                f"SSH3 streams not opened: missing={missing}; "
+                f"bridge_exit={self.process.poll()}; stderr={self._stderr_text()!r}"
+            )
         for role, event in opened.items():
             self.streams[role].stream_id = str(event["stream_id"])
             self.streams[role].conversation_id = str(event["conversation_stream_id"])
@@ -166,7 +192,10 @@ class SSH3Connection(MultiplexConnection):
             f"udp_sockets={udp_sockets}; IDs reported by OpenChannel",
         )
         if not valid:
-            raise RuntimeError(f"invalid SSH3 stream audit: {self.audit}")
+            raise RuntimeError(
+                f"invalid SSH3 stream audit: {self.audit}; "
+                f"stderr={self._stderr_text()!r}"
+            )
         return self.streams
 
     # Đóng các QUIC stream và tiến trình bridge.

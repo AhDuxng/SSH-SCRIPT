@@ -177,8 +177,10 @@ class W1Connection:
         self.transport = open_multiplex_connection(
             self.cfg, self.protocol, specs, self.trial_tag
         )
-        self._raw_streams = self.transport.open(timeout)
-        self.audit = self.transport.audit
+        try:
+            self._raw_streams = self.transport.open(timeout)
+        finally:
+            self.audit = self.transport.audit
 
         if self.protocol == "mosh":
             raw_stream = self._raw_streams["terminal"]
