@@ -99,6 +99,7 @@ def summarize_scenarios(samples, streams, trials):
             float(row["setup_ms"])
             for row in trial_group
             if row["setup_ms"]
+            and row["connection_valid"] == "1"
             and row["ready_streams"] == row["stream_count"]
         ]
         setup = latency_stats(setup_values)
@@ -119,7 +120,7 @@ def summarize_scenarios(samples, streams, trials):
             "output_completeness_pct": fmt(
                 100.0 * sum(row["output_complete"] == "1" for row in sample_group) / len(sample_group)
             ),
-            "setup_n": setup["n"],
+            "setup_n": len(setup_values),
             "setup_mean_ms": setup["mean_ms"],
             "setup_median_ms": setup["median_ms"],
             "setup_p95_ms": setup["p95_ms"],
@@ -150,7 +151,8 @@ def main():
         "protocol", "scenario", "stream_completed",
     })
     trials = load_csv(result_dir / "trials.csv", {
-        "protocol", "scenario", "connection_valid",
+        "protocol", "scenario", "connection_valid", "setup_ms",
+        "ready_streams", "stream_count",
     })
     command_rows = summarize_commands(samples, per_stream=False)
     command_rows += summarize_commands(samples, per_stream=True)
