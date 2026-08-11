@@ -127,6 +127,8 @@ class W1Connection:
                 "terminal",
                 f"stty -echo; exec {command}",
                 allocate_pty=True,
+                columns=int(self.cfg.get("W1_MOSH_COLUMNS", "4096")),
+                rows=int(self.cfg.get("W1_MOSH_ROWS", "64")),
             )]
         return [
             StreamSpec(role, remote_agent_command(remote_agent, [role]))

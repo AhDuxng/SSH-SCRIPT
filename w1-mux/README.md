@@ -55,6 +55,15 @@ session, không phải transport stream.
 Các metric gồm Mean, Median, P95, P99, Command Completion Rate, Stream Completion
 Rate và Output Completeness.
 
+`setup_ms` được đo từ ngay trước khi mở connection đến khi audit transport hoàn
+tất và mọi role của workload báo READY. Giá trị từng trial nằm trong
+`trials.csv`; Mean, Median, P95 và P99 nằm trong `scenario_summary.csv`. Khoảng
+thời gian này không gồm warm-up hoặc workload.
+
+Mosh sử dụng terminal ảo rộng và cao theo `W1_MOSH_COLUMNS` và `W1_MOSH_ROWS` để
+frame Base64 của W1 không bị wrap hoặc scroll khỏi trạng thái terminal trước khi
+client nhận được. Adapter loại mã điều khiển ANSI trước khi giải mã frame.
+
 ## Cách chạy
 
 ```bash

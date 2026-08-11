@@ -95,6 +95,13 @@ def summarize_scenarios(samples, streams, trials):
         trial_group = trial_groups[key]
         completed_samples = [row for row in sample_group if row["status"] == "completed"]
         latencies = [float(row["latency_ms"]) for row in completed_samples if row["latency_ms"]]
+        setup_values = [
+            float(row["setup_ms"])
+            for row in trial_group
+            if row["setup_ms"]
+            and row["ready_streams"] == row["stream_count"]
+        ]
+        setup = latency_stats(setup_values)
         output.append({
             "protocol": key[0], "scenario": key[1],
             "trials": len(trial_group),
@@ -112,6 +119,11 @@ def summarize_scenarios(samples, streams, trials):
             "output_completeness_pct": fmt(
                 100.0 * sum(row["output_complete"] == "1" for row in sample_group) / len(sample_group)
             ),
+            "setup_n": setup["n"],
+            "setup_mean_ms": setup["mean_ms"],
+            "setup_median_ms": setup["median_ms"],
+            "setup_p95_ms": setup["p95_ms"],
+            "setup_p99_ms": setup["p99_ms"],
             **latency_stats(latencies),
         })
     return output

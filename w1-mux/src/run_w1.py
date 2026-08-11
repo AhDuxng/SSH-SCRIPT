@@ -89,6 +89,10 @@ def main() -> int:
         "ordering": "randomized_complete_blocks",
         "connection_scope": "one new connection per trial",
         "stream_open_rule": "all roles opened and READY before warm-up and barrier",
+        "setup_latency_definition": (
+            "from immediately before connection open until transport audit "
+            "and all workload roles are READY"
+        ),
         "warmup_seconds": float(cfg.get("WARMUP_SECONDS", "5")),
         "latency_definition": "client result receive time minus client command send time",
         "completion_definition": "a matching result frame was received before timeout",

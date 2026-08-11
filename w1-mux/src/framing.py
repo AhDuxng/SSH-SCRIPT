@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 from dataclasses import dataclass
 
 
 FRAME_PREFIX = b"MUX1 "
 PROTOCOL_VERSION = 1
+ANSI_ESCAPE = re.compile(rb"\x1b(?:\[[0-?]*[ -/]*[@-~]|[@-_])")
 
 
 # Mã hóa một frame theo giao thức W1.
@@ -39,7 +41,7 @@ class FrameDecoder:
             marker = line.find(FRAME_PREFIX)
             if marker < 0:
                 continue
-            raw = line[marker + len(FRAME_PREFIX):]
+            raw = ANSI_ESCAPE.sub(b"", line[marker + len(FRAME_PREFIX):])
             try:
                 frame = json.loads(raw.decode("ascii"))
             except (UnicodeDecodeError, json.JSONDecodeError):
