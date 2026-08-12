@@ -6,7 +6,7 @@ warm-up năm giây rồi giải phóng barrier chung.
 
 ## Workload
 
-Mỗi stream chạy tuần tự đúng năm lệnh:
+Mỗi stream chạy tuần tự năm lệnh sau theo từng vòng:
 
 ```text
 ls -1 /usr/bin | head -n 30
@@ -16,8 +16,21 @@ ps -eo pid,comm,%cpu,%mem --sort=pid | head -n 30
 uptime
 ```
 
-Lệnh tiếp theo chỉ được gửi sau khi nhận kết quả của lệnh trước. Các stream khác
-nhau chạy đồng thời.
+Mặc định mỗi trial chạy 20 vòng, tương đương 100 mẫu trên mỗi stream vật lý của
+trial đó. Mỗi trial tạo connection và stream mới; khi gộp cùng một `stream_role`
+qua 10 trial độc lập, mỗi role của từng tổ hợp `protocol × scenario` có đúng
+1.000 mẫu và mỗi lệnh có 200 mẫu. Lệnh tiếp theo chỉ được gửi sau khi nhận kết
+quả của lệnh trước. Các stream trong cùng trial chạy đồng thời.
+
+```env
+TRIALS_PER_COMBINATION=10
+SAMPLES_PER_STREAM_PER_TRIAL=100
+```
+
+`SAMPLES_PER_STREAM_PER_TRIAL` phải là bội số dương của 5 để mọi lệnh có số lần
+lặp bằng nhau. `samples.csv` ghi `sample_index=1..100`, `cycle_index=1..20` và
+`command_index=1..5`. Analyzer xác minh không thiếu hoặc trùng mẫu trước khi tạo
+bảng tổng hợp.
 
 Các kịch bản:
 
@@ -83,6 +96,7 @@ artifacts/results/trials.csv
 artifacts/results/stream_audit.csv
 artifacts/results/command_summary.csv
 artifacts/results/scenario_summary.csv
+artifacts/results/stream_summary.csv
 artifacts/results/metadata.json
 ```
 

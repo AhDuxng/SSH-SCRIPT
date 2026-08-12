@@ -16,7 +16,8 @@ IDENTITY_FIELDS = (
 
 SAMPLE_FIELDS = IDENTITY_FIELDS + (
     "stream_role", "stream_index", "transport_stream_id",
-    "conversation_stream_id", "command_index", "command", "request_id",
+    "conversation_stream_id", "sample_index", "cycle_index",
+    "command_index", "command", "request_id",
     "send_time_ns", "completion_time_ns", "latency_ms", "exit_code",
     "expected_bytes", "received_bytes", "expected_sha256", "received_sha256",
     "output_complete", "timed_out", "status", "stderr_bytes", "note",

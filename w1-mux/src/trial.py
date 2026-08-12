@@ -19,13 +19,29 @@ def _sample_base(trial: dict, role: str, index: int, stream) -> dict:
     }
 
 
+# Tạo kế hoạch mẫu bằng cách lặp tuần tự năm lệnh.
+def build_sample_plan(samples_per_stream: int):
+    if samples_per_stream <= 0 or samples_per_stream % len(COMMANDS) != 0:
+        raise ValueError(
+            f"SAMPLES_PER_STREAM_PER_TRIAL must be a positive multiple of {len(COMMANDS)}"
+        )
+    return [
+        {
+            "sample_index": sample_index,
+            "cycle_index": (sample_index - 1) // len(COMMANDS) + 1,
+            "command_index": (sample_index - 1) % len(COMMANDS) + 1,
+            "command": COMMANDS[(sample_index - 1) % len(COMMANDS)],
+        }
+        for sample_index in range(1, samples_per_stream + 1)
+    ]
+
+
 # Tạo một mẫu lỗi chưa có kết quả lệnh.
-def _failed_sample(trial, role, index, stream, command_index, command, status, note):
+def _failed_sample(trial, role, index, stream, sample, status, note):
     return {
         **_sample_base(trial, role, index, stream),
-        "command_index": command_index,
-        "command": command,
-        "request_id": f"{trial['trial_id']}:{role}:{command_index}",
+        **sample,
+        "request_id": f"{trial['trial_id']}:{role}:{sample['sample_index']}",
         "send_time_ns": "",
         "completion_time_ns": "",
         "latency_ms": "",
@@ -42,8 +58,11 @@ def _failed_sample(trial, role, index, stream, command_index, command, status, n
     }
 
 
-# Chạy tuần tự năm lệnh trên một stream.
-def run_stream(trial, role, index, stream, barrier, command_timeout, live_progress):
+# Chạy tuần tự toàn bộ kế hoạch mẫu trên một stream.
+def run_stream(
+    trial, role, index, stream, barrier, command_timeout,
+    sample_plan, live_progress, live_every,
+):
     rows = []
     started_ns = 0
     completed_ns = 0
@@ -51,8 +70,10 @@ def run_stream(trial, role, index, stream, barrier, command_timeout, live_progre
     try:
         barrier.wait(timeout=command_timeout)
         started_ns = time.time_ns()
-        for command_index, command in enumerate(COMMANDS, start=1):
-            request_id = f"{trial['trial_id']}:{role}:{command_index}"
+        for position, sample in enumerate(sample_plan):
+            sample_index = sample["sample_index"]
+            command = sample["command"]
+            request_id = f"{trial['trial_id']}:{role}:{sample_index}"
             try:
                 result = stream.execute(request_id, command, command_timeout)
                 stdout = result["stdout"]
@@ -67,8 +88,7 @@ def run_stream(trial, role, index, stream, barrier, command_timeout, live_progre
                 note = str(result.get("error", ""))
                 row = {
                     **_sample_base(trial, role, index, stream),
-                    "command_index": command_index,
-                    "command": command,
+                    **sample,
                     "request_id": request_id,
                     "send_time_ns": result["send_time_ns"],
                     "completion_time_ns": result["completion_time_ns"],
@@ -85,58 +105,62 @@ def run_stream(trial, role, index, stream, barrier, command_timeout, live_progre
                     "note": note,
                 }
                 rows.append(row)
-                if live_progress:
+                if live_progress and (
+                    status != "completed"
+                    or sample_index == 1
+                    or sample_index == len(sample_plan)
+                    or sample_index % live_every == 0
+                ):
                     print(
-                        f"[LIVE] {trial['trial_id']} {role} command={command_index}/5 "
+                        f"[LIVE] {trial['trial_id']} {role} "
+                        f"sample={sample_index}/{len(sample_plan)} "
+                        f"command={sample['command_index']}/{len(COMMANDS)} "
                         f"status={status} latency_ms={row['latency_ms']} "
                         f"complete={int(output_complete)}",
                         flush=True,
                     )
                 if timed_out:
                     failure_note = note or "remote command timed out"
-                    for rest_index in range(command_index + 1, len(COMMANDS) + 1):
+                    for remaining_sample in sample_plan[position + 1:]:
                         rows.append(_failed_sample(
-                            trial, role, index, stream, rest_index,
-                            COMMANDS[rest_index - 1], "skipped", failure_note,
+                            trial, role, index, stream, remaining_sample,
+                            "skipped", failure_note,
                         ))
                     break
             except TimeoutError as exc:
                 failure_note = str(exc)
                 rows.append(_failed_sample(
-                    trial, role, index, stream, command_index, command,
-                    "timeout", failure_note,
+                    trial, role, index, stream, sample, "timeout", failure_note,
                 ))
-                for rest_index in range(command_index + 1, len(COMMANDS) + 1):
+                for remaining_sample in sample_plan[position + 1:]:
                     rows.append(_failed_sample(
-                        trial, role, index, stream, rest_index,
-                        COMMANDS[rest_index - 1], "skipped", failure_note,
+                        trial, role, index, stream, remaining_sample,
+                        "skipped", failure_note,
                     ))
                 break
             except Exception as exc:
                 failure_note = repr(exc)
                 rows.append(_failed_sample(
-                    trial, role, index, stream, command_index, command,
-                    "failure", failure_note,
+                    trial, role, index, stream, sample, "failure", failure_note,
                 ))
-                for rest_index in range(command_index + 1, len(COMMANDS) + 1):
+                for remaining_sample in sample_plan[position + 1:]:
                     rows.append(_failed_sample(
-                        trial, role, index, stream, rest_index,
-                        COMMANDS[rest_index - 1], "skipped", failure_note,
+                        trial, role, index, stream, remaining_sample,
+                        "skipped", failure_note,
                     ))
                 break
     except Exception as exc:
         failure_note = repr(exc)
-        for command_index, command in enumerate(COMMANDS, start=1):
+        for sample in sample_plan:
             rows.append(_failed_sample(
-                trial, role, index, stream, command_index, command,
-                "barrier_failure", failure_note,
+                trial, role, index, stream, sample, "barrier_failure", failure_note,
             ))
     finally:
         completed_ns = time.time_ns()
 
     completed = sum(row["status"] == "completed" for row in rows)
     complete_outputs = sum(int(row["output_complete"]) for row in rows)
-    expected = len(COMMANDS)
+    expected = len(sample_plan)
     summary = {
         **_sample_base(trial, role, index, stream),
         "expected_commands": expected,
@@ -154,17 +178,19 @@ def run_stream(trial, role, index, stream, barrier, command_timeout, live_progre
 
 
 # Điền đủ dữ liệu khi trial không thể chạy.
-def unavailable_rows(trial: dict, roles: list[str], status: str, note: str):
+def unavailable_rows(
+    trial: dict, roles: list[str], sample_plan: list[dict], status: str, note: str
+):
     samples, streams = [], []
     dummy = type("UnavailableStream", (), {"stream_id": "", "conversation_id": ""})()
     for index, role in enumerate(roles):
-        for command_index, command in enumerate(COMMANDS, start=1):
+        for sample in sample_plan:
             samples.append(_failed_sample(
-                trial, role, index, dummy, command_index, command, status, note
+                trial, role, index, dummy, sample, status, note
             ))
         streams.append({
             **_sample_base(trial, role, index, dummy),
-            "expected_commands": len(COMMANDS), "completed_commands": 0,
+            "expected_commands": len(sample_plan), "completed_commands": 0,
             "command_completion_rate_pct": "0.000", "complete_outputs": 0,
             "output_completeness_pct": "0.000", "stream_completed": 0,
             "started_time_ns": "", "completed_time_ns": "", "elapsed_ms": "",
@@ -180,6 +206,11 @@ def run_trial(cfg: dict, trial: dict, connection_factory):
     ready_timeout = float(cfg.get("STREAM_READY_TIMEOUT", "20"))
     warmup = float(cfg.get("WARMUP_SECONDS", "5"))
     live = cfg.get("LIVE_PROGRESS", "1") == "1"
+    samples_per_stream = int(cfg.get("SAMPLES_PER_STREAM_PER_TRIAL", "100"))
+    live_every = int(cfg.get("LIVE_PROGRESS_EVERY", "10"))
+    sample_plan = build_sample_plan(samples_per_stream)
+    if live_every <= 0:
+        raise ValueError("LIVE_PROGRESS_EVERY must be positive")
     connection = connection_factory(cfg, trial["protocol"], roles, trial["trial_tag"])
     setup_started = time.perf_counter_ns()
     workload_started = 0
@@ -196,7 +227,7 @@ def run_trial(cfg: dict, trial: dict, connection_factory):
             futures = {
                 pool.submit(
                     run_stream, trial, role, index, streams[role], barrier,
-                    timeout, live,
+                    timeout, sample_plan, live, live_every,
                 ): role
                 for index, role in enumerate(roles)
             }
@@ -211,19 +242,21 @@ def run_trial(cfg: dict, trial: dict, connection_factory):
         setup_ms = (time.perf_counter_ns() - setup_started) / 1_000_000.0
         workload_ms = ""
         status = "trial_unavailable"
-        samples, stream_rows = unavailable_rows(trial, roles, status, note)
+        samples, stream_rows = unavailable_rows(
+            trial, roles, sample_plan, status, note
+        )
     finally:
         try:
             connection.close()
         except Exception as exc:
             note = f"{note}; close={exc!r}" if note else f"close={exc!r}"
 
-    samples.sort(key=lambda row: (int(row["stream_index"]), int(row["command_index"])))
+    samples.sort(key=lambda row: (int(row["stream_index"]), int(row["sample_index"])))
     stream_rows.sort(key=lambda row: int(row["stream_index"]))
     completed_commands = sum(int(row["completed_commands"]) for row in stream_rows)
     complete_outputs = sum(int(row["complete_outputs"]) for row in stream_rows)
     completed_streams = sum(int(row["stream_completed"]) for row in stream_rows)
-    expected_commands = len(COMMANDS) * len(roles)
+    expected_commands = len(sample_plan) * len(roles)
     audit = connection.audit
     trial_row = {
         **trial,

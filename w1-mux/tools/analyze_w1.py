@@ -49,6 +49,42 @@ def latency_stats(values):
     }
 
 
+# Kiểm tra đủ mẫu và không trùng chỉ số trong từng stream.
+def validate_sample_counts(samples, trials):
+    expected_by_trial = {
+        row["trial_id"]: int(row["expected_commands"]) // int(row["stream_count"])
+        for row in trials
+    }
+    grouped = defaultdict(list)
+    for row in samples:
+        grouped[(row["trial_id"], row["stream_role"])].append(row)
+
+    expected_keys = {
+        (row["trial_id"], f"command_{index}")
+        for row in trials
+        for index in range(int(row["stream_count"]))
+    }
+    errors = []
+    for key in sorted(expected_keys):
+        group = grouped.get(key, [])
+        trial_id, role = key
+        expected = expected_by_trial[trial_id]
+        indexes = [int(row["sample_index"]) for row in group]
+        if len(group) != expected:
+            errors.append(
+                f"{trial_id}/{role}: expected {expected} samples, got {len(group)}"
+            )
+        if len(set(indexes)) != len(indexes):
+            errors.append(f"{trial_id}/{role}: duplicate sample_index")
+        if sorted(indexes) != list(range(1, expected + 1)):
+            errors.append(f"{trial_id}/{role}: sample_index is not 1..{expected}")
+    unexpected = sorted(set(grouped) - expected_keys)
+    if unexpected:
+        errors.append(f"unexpected trial/stream groups: {unexpected}")
+    if errors:
+        raise ValueError("invalid W1 sample counts:\n- " + "\n- ".join(errors))
+
+
 # Tổng hợp metric lệnh theo kịch bản hoặc từng stream.
 def summarize_commands(rows, per_stream=False):
     groups = defaultdict(list)
@@ -130,6 +166,60 @@ def summarize_scenarios(samples, streams, trials):
     return output
 
 
+# Tổng hợp riêng từng stream role, không gộp các stream trong cùng kịch bản.
+def summarize_streams(samples, streams, trials):
+    sample_groups, stream_groups = defaultdict(list), defaultdict(list)
+    trial_groups = defaultdict(list)
+    for row in samples:
+        sample_groups[(row["protocol"], row["scenario"], row["stream_role"])].append(row)
+    for row in streams:
+        stream_groups[(row["protocol"], row["scenario"], row["stream_role"])].append(row)
+    for row in trials:
+        trial_groups[(row["protocol"], row["scenario"])].append(row)
+
+    output = []
+    for key in sorted(sample_groups):
+        sample_group = sample_groups[key]
+        stream_group = stream_groups[key]
+        trial_group = trial_groups[(key[0], key[1])]
+        completed = [row for row in sample_group if row["status"] == "completed"]
+        latencies = [float(row["latency_ms"]) for row in completed if row["latency_ms"]]
+        elapsed = [
+            float(row["elapsed_ms"])
+            for row in stream_group
+            if row.get("elapsed_ms") and row["stream_completed"] == "1"
+        ]
+        elapsed_stats = latency_stats(elapsed)
+        output.append({
+            "protocol": key[0],
+            "scenario": key[1],
+            "stream_role": key[2],
+            "trials": len(stream_group),
+            "expected_samples": sum(
+                int(row["expected_commands"]) // int(row["stream_count"])
+                for row in trial_group
+            ),
+            "samples": len(sample_group),
+            "completed_commands": len(completed),
+            "command_completion_rate_pct": fmt(100.0 * len(completed) / len(sample_group)),
+            "completed_streams": sum(row["stream_completed"] == "1" for row in stream_group),
+            "stream_completion_rate_pct": fmt(
+                100.0 * sum(row["stream_completed"] == "1" for row in stream_group)
+                / len(stream_group)
+            ),
+            "output_completeness_pct": fmt(
+                100.0 * sum(row["output_complete"] == "1" for row in sample_group)
+                / len(sample_group)
+            ),
+            "stream_elapsed_mean_ms": elapsed_stats["mean_ms"],
+            "stream_elapsed_median_ms": elapsed_stats["median_ms"],
+            "stream_elapsed_p95_ms": elapsed_stats["p95_ms"],
+            "stream_elapsed_p99_ms": elapsed_stats["p99_ms"],
+            **latency_stats(latencies),
+        })
+    return output
+
+
 # Ghi một bảng tổng hợp ra CSV.
 def write_csv(path, rows):
     if not rows:
@@ -144,20 +234,26 @@ def write_csv(path, rows):
 def main():
     result_dir = Path(sys.argv[1] if len(sys.argv) > 1 else "artifacts/results")
     samples = load_csv(result_dir / "samples.csv", {
-        "protocol", "scenario", "stream_role", "command", "status",
-        "latency_ms", "output_complete",
+        "trial_id", "protocol", "scenario", "stream_role", "sample_index",
+        "cycle_index", "command_index", "command", "status", "latency_ms",
+        "output_complete",
     })
     streams = load_csv(result_dir / "streams.csv", {
         "protocol", "scenario", "stream_completed",
     })
     trials = load_csv(result_dir / "trials.csv", {
         "protocol", "scenario", "connection_valid", "setup_ms",
-        "ready_streams", "stream_count",
+        "ready_streams", "stream_count", "expected_commands",
     })
+    validate_sample_counts(samples, trials)
     command_rows = summarize_commands(samples, per_stream=False)
     command_rows += summarize_commands(samples, per_stream=True)
     write_csv(result_dir / "command_summary.csv", command_rows)
     write_csv(result_dir / "scenario_summary.csv", summarize_scenarios(samples, streams, trials))
+    write_csv(
+        result_dir / "stream_summary.csv",
+        summarize_streams(samples, streams, trials),
+    )
     print(f"Saved W1 summaries to {result_dir}")
 
 

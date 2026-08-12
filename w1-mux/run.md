@@ -22,6 +22,25 @@ rsync -av \
 `w1-mux/config.env` giữ Pi2 (`192.168.1.202`) làm `SERVER_HOST`, đúng với topology
 và cấu hình W3 hiện tại.
 
+## Chạy thí nghiệm chính thức
+
+`config.env` đã đặt 10 trial và 100 mẫu trên mỗi stream trong mỗi trial. Tổng
+cộng mỗi `stream_role` có 1.000 mẫu qua 10 connection độc lập.
+
+```bash
+cd ~/SSH-SCRIPT/w1-mux
+bash run_w1.sh config.env 2>&1 | tee artifacts/full_run.log
+```
+
+Khi bắt đầu, chương trình phải in:
+
+```text
+[PLAN] trials_per_combination=10 samples_per_stream_per_trial=100 samples_per_stream_role=1000
+```
+
+Sau khi hoàn tất, kiểm tra `stream_summary.csv`: mọi dòng phải có
+`expected_samples=1000` và `samples=1000`.
+
 ## Chuẩn bị Pi1 và smoke test SSH3 multiplex
 
 Chạy trên Pi1:
@@ -53,6 +72,7 @@ cd ../w1-mux
 PROTOCOLS=ssh3 \
 SCENARIOS=W1-S1,W1-S2,W1-S4 \
 TRIALS_PER_COMBINATION=1 \
+SAMPLES_PER_STREAM_PER_TRIAL=5 \
 WARMUP_SECONDS=0 \
 INTER_TRIAL_DELAY_SECONDS=0 \
 RESULT_DIR=artifacts/smoke-ssh3 \
@@ -72,6 +92,7 @@ Sau đó smoke test hai mô hình giao thức còn lại:
 PROTOCOLS=ssh,mosh \
 SCENARIOS=W1-S1 \
 TRIALS_PER_COMBINATION=1 \
+SAMPLES_PER_STREAM_PER_TRIAL=5 \
 WARMUP_SECONDS=0 \
 INTER_TRIAL_DELAY_SECONDS=0 \
 RESULT_DIR=artifacts/smoke-ssh-mosh \
@@ -89,7 +110,8 @@ Chạy nhanh một ma trận smoke sau khi cấu hình target:
 
 ```bash
 cd w1-mux
-TRIALS_PER_COMBINATION=1 INTER_TRIAL_DELAY_SECONDS=0 \
+TRIALS_PER_COMBINATION=1 SAMPLES_PER_STREAM_PER_TRIAL=5 \
+  INTER_TRIAL_DELAY_SECONDS=0 \
   bash run_w1.sh config.env
 ```
 
@@ -99,6 +121,17 @@ Tạo lại bảng tổng hợp mà không chạy lại trial:
 cd w1-mux
 .venv/bin/python tools/analyze_w1.py artifacts/results
 ```
+
+Vẽ toàn bộ hình từ bảng tổng hợp:
+
+```bash
+.venv/bin/python tools/plot_w1.py \
+  artifacts/results artifacts/figures --network low
+```
+
+`scenario_summary.csv` và các hình `figure_1_*` gộp mọi stream trong kịch bản.
+`stream_summary.csv` cùng các hình `figure_4_*`, `figure_5_*` giữ riêng kết quả
+của từng `command_0` đến `command_3`.
 
 Trước khi chấp nhận một SSH3 trial, kiểm tra `stream_audit.csv`: W1-S4 phải có
 bốn `stream_ids` khác nhau, đúng một `conversation_id` và

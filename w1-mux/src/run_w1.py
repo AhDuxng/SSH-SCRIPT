@@ -67,13 +67,30 @@ def main() -> int:
             f"unsupported protocols={unknown_protocols}, scenarios={unknown_scenarios}"
         )
     trials = int(cfg.get("TRIALS_PER_COMBINATION", "10"))
+    samples_per_stream_per_trial = int(
+        cfg.get("SAMPLES_PER_STREAM_PER_TRIAL", "100")
+    )
     cooldown = float(cfg.get("INTER_TRIAL_DELAY_SECONDS", "3"))
-    if trials <= 0 or cooldown < 0:
-        raise ValueError("trial count must be positive and cooldown non-negative")
+    if (
+        trials <= 0
+        or samples_per_stream_per_trial <= 0
+        or samples_per_stream_per_trial % len(COMMANDS) != 0
+        or cooldown < 0
+    ):
+        raise ValueError(
+            "trial count must be positive, samples per stream per trial must "
+            f"be a positive multiple of {len(COMMANDS)}, and cooldown non-negative"
+        )
 
     run_id = cfg.get("RUN_ID", "").strip() or time.strftime("%Y%m%dT%H%M%S")
     seed = int(cfg.get("RANDOM_SEED", "20260811"))
     schedule = build_schedule(protocols, scenarios, trials, seed, run_id)
+    print(
+        f"[PLAN] trials_per_combination={trials} "
+        f"samples_per_stream_per_trial={samples_per_stream_per_trial} "
+        f"samples_per_stream_role={trials * samples_per_stream_per_trial}",
+        flush=True,
+    )
     result_dir = Path(cfg.get("RESULT_DIR", "artifacts/results"))
     result_dir.mkdir(parents=True, exist_ok=True)
     write_csv(result_dir / "experiment_order.csv", ORDER_FIELDS, schedule)
@@ -85,6 +102,13 @@ def main() -> int:
         "scenarios": {name: SCENARIOS[name] for name in scenarios},
         "commands": list(COMMANDS),
         "trials_per_combination": trials,
+        "samples_per_stream_per_trial": samples_per_stream_per_trial,
+        "samples_per_stream_per_scenario": (
+            trials * samples_per_stream_per_trial
+        ),
+        "cycles_per_stream_per_trial": (
+            samples_per_stream_per_trial // len(COMMANDS)
+        ),
         "random_seed": seed,
         "ordering": "randomized_complete_blocks",
         "connection_scope": "one new connection per trial",
@@ -135,7 +159,10 @@ def main() -> int:
         write_csv(result_dir / "stream_audit.csv", AUDIT_FIELDS, audits)
         if cooldown and trial_index + 1 < len(schedule):
             time.sleep(cooldown)
-    print(f"Saved {len(schedule)} W1 trials to {result_dir}")
+    print(
+        f"Saved {len(schedule)} W1 trials to {result_dir}; "
+        f"samples_per_stream_role={trials * samples_per_stream_per_trial}"
+    )
     return 0
 
 
