@@ -1,5 +1,0 @@
-config.env
-.venv/
-__pycache__/
-artifacts/
-bin/
