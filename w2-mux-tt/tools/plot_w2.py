@@ -72,6 +72,8 @@ def plot_metric(rows, output_dir, field, title, ylabel, stem):
     axis.set_title(title)
     axis.set_ylabel(ylabel)
     axis.set_xticks(x, SCENARIOS)
+    if field.endswith("_pct"):
+        axis.set_ylim(0, 105)
     axis.grid(axis="y", alpha=0.25)
     axis.legend(ncol=3)
     fig.tight_layout()
@@ -94,6 +96,7 @@ def main() -> int:
         ("first_byte_median_ms", "W2 — độ trễ byte đầu", "Mili giây", "first_byte_median"),
         ("throughput_mean_mib_s", "W2 — thông lượng trung bình", "MiB/s", "throughput_mean"),
         ("transfer_completion_rate_pct", "W2 — tỷ lệ truyền hoàn tất", "Phần trăm", "transfer_completion"),
+        ("mean_content_coverage_pct", "W2 — độ bao phủ output hợp lệ", "Phần trăm", "content_coverage"),
         ("setup_median_ms", "W2 — thời gian setup", "Mili giây", "setup_median"),
     )
     for field, title, ylabel, stem in plots:

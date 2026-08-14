@@ -94,9 +94,12 @@ def main() -> int:
             f"giao thức lạ={unknown_protocols}, kịch bản lạ={unknown_scenarios}"
         )
     trials = int(cfg.get("TRIALS_PER_COMBINATION", "10"))
+    samples_per_stream = int(cfg.get("SAMPLES_PER_STREAM_PER_TRIAL", "100"))
     cooldown = float(cfg.get("INTER_TRIAL_DELAY_SECONDS", "3"))
-    if trials <= 0 or cooldown < 0:
-        raise ValueError("số trial phải dương và thời gian nghỉ không âm")
+    if trials <= 0 or samples_per_stream <= 0 or cooldown < 0:
+        raise ValueError(
+            "số trial và mẫu phải dương, thời gian nghỉ không được âm"
+        )
 
     payload_dir = Path(cfg.get("PAYLOAD_DIR", "payloads"))
     payloads = load_payloads(payload_dir)
@@ -105,6 +108,7 @@ def main() -> int:
     schedule = build_schedule(protocols, scenarios, trials, seed, run_id)
     print(
         f"[PLAN] trials_per_combination={trials} "
+        f"samples_per_stream_per_trial={samples_per_stream} "
         f"payload_bytes={PAYLOAD_BYTES} payload_lines={PAYLOAD_LINES} "
         f"total_trials={len(schedule)}",
         flush=True,
@@ -120,6 +124,7 @@ def main() -> int:
         "protocols": protocols,
         "scenarios": {name: SCENARIOS[name] for name in scenarios},
         "trials_per_combination": trials,
+        "samples_per_stream_per_trial": samples_per_stream,
         "payloads": payloads,
         "random_seed": seed,
         "ordering": "randomized_complete_blocks",
@@ -140,6 +145,14 @@ def main() -> int:
         "transfer_completion_definition": (
             "completion marker and exit zero, with received bytes, lines and SHA-256 "
             "all equal to the deterministic payload manifest"
+        ),
+        "content_coverage_definition": (
+            "unique exact payload lines observed divided by expected payload "
+            "lines; duplicate and invalid terminal lines are excluded"
+        ),
+        "raw_byte_ratio_definition": (
+            "received bytes divided by expected bytes; may exceed 100 when "
+            "terminal updates redraw or duplicate content"
         ),
         "mosh_limitation": (
             "Mosh transports terminal screen state rather than a lossless byte stream; "

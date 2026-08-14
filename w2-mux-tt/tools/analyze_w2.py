@@ -53,22 +53,40 @@ def latency_stats(values):
     }
 
 
-# Kiểm tra mỗi trial có đúng một dòng cho từng output stream.
+# Kiểm tra đủ mẫu và không trùng chỉ số trong từng output stream.
 def validate_transfers(transfers, trials):
     grouped = defaultdict(list)
     for row in transfers:
         grouped[(row["trial_id"], row["stream_role"])].append(row)
-    expected = {
+    expected_groups = {
         (trial["trial_id"], f"output_{index}")
         for trial in trials
         for index in range(int(trial["stream_count"]))
     }
+    samples_by_trial = {
+        trial["trial_id"]: (
+            int(trial["expected_transfers"]) // int(trial["stream_count"])
+        )
+        for trial in trials
+    }
     errors = []
-    for key in sorted(expected):
-        count = len(grouped.get(key, []))
-        if count != 1:
-            errors.append(f"{key[0]}/{key[1]}: cần 1 dòng, nhận {count}")
-    unexpected = sorted(set(grouped) - expected)
+    for key in sorted(expected_groups):
+        group = grouped.get(key, [])
+        expected_samples = samples_by_trial[key[0]]
+        indexes = [int(row["sample_index"]) for row in group]
+        if len(group) != expected_samples:
+            errors.append(
+                f"{key[0]}/{key[1]}: cần {expected_samples} mẫu, "
+                f"nhận {len(group)}"
+            )
+        if len(indexes) != len(set(indexes)):
+            errors.append(f"{key[0]}/{key[1]}: trùng sample_index")
+        if sorted(indexes) != list(range(1, expected_samples + 1)):
+            errors.append(
+                f"{key[0]}/{key[1]}: sample_index không phải "
+                f"1..{expected_samples}"
+            )
+    unexpected = sorted(set(grouped) - expected_groups)
     if unexpected:
         errors.append(f"có stream ngoài kế hoạch: {unexpected}")
     if errors:
@@ -90,6 +108,14 @@ def summarize_group(rows):
         float(row["throughput_mib_s"])
         for row in completed if row["throughput_mib_s"]
     ]
+    coverage_values = [
+        float(row["content_coverage_pct"])
+        for row in rows if row["content_coverage_pct"]
+    ]
+    raw_byte_values = [
+        float(row["raw_byte_ratio_pct"])
+        for row in rows if row["raw_byte_ratio_pct"]
+    ]
     completion_stats = latency_stats(completion_values)
     first_stats = latency_stats(first_values)
     return {
@@ -103,6 +129,12 @@ def summarize_group(rows):
         "output_completeness_pct": fmt(
             100.0 * sum(row["output_complete"] == "1" for row in rows)
             / len(rows)
+        ),
+        "mean_content_coverage_pct": fmt(
+            statistics.mean(coverage_values) if coverage_values else ""
+        ),
+        "mean_raw_byte_ratio_pct": fmt(
+            statistics.mean(raw_byte_values) if raw_byte_values else ""
         ),
         "completion_mean_ms": completion_stats["mean_ms"],
         "completion_median_ms": completion_stats["median_ms"],
@@ -193,7 +225,7 @@ def summarize_streams(transfers, streams):
             "protocol": key[0],
             "scenario": key[1],
             "stream_role": key[2],
-            "trials": len(group),
+            "trials": len(stream_group),
             **summarize_group(group),
             "completed_streams": sum(
                 row["stream_completed"] == "1" for row in stream_group
@@ -223,14 +255,15 @@ def main() -> int:
     transfers = load_csv(result_dir / "transfers.csv", {
         "trial_id", "protocol", "scenario", "stream_role", "status",
         "completion_latency_ms", "first_byte_latency_ms", "throughput_mib_s",
-        "output_complete",
+        "output_complete", "content_coverage_pct", "raw_byte_ratio_pct",
+        "sample_index",
     })
     streams = load_csv(result_dir / "streams.csv", {
         "protocol", "scenario", "stream_role", "stream_completed",
     })
     trials = load_csv(result_dir / "trials.csv", {
         "trial_id", "protocol", "scenario", "stream_count",
-        "connection_valid", "ready_streams", "setup_ms",
+        "connection_valid", "ready_streams", "setup_ms", "expected_transfers",
     })
     validate_transfers(transfers, trials)
     write_csv(

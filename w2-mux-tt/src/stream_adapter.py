@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from stream_mux import ConnectionAudit, RawStream, StreamSpec
 from stream_mux import open_multiplex_connection
 
+from constants import PAYLOAD_BYTES
 from framing import MarkerDecoder, MarkerEvent, build_direct_line
 
 
@@ -159,9 +160,9 @@ class DirectCoordinator:
         except Exception:
             self._discard(transfer)
             raise
-        if not transfer.event.wait(timeout):
+        timed_out = not transfer.event.wait(timeout)
+        if timed_out:
             self._discard(transfer)
-            raise TimeoutError(f"không nhận dấu hoàn thành cho {request_id}")
         if transfer.error:
             raise RuntimeError(transfer.error)
         first_latency = (
@@ -178,13 +179,14 @@ class DirectCoordinator:
             "send_time_ns": sent_wall_ns,
             "first_byte_time_ns": transfer.first_byte_wall_ns or None,
             "last_byte_time_ns": transfer.last_byte_wall_ns or None,
-            "marker_time_ns": transfer.marker_wall_ns,
+            "marker_time_ns": transfer.marker_wall_ns or None,
             "first_byte_latency_ms": first_latency,
             "completion_latency_ms": completion_latency,
             "marker_latency_ms": (
                 transfer.marker_mono_ns - sent_mono_ns
-            ) / 1_000_000.0,
-            "completion_marker_received": True,
+            ) / 1_000_000.0 if transfer.marker_mono_ns else None,
+            "completion_marker_received": not timed_out,
+            "timed_out": timed_out,
             "output_ambiguous": transfer.ambiguous,
             "output_truncated": transfer.truncated,
         }
@@ -278,8 +280,10 @@ class DirectW2Connection:
             self.audit = self.transport.audit
 
         max_capture = int(self.cfg.get("MAX_CAPTURE_BYTES", "2097152"))
-        if max_capture < 1_048_576:
-            raise ValueError("MAX_CAPTURE_BYTES phải ít nhất 1048576")
+        if max_capture < PAYLOAD_BYTES:
+            raise ValueError(
+                f"MAX_CAPTURE_BYTES phải ít nhất {PAYLOAD_BYTES}"
+            )
         if self.protocol == "mosh":
             coordinator = DirectCoordinator(raw_streams["terminal"], True, max_capture)
             self.coordinators.append(coordinator)

@@ -9,7 +9,7 @@ import json
 from pathlib import Path
 
 
-PAYLOAD_BYTES = 1_048_576
+PAYLOAD_BYTES = 102_400
 LINE_BYTES = 128
 LINE_COUNT = PAYLOAD_BYTES // LINE_BYTES
 PAYLOAD_COUNT = 4
@@ -36,7 +36,7 @@ def build_payload(stream_index: int) -> bytes:
         for line_index in range(LINE_COUNT)
     )
     if len(payload) != PAYLOAD_BYTES:
-        raise AssertionError("payload không đúng 1 MiB")
+        raise AssertionError("payload không đúng 100 KiB")
     return payload
 
 
@@ -46,7 +46,7 @@ def generate(output_dir: Path) -> dict:
     entries = []
     checksum_lines = []
     for stream_index in range(PAYLOAD_COUNT):
-        name = f"large_output_s{stream_index}_1MiB.txt"
+        name = f"large_output_s{stream_index}_100KiB.txt"
         path = output_dir / name
         payload = build_payload(stream_index)
         digest = hashlib.sha256(payload).hexdigest()
@@ -63,7 +63,7 @@ def generate(output_dir: Path) -> dict:
         checksum_lines.append(f"{digest}  {name}")
 
     manifest = {
-        "generator": "w2-mux-tt-v1",
+        "generator": "w2-mux-tt-v2-100KiB",
         "payload_bytes": PAYLOAD_BYTES,
         "line_bytes": LINE_BYTES,
         "payloads": entries,

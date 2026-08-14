@@ -36,6 +36,7 @@ python3 -m venv .venv
 cd ~/SSH-SCRIPT/w2-mux-tt
 
 TRIALS_PER_COMBINATION=1 \
+SAMPLES_PER_STREAM_PER_TRIAL=5 \
 WARMUP_SECONDS=0 \
 INTER_TRIAL_DELAY_SECONDS=0 \
 RESULT_DIR=artifacts/smoke-all \
@@ -52,12 +53,16 @@ column -s, -t < artifacts/smoke-all/scenario_summary.csv
 
 SSH và SSH3 phải đạt 100% byte, dòng và SHA-256. SSH3 W2-S4 phải có bốn
 StreamID khác nhau, một ConversationStreamID và một UDP socket. Mosh có thể là
-`partial` vì terminal screen-state không bảo toàn 1 MiB lịch sử; dấu hoàn thành
-và stream completion vẫn phải được ghi.
+`partial` vì terminal screen-state không bảo toàn 100 KiB lịch sử; dấu hoàn thành
+và stream completion vẫn phải được ghi. Đọc `content_coverage_pct` trong
+`transfers.csv` để xem độ bao phủ nội dung của từng phép truyền và
+`mean_content_coverage_pct` trong `scenario_summary.csv` để so sánh độ bao phủ
+nội dung theo kịch bản. `raw_byte_ratio_pct` chỉ dùng phát hiện Mosh vẽ lại hoặc
+lặp output; SHA-256 và `output_complete` mới là xác thực toàn vẹn chính xác.
 
 ## Chạy chính thức
 
-`config.env` đã đặt 10 trial cho mỗi tổ hợp:
+`config.env` đã đặt 10 trial và 100 mẫu trên mỗi stream trong từng trial:
 
 ```bash
 cd ~/SSH-SCRIPT/w2-mux-tt
