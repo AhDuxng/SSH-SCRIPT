@@ -243,8 +243,8 @@ class DirectW2Connection:
                 "terminal",
                 f"stty -echo; exec {shell}",
                 allocate_pty=True,
-                columns=int(self.cfg.get("W2_MOSH_COLUMNS", "256")),
-                rows=int(self.cfg.get("W2_MOSH_ROWS", "64")),
+                columns=int(self.cfg.get("W2_MOSH_COLUMNS", "4096")),
+                rows=int(self.cfg.get("W2_MOSH_ROWS", "128")),
             )]
         return [StreamSpec(role, f"exec {shell}") for role in self.roles]
 

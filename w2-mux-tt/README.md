@@ -84,6 +84,9 @@ dấu trước `TRANSFER_TIMEOUT` được ghi `timeout`.
 - Mosh chỉ có một terminal session. W2-S2/W2-S4 là các tiến trình `cat` nền đồng
   thời, không phải nhiều transport stream.
 
+Terminal Mosh dùng kích thước `4096x128`, thống nhất với W1. Giá trị này được
+cấu hình bằng `W2_MOSH_COLUMNS` và `W2_MOSH_ROWS`.
+
 Mosh truyền trạng thái màn hình thay vì luồng byte lossless. Với output 1 MiB,
 Mosh có thể nhận dấu hoàn thành nhưng không tái tạo đủ mọi byte đã cuộn khỏi màn
 hình. Khi đó `stream_completed=1` nhưng phép truyền là `partial` và
