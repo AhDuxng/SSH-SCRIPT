@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from stream_mux import ConnectionAudit, RawStream, StreamSpec
 from stream_mux import open_multiplex_connection
 
-from constants import PAYLOAD_BYTES
+from constants import PAYLOAD_BYTES, PAYLOAD_LINE_BYTES, PAYLOAD_LINES
 from framing import MarkerDecoder, MarkerEvent, build_direct_line
 
 
@@ -241,12 +241,21 @@ class DirectW2Connection:
             "DIRECT_SHELL_COMMAND", "/bin/bash --noprofile --norc"
         )
         if self.protocol == "mosh":
+            columns = int(self.cfg.get("W2_MOSH_COLUMNS", "4096"))
+            rows = int(self.cfg.get("W2_MOSH_ROWS", "128"))
+            minimum_rows = len(self.roles) * (PAYLOAD_LINES + 2)
+            if columns < PAYLOAD_LINE_BYTES or rows < minimum_rows:
+                raise ValueError(
+                    "viewport Mosh không đủ giữ một batch W2: "
+                    f"cần columns>={PAYLOAD_LINE_BYTES}, rows>={minimum_rows}; "
+                    f"nhận columns={columns}, rows={rows}"
+                )
             return [StreamSpec(
                 "terminal",
                 f"stty -echo; exec {shell}",
                 allocate_pty=True,
-                columns=int(self.cfg.get("W2_MOSH_COLUMNS", "4096")),
-                rows=int(self.cfg.get("W2_MOSH_ROWS", "128")),
+                columns=columns,
+                rows=rows,
             )]
         return [StreamSpec(role, f"exec {shell}") for role in self.roles]
 
@@ -333,6 +342,14 @@ class DirectW2Connection:
             ]
             for future in futures:
                 future.result()
+
+    # Xóa viewport Mosh giữa hai batch đồng bộ để redraw cũ không được tính
+    # nhầm là byte của sample mới. SSH/SSH3 là byte stream nên không cần bước này.
+    def prepare_sample(self) -> None:
+        if self.protocol != "mosh" or not self.coordinators:
+            return
+        self.coordinators[0].raw_stream.send(b"printf '\033[2J\033[H'\n")
+        time.sleep(float(self.cfg.get("MOSH_CLEAR_SETTLE_SECONDS", "0.10")))
 
     # Đóng Bash và connection sau trial.
     def close(self) -> None:

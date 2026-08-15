@@ -3,12 +3,49 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
-ANSI_ESCAPE = re.compile(rb"\x1b(?:\[[0-?]*[ -/]*[@-~]|[@-_])")
 START_PATTERN = re.compile(rb"__W2TT_START__:([0-9a-f]{24})")
 DONE_PATTERN = re.compile(rb"__W2TT_DONE__:([0-9a-f]{24}):(-?[0-9]+)")
+
+
+@dataclass
+class TerminalControlFilter:
+    """Loại control sequence kể cả khi bị chia giữa hai read chunk."""
+
+    state: str = "text"
+
+    def feed(self, chunk: bytes) -> bytes:
+        output = bytearray()
+        for value in chunk:
+            if self.state == "text":
+                if value == 0x1B:
+                    self.state = "escape"
+                elif value in (0x0A, 0x0D) or value >= 0x20:
+                    output.append(value)
+                continue
+            if self.state == "escape":
+                if value == ord("["):
+                    self.state = "csi"
+                elif value in (ord("]"), ord("P"), ord("X"), ord("^"), ord("_")):
+                    self.state = "string"
+                else:
+                    self.state = "text"
+                continue
+            if self.state == "csi":
+                if 0x40 <= value <= 0x7E:
+                    self.state = "text"
+                continue
+            if self.state == "string":
+                if value == 0x07:
+                    self.state = "text"
+                elif value == 0x1B:
+                    self.state = "string_escape"
+                continue
+            if self.state == "string_escape":
+                self.state = "text" if value == ord("\\") else "string"
+        return bytes(output)
 
 
 # Tạo dòng Bash chạy cat trực tiếp giữa hai dấu mốc.
@@ -40,10 +77,11 @@ class MarkerDecoder:
     """Tách từng dòng và loại mã điều khiển terminal của Mosh."""
 
     pending: bytes = b""
+    controls: TerminalControlFilter = field(default_factory=TerminalControlFilter)
 
     # Nhận thêm byte và trả về các sự kiện W2 hoàn chỉnh.
     def feed(self, chunk: bytes) -> list[MarkerEvent]:
-        cleaned = ANSI_ESCAPE.sub(b"", chunk).replace(b"\r\n", b"\n")
+        cleaned = self.controls.feed(chunk).replace(b"\r\n", b"\n")
         cleaned = cleaned.replace(b"\r", b"\n")
         self.pending += cleaned
         events = []

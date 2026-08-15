@@ -10,16 +10,16 @@ không có chương trình phụ nhận lệnh, JSON hay Base64 ở tầng workl
 Trước thí nghiệm, `tools/generate_payloads.py` tạo bốn tệp:
 
 ```text
-large_output_s0_100KiB.txt
-large_output_s1_100KiB.txt
-large_output_s2_100KiB.txt
-large_output_s3_100KiB.txt
+large_output_s0_100KB.txt
+large_output_s1_100KB.txt
+large_output_s2_100KB.txt
+large_output_s3_100KB.txt
 ```
 
 Mỗi tệp có đúng:
 
-- 102.400 byte, tương đương 100 KiB;
-- 800 dòng, mỗi dòng 128 byte kể cả LF;
+- 102.400 byte (100 KB theo đặc tả W2, tức 100 KiB nhị phân);
+- 25 dòng, mỗi dòng 4.096 byte kể cả LF;
 - một SHA-256 xác định;
 - tiền tố dòng riêng `W2S0|` đến `W2S3|` để định tuyến output khi nhiều tác vụ
   dùng chung terminal Mosh.
@@ -28,15 +28,25 @@ Mỗi tệp có đúng:
 chạy `sha256sum -c` trước khi tạo trial. Việc chuẩn bị này không nằm trong
 `setup_ms` hoặc độ trễ truyền.
 
+SHA-256 cố định lần lượt cho `s0..s3` là:
+
+```text
+574e67a5726d23330a7ce60061b23e43a756ea8c9192df910f332e023eb74d85
+08d0af71368751ba7dcc8c715661790c9aec9aba3d437104512fd20710ba7b48
+bb894c3f54c1fcf0c98c5b9bb6f9da2ca4b1e190c23ffe7fa4cfd93260bbe798
+a8992235b2c46fc84f8c2387c6d9d74be87190d67563a87cdf53ae35e5309f11
+```
+
 ## Kịch bản
 
-- `W2-S1`: một output stream truyền một payload 100 KiB.
-- `W2-S2`: hai output stream đồng thời, mỗi stream một payload 100 KiB.
-- `W2-S4`: bốn output stream đồng thời, mỗi stream một payload 100 KiB.
+- `W2-S1`: một output stream truyền một payload 100 KB.
+- `W2-S2`: hai output stream đồng thời, mỗi stream một payload 100 KB.
+- `W2-S4`: bốn output stream đồng thời, mỗi stream một payload 100 KB.
 
-Mỗi trial tạo một connection mới, mở đủ stream, chờ READY, warm-up năm giây, xóa
-trạng thái terminal/buffer rồi giải phóng hàng rào đồng bộ. Mỗi output stream
-truyền tuần tự payload 100 lần trong cùng connection. Mặc định mỗi tổ hợp giao
+Mỗi trial tạo một connection mới, mở đủ stream, chờ READY và warm-up năm giây.
+Tất cả vai trò đi qua một barrier ở đầu từng sample; Mosh còn xóa viewport ngay
+trong barrier trước khi đồng thời chạy `cat`. Mỗi output stream truyền tuần tự
+payload 100 lần trong cùng connection. Mặc định mỗi tổ hợp giao
 thức × kịch bản có 10 trial, tức mỗi vai trò thu được 1.000 mẫu.
 
 Số mẫu được đặt bằng:
@@ -50,7 +60,7 @@ SAMPLES_PER_STREAM_PER_TRIAL=100
 Với mỗi output stream, Pi1 gửi một dòng Bash chứa trực tiếp:
 
 ```text
-cat -- /tmp/w2_mux_tt_payloads/large_output_sX_100KiB.txt
+cat /tmp/w2_mux_tt_payloads/large_output_sX_100KB.txt
 ```
 
 Hai dấu mốc văn bản ngắn bao quanh lệnh để phân tách payload và lấy mã thoát.
@@ -74,11 +84,11 @@ lượng MiB/s. Một phép truyền chỉ có `status=completed` khi:
 
 - nhận được dấu hoàn thành;
 - lệnh thoát với mã 0;
-- byte nhận bằng byte dự kiến;
-- số dòng nhận bằng số dòng dự kiến;
-- SHA-256 nhận bằng SHA-256 trong manifest.
+- đủ 102.400 byte payload hợp lệ;
+- đủ 25 dòng payload duy nhất;
+- SHA-256 của payload đã xác thực bằng giá trị cố định trong mã và manifest.
 
-Mỗi dòng payload dài 128 byte và có chỉ số duy nhất. Vì vậy độ bao phủ nội dung
+Mỗi dòng payload dài 4.096 byte và có chỉ số duy nhất. Vì vậy độ bao phủ nội dung
 được tính bằng:
 
 ```text
@@ -92,10 +102,11 @@ sai và thiếu. `mean_content_coverage_pct` trong `trials.csv`,
 `scenario_summary.csv` và `stream_summary.csv` là trung bình độ bao phủ của các
 phép truyền thuộc nhóm tương ứng.
 
-`raw_byte_ratio_pct = received_bytes / expected_bytes * 100` được giữ làm chỉ
-số chẩn đoán và có thể vượt 100% khi Mosh vẽ lại dữ liệu. Chỉ số thô này không
-được dùng để kết luận output đầy đủ. SHA-256 vẫn là điều kiện xác thực toàn vẹn
-tuyệt đối.
+`verified_byte_ratio_pct` đếm byte thuộc các dòng deterministic chính xác, duy
+nhất. `raw_byte_ratio_pct = received_bytes / expected_bytes * 100` chỉ là chỉ số
+chẩn đoán và có thể vượt 100% khi Mosh vẽ lại dữ liệu. Với SSH/SSH3, capture byte
+thô còn phải khớp nguyên bản; với Mosh, chương trình dựng lại payload canonical
+từ 25 dòng đã xác thực rồi kiểm tra byte và SHA-256.
 
 Nhận dấu hoàn thành nhưng thiếu hoặc sai output được ghi `partial`; không nhận
 dấu trước `TRANSFER_TIMEOUT` được ghi `timeout`. Với timeout, phần output đã
@@ -110,16 +121,17 @@ quan sát vẫn được giữ lại để tính độ bao phủ nội dung.
 - Mosh chỉ có một terminal session. W2-S2/W2-S4 là các tiến trình `cat` nền đồng
   thời, không phải nhiều transport stream.
 
-Terminal Mosh dùng kích thước `4096x128`, thống nhất với W1. Giá trị này được
-cấu hình bằng `W2_MOSH_COLUMNS` và `W2_MOSH_ROWS`.
+Terminal Mosh dùng kích thước `4096 cột × 128 dòng`, giống W1: một dòng payload
+không bị wrap và viewport giữ được 4 × 25 dòng cùng marker của W2-S4. Giá trị này được
+cấu hình bằng `W2_MOSH_COLUMNS` và `W2_MOSH_ROWS`; chương trình từ chối chạy nếu
+viewport nhỏ hơn batch của kịch bản.
 
-Mosh truyền trạng thái màn hình thay vì luồng byte lossless. Với output 100 KiB,
-Mosh có thể nhận dấu hoàn thành nhưng không tái tạo đủ mọi byte đã cuộn khỏi màn
-hình. Khi đó `stream_completed=1` nhưng phép truyền là `partial` và
-`output_complete=0`; `content_coverage_pct` cho biết Mosh đã tái tạo được bao
-`content_coverage_pct` cho biết Mosh đã tái tạo được bao nhiêu phần trăm dòng
-payload duy nhất và chính xác. Đây là kết quả phản ánh đúng tính chất giao thức,
-không được đổi thành hoàn tất giả.
+Mosh truyền trạng thái màn hình thay vì luồng byte lossless. Vì vậy raw terminal
+bytes không được so trực tiếp với file. Trước mỗi sample, viewport được xóa và
+tất cả vai trò đi qua cùng một barrier; sau đó chương trình lọc redraw/control
+bytes, gom đủ 25 dòng duy nhất theo prefix và dựng lại đúng thứ tự canonical để
+kiểm tra 102.400 byte cùng SHA-256. Nếu thiếu dù một dòng, sample vẫn là
+`partial`/`timeout`, không được đổi thành hoàn tất giả.
 
 ## Chạy
 
@@ -161,25 +173,29 @@ artifacts/results/trials.csv
 artifacts/results/stream_audit.csv
 artifacts/results/scenario_summary.csv
 artifacts/results/stream_summary.csv
+artifacts/results/ssh3_vs_ssh.csv
 artifacts/results/metadata.json
 ```
 
-Bộ hình chuẩn giữ nguyên các metric trước và bổ sung độ bao phủ output:
+Bộ hình dùng cùng bố cục, màu, hatch, nhãn số và cách nhóm như W1:
 
 ```text
-completion_median.png/pdf       độ trễ byte cuối trung vị
-completion_p95.png/pdf          P95 độ trễ byte cuối
-first_byte_median.png/pdf       độ trễ byte đầu trung vị
-throughput_mean.png/pdf         thông lượng trung bình
-transfer_completion.png/pdf     tỷ lệ phép truyền hoàn tất
-content_coverage.png/pdf        tỷ lệ output hợp lệ và duy nhất
-setup_median.png/pdf            thời gian thiết lập trung vị
+figure_1_completion_*.png/pdf             latency Mean/Median/P95/P99
+figure_2_first_byte_median.png/pdf         latency byte đầu
+figure_3_throughput_mean.png/pdf           thông lượng byte đã xác thực
+figure_4_setup_*.png/pdf                  setup Mean/Median/P95/P99
+figure_5_output_integrity.png/pdf          complete/byte/SHA-256
+figure_6_per_stream_completion_*.png/pdf  latency từng stream
+figure_7_per_stream_integrity.png/pdf     integrity từng stream
 ```
 
-Hai hình tỷ lệ dùng trục 0–100%. `transfer_completion` chỉ đạt 100% khi phép
-truyền nhận đủ dấu hoàn thành, byte, dòng và SHA-256;
-`content_coverage` vẫn thể hiện phần nội dung hợp lệ đã nhận đối với mẫu
-`partial` hoặc `timeout`, đồng thời không tính byte vẽ lại hay dòng lặp.
+Hai hình integrity dùng trục 0–100%. `Transfer complete` chỉ đạt 100% khi nhận
+đủ marker, byte, dòng và SHA-256. Bảng CSV vẫn giữ `content_coverage_pct` để xem
+phần nội dung hợp lệ của mẫu `partial`/`timeout` mà không tính redraw hay dòng lặp.
+
+`ssh3_vs_ssh.csv` ghi median latency, mean throughput, tỷ số SSH3/SSH và verdict
+cho từng kịch bản. Nếu SSH3 chậm hơn quá 5%, analyzer in `[CHECK]`; đây là cảnh
+báo kiểm tra kết quả thực đo, không tự sửa hay loại mẫu.
 
 ## Cấu trúc
 
@@ -187,6 +203,7 @@ truyền nhận đủ dấu hoàn thành, byte, dòng và SHA-256;
 w2-mux-tt/
 ├── config.env
 ├── config.example.env
+├── LOG_ANALYSIS.md
 ├── payloads/
 ├── run_w2.sh
 ├── src/

@@ -51,14 +51,17 @@ column -s, -t < artifacts/smoke-all/stream_audit.csv
 column -s, -t < artifacts/smoke-all/scenario_summary.csv
 ```
 
-SSH và SSH3 phải đạt 100% byte, dòng và SHA-256. SSH3 W2-S4 phải có bốn
-StreamID khác nhau, một ConversationStreamID và một UDP socket. Mosh có thể là
-`partial` vì terminal screen-state không bảo toàn 100 KiB lịch sử; dấu hoàn thành
-và stream completion vẫn phải được ghi. Đọc `content_coverage_pct` trong
+SSH và SSH3 phải đạt 100% byte, dòng và SHA-256. Mosh dùng
+`terminal_content_reconstruction` và cũng chỉ hoàn tất khi đủ 102.400 byte cùng
+SHA-256 canonical. SSH3 W2-S4 phải có bốn StreamID khác nhau, một
+ConversationStreamID và một UDP socket. Mosh vẫn có thể là `partial` nếu
+screen-state không cung cấp đủ dòng; phần byte đã xác thực vẫn phải được ghi.
+Đọc `verified_bytes` và `content_coverage_pct` trong
 `transfers.csv` để xem độ bao phủ nội dung của từng phép truyền và
 `mean_content_coverage_pct` trong `scenario_summary.csv` để so sánh độ bao phủ
 nội dung theo kịch bản. `raw_byte_ratio_pct` chỉ dùng phát hiện Mosh vẽ lại hoặc
-lặp output; SHA-256 và `output_complete` mới là xác thực toàn vẹn chính xác.
+lặp output; `verified_byte_ratio_pct`, SHA-256 và `output_complete` mới là xác
+thực toàn vẹn chính xác.
 
 ## Chạy chính thức
 
@@ -73,5 +76,5 @@ Vẽ hình sau khi chạy:
 
 ```bash
 .venv/bin/python tools/plot_w2.py \
-  artifacts/results artifacts/figures
+  artifacts/results artifacts/figures --network medium
 ```

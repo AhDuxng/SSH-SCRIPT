@@ -96,6 +96,10 @@ def validate_transfers(transfers, trials):
 # Tổng hợp một nhóm phép truyền.
 def summarize_group(rows):
     completed = [row for row in rows if row["status"] == "completed"]
+    attempted = [
+        row for row in rows
+        if row["status"] not in {"skipped", "trial_unavailable", "barrier_failure"}
+    ]
     completion_values = [
         float(row["completion_latency_ms"])
         for row in completed if row["completion_latency_ms"]
@@ -116,13 +120,33 @@ def summarize_group(rows):
         float(row["raw_byte_ratio_pct"])
         for row in rows if row["raw_byte_ratio_pct"]
     ]
+    verified_byte_values = [
+        float(row.get("verified_byte_ratio_pct") or row["content_coverage_pct"])
+        for row in rows
+        if row.get("verified_byte_ratio_pct") or row["content_coverage_pct"]
+    ]
+    attempted_coverage_values = [
+        float(row["content_coverage_pct"])
+        for row in attempted if row["content_coverage_pct"]
+    ]
+    attempted_verified_values = [
+        float(row.get("verified_byte_ratio_pct") or row["content_coverage_pct"])
+        for row in attempted
+        if row.get("verified_byte_ratio_pct") or row["content_coverage_pct"]
+    ]
     completion_stats = latency_stats(completion_values)
     first_stats = latency_stats(first_values)
     return {
         "expected_transfers": len(rows),
+        "attempted_transfers": len(attempted),
         "completed_transfers": len(completed),
         "partial_transfers": sum(row["status"] == "partial" for row in rows),
         "timeout_transfers": sum(row["status"] == "timeout" for row in rows),
+        "skipped_transfers": sum(row["status"] == "skipped" for row in rows),
+        "completion_marker_rate_pct": fmt(
+            100.0 * sum(row["completion_marker_received"] == "1" for row in rows)
+            / len(rows)
+        ),
         "transfer_completion_rate_pct": fmt(
             100.0 * len(completed) / len(rows)
         ),
@@ -133,8 +157,34 @@ def summarize_group(rows):
         "mean_content_coverage_pct": fmt(
             statistics.mean(coverage_values) if coverage_values else ""
         ),
+        "attempted_mean_content_coverage_pct": fmt(
+            statistics.mean(attempted_coverage_values)
+            if attempted_coverage_values else ""
+        ),
+        "mean_verified_byte_ratio_pct": fmt(
+            statistics.mean(verified_byte_values) if verified_byte_values else ""
+        ),
+        "attempted_mean_verified_byte_ratio_pct": fmt(
+            statistics.mean(attempted_verified_values)
+            if attempted_verified_values else ""
+        ),
         "mean_raw_byte_ratio_pct": fmt(
             statistics.mean(raw_byte_values) if raw_byte_values else ""
+        ),
+        "byte_verification_rate_pct": fmt(
+            100.0 * sum(row["bytes_complete"] == "1" for row in rows)
+            / len(rows)
+        ),
+        "hash_verification_rate_pct": fmt(
+            100.0 * sum(row["hash_complete"] == "1" for row in rows)
+            / len(rows)
+        ),
+        "raw_capture_exact_rate_pct": fmt(
+            100.0 * sum(
+                row.get("raw_capture_exact", row["output_complete"]) == "1"
+                for row in rows
+            )
+            / len(rows)
         ),
         "completion_mean_ms": completion_stats["mean_ms"],
         "completion_median_ms": completion_stats["median_ms"],
@@ -239,6 +289,74 @@ def summarize_streams(transfers, streams):
     return output
 
 
+# So sánh trực tiếp SSH3/SSH để phát hiện chênh lệch thay vì suy diễn từ hình.
+def compare_ssh3_to_ssh(scenario_rows):
+    lookup = {
+        (row["protocol"], row["scenario"]): row for row in scenario_rows
+    }
+    output = []
+    for scenario in ("W2-S1", "W2-S2", "W2-S4"):
+        ssh = lookup.get(("ssh", scenario))
+        ssh3 = lookup.get(("ssh3", scenario))
+        if not ssh or not ssh3:
+            continue
+        ssh_latency = (
+            float(ssh["completion_median_ms"])
+            if ssh["completion_median_ms"] else None
+        )
+        ssh3_latency = (
+            float(ssh3["completion_median_ms"])
+            if ssh3["completion_median_ms"] else None
+        )
+        ssh_throughput = (
+            float(ssh["throughput_mean_mib_s"])
+            if ssh["throughput_mean_mib_s"] else None
+        )
+        ssh3_throughput = (
+            float(ssh3["throughput_mean_mib_s"])
+            if ssh3["throughput_mean_mib_s"] else None
+        )
+        latency_ratio = (
+            ssh3_latency / ssh_latency
+            if ssh_latency and ssh3_latency else None
+        )
+        throughput_ratio = (
+            ssh3_throughput / ssh_throughput
+            if ssh_throughput and ssh3_throughput else None
+        )
+        if latency_ratio is None:
+            verdict = "insufficient_completed_transfers"
+        elif latency_ratio > 1.05:
+            verdict = "ssh3_slower"
+        elif latency_ratio < 0.95:
+            verdict = "ssh3_faster"
+        else:
+            verdict = "within_5_pct"
+        output.append({
+            "scenario": scenario,
+            "ssh_completion_median_ms": fmt(
+                ssh_latency if ssh_latency is not None else ""
+            ),
+            "ssh3_completion_median_ms": fmt(
+                ssh3_latency if ssh3_latency is not None else ""
+            ),
+            "ssh3_over_ssh_latency_ratio": fmt(
+                latency_ratio if latency_ratio is not None else ""
+            ),
+            "ssh_throughput_mean_mib_s": fmt(
+                ssh_throughput if ssh_throughput is not None else ""
+            ),
+            "ssh3_throughput_mean_mib_s": fmt(
+                ssh3_throughput if ssh3_throughput is not None else ""
+            ),
+            "ssh3_over_ssh_throughput_ratio": fmt(
+                throughput_ratio if throughput_ratio is not None else ""
+            ),
+            "verdict": verdict,
+        })
+    return output
+
+
 # Ghi bảng tổng hợp ra CSV.
 def write_csv(path: Path, rows) -> None:
     if not rows:
@@ -256,6 +374,7 @@ def main() -> int:
         "trial_id", "protocol", "scenario", "stream_role", "status",
         "completion_latency_ms", "first_byte_latency_ms", "throughput_mib_s",
         "output_complete", "content_coverage_pct", "raw_byte_ratio_pct",
+        "bytes_complete", "hash_complete", "completion_marker_received",
         "sample_index",
     })
     streams = load_csv(result_dir / "streams.csv", {
@@ -266,14 +385,22 @@ def main() -> int:
         "connection_valid", "ready_streams", "setup_ms", "expected_transfers",
     })
     validate_transfers(transfers, trials)
-    write_csv(
-        result_dir / "scenario_summary.csv",
-        summarize_scenarios(transfers, streams, trials),
-    )
+    scenario_rows = summarize_scenarios(transfers, streams, trials)
+    write_csv(result_dir / "scenario_summary.csv", scenario_rows)
     write_csv(
         result_dir / "stream_summary.csv",
         summarize_streams(transfers, streams),
     )
+    comparisons = compare_ssh3_to_ssh(scenario_rows)
+    if comparisons:
+        write_csv(result_dir / "ssh3_vs_ssh.csv", comparisons)
+        for row in comparisons:
+            if row["verdict"] == "ssh3_slower":
+                print(
+                    f"[CHECK] {row['scenario']}: SSH3 chậm hơn SSH "
+                    f"{row['ssh3_over_ssh_latency_ratio']}x theo median",
+                    flush=True,
+                )
     print(f"Saved W2 summaries to {result_dir}")
     return 0
 

@@ -75,7 +75,7 @@ REMOTE_QUOTED="$(printf '%q' "$REMOTE_PATH")"
 ssh "${SSH_DEPLOY_ARGS[@]}" \
   "${SERVER_USER}@${SERVER_HOST}" "mkdir -p $REMOTE_QUOTED"
 scp "${SCP_DEPLOY_ARGS[@]}" \
-  "$PAYLOAD_PATH"/large_output_s*_100KiB.txt \
+  "$PAYLOAD_PATH"/large_output_s*_100KB.txt \
   "$PAYLOAD_PATH"/SHA256SUMS \
   "${SERVER_USER}@${SERVER_HOST}:${REMOTE_PATH}/"
 ssh "${SSH_DEPLOY_ARGS[@]}" \

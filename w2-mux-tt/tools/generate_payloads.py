@@ -6,13 +6,20 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import sys
 from pathlib import Path
 
 
-PAYLOAD_BYTES = 102_400
-LINE_BYTES = 128
+PROJECT_DIR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_DIR / "src"))
+
+from constants import (  # noqa: E402
+    PAYLOAD_BYTES, PAYLOAD_LINE_BYTES, PAYLOAD_NAMES, PAYLOAD_SHA256,
+)
+
+LINE_BYTES = PAYLOAD_LINE_BYTES
 LINE_COUNT = PAYLOAD_BYTES // LINE_BYTES
-PAYLOAD_COUNT = 4
+PAYLOAD_COUNT = len(PAYLOAD_NAMES)
 
 
 # Tạo một dòng ASCII có độ dài cố định và kết thúc bằng LF.
@@ -36,7 +43,7 @@ def build_payload(stream_index: int) -> bytes:
         for line_index in range(LINE_COUNT)
     )
     if len(payload) != PAYLOAD_BYTES:
-        raise AssertionError("payload không đúng 100 KiB")
+        raise AssertionError("payload không đúng 100 KB (102.400 byte)")
     return payload
 
 
@@ -46,10 +53,14 @@ def generate(output_dir: Path) -> dict:
     entries = []
     checksum_lines = []
     for stream_index in range(PAYLOAD_COUNT):
-        name = f"large_output_s{stream_index}_100KiB.txt"
+        name = PAYLOAD_NAMES[stream_index]
         path = output_dir / name
         payload = build_payload(stream_index)
         digest = hashlib.sha256(payload).hexdigest()
+        if digest != PAYLOAD_SHA256[stream_index]:
+            raise AssertionError(
+                f"SHA-256 payload s{stream_index} lệch đặc tả: {digest}"
+            )
         if not path.exists() or path.read_bytes() != payload:
             path.write_bytes(payload)
         entries.append({
@@ -63,7 +74,7 @@ def generate(output_dir: Path) -> dict:
         checksum_lines.append(f"{digest}  {name}")
 
     manifest = {
-        "generator": "w2-mux-tt-v2-100KiB",
+        "generator": "w2-mux-tt-v3-100KB",
         "payload_bytes": PAYLOAD_BYTES,
         "line_bytes": LINE_BYTES,
         "payloads": entries,

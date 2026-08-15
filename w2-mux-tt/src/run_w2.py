@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import random
 import sys
@@ -17,7 +18,8 @@ sys.path.insert(0, str(REPO_DIR))
 
 from config import load_env, split_csv
 from constants import (
-    AUDIT_FIELDS, ORDER_FIELDS, PAYLOAD_BYTES, PAYLOAD_LINES,
+    AUDIT_FIELDS, ORDER_FIELDS, PAYLOAD_BYTES, PAYLOAD_LINE_BYTES,
+    PAYLOAD_LINES, PAYLOAD_NAMES, PAYLOAD_PREFIXES, PAYLOAD_SHA256,
     PROTOCOLS, SCENARIOS, STREAM_FIELDS, TRANSFER_FIELDS, TRIAL_FIELDS,
 )
 from stream_adapter import open_direct_w2_connection
@@ -64,6 +66,11 @@ def load_payloads(payload_dir: Path) -> list[dict]:
     if not manifest_path.exists():
         raise FileNotFoundError(f"không có manifest payload: {manifest_path}")
     document = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if (
+        document.get("payload_bytes") != PAYLOAD_BYTES
+        or document.get("line_bytes") != PAYLOAD_LINE_BYTES
+    ):
+        raise ValueError("manifest không đúng kích thước payload/dòng W2")
     payloads = sorted(
         document.get("payloads", []), key=lambda item: item["stream_index"]
     )
@@ -72,10 +79,19 @@ def load_payloads(payload_dir: Path) -> list[dict]:
     for expected_index, payload in enumerate(payloads):
         if payload["stream_index"] != expected_index:
             raise ValueError("chỉ số payload không liên tục từ 0 đến 3")
+        if payload["name"] != PAYLOAD_NAMES[expected_index]:
+            raise ValueError(f"sai tên payload: {payload['name']}")
+        if payload.get("line_prefix") != PAYLOAD_PREFIXES[expected_index]:
+            raise ValueError(f"sai prefix payload: {payload['name']}")
         if payload["bytes"] != PAYLOAD_BYTES or payload["lines"] != PAYLOAD_LINES:
             raise ValueError(f"payload không đúng đặc tả PDF: {payload['name']}")
-        if not (payload_dir / payload["name"]).exists():
-            raise FileNotFoundError(payload_dir / payload["name"])
+        path = payload_dir / payload["name"]
+        if not path.exists():
+            raise FileNotFoundError(path)
+        raw = path.read_bytes()
+        digest = hashlib.sha256(raw).hexdigest()
+        if digest != PAYLOAD_SHA256[expected_index] or digest != payload["sha256"]:
+            raise ValueError(f"SHA-256 payload không đúng đặc tả: {path}")
     return payloads
 
 
@@ -130,6 +146,10 @@ def main() -> int:
         "ordering": "randomized_complete_blocks",
         "connection_scope": "one new connection per trial",
         "stream_open_rule": "all roles opened and READY before warm-up and barrier",
+        "sample_start_rule": (
+            "all roles synchronize before every sample; Mosh clears its viewport "
+            "before releasing the per-sample barrier"
+        ),
         "setup_latency_definition": (
             "from immediately before connection open until transport audit "
             "and all physical shells respond to the readiness probe"
@@ -143,8 +163,9 @@ def main() -> int:
             "client first observed payload byte time minus client direct-command send time"
         ),
         "transfer_completion_definition": (
-            "completion marker and exit zero, with received bytes, lines and SHA-256 "
-            "all equal to the deterministic payload manifest"
+            "completion marker and exit zero, with verified bytes, unique lines "
+            "and canonical SHA-256 equal to the deterministic payload manifest; "
+            "SSH/SSH3 additionally require an exact raw byte-stream capture"
         ),
         "content_coverage_definition": (
             "unique exact payload lines observed divided by expected payload "
@@ -154,6 +175,18 @@ def main() -> int:
             "received bytes divided by expected bytes; may exceed 100 when "
             "terminal updates redraw or duplicate content"
         ),
+        "verified_byte_ratio_definition": (
+            "bytes belonging to unique, exact deterministic payload lines divided "
+            "by expected bytes; redraw duplicates and terminal control bytes excluded"
+        ),
+        "verification_modes": {
+            "ssh": "lossless byte-stream capture must match byte count and SHA-256",
+            "ssh3": "lossless byte-stream capture must match byte count and SHA-256",
+            "mosh": (
+                "canonical reconstruction from all unique exact payload lines; "
+                "raw terminal-update bytes are retained only as diagnostics"
+            ),
+        },
         "mosh_limitation": (
             "Mosh transports terminal screen state rather than a lossless byte stream; "
             "S2/S4 are concurrent processes in one terminal session"
