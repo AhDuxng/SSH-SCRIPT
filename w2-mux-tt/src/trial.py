@@ -95,6 +95,8 @@ def run_stream(
     payload: dict, remote_dir: str, sample_barrier,
     timeout: float, sample_count: int,
     live_progress: bool, live_every: int,
+    continue_after_timeout: bool = False,
+    barrier_timeout=None,
 ):
     remote_path = f"{remote_dir.rstrip('/')}/{payload['name']}"
     command = f"cat {shlex.quote(remote_path)}"
@@ -110,7 +112,7 @@ def run_stream(
                 # Mỗi vòng đều bắt đầu đủ S1/S2/S4 vai trò cùng lúc. Điều này
                 # ngăn một stream chạy trước nhiều payload, đặc biệt quan trọng
                 # với một viewport dùng chung của Mosh.
-                sample_barrier.wait(timeout=timeout)
+                sample_barrier.wait(timeout=barrier_timeout or timeout)
                 result = stream.execute(
                     request_id,
                     command,
@@ -287,6 +289,8 @@ def run_stream(
                     )
                 if timed_out:
                     failure_note = note
+                    if continue_after_timeout:
+                        continue
                     sample_barrier.abort()
                     for remaining in range(sample_index + 1, sample_count + 1):
                         rows.append(_failed_transfer(
@@ -320,6 +324,13 @@ def run_stream(
         completed_ns = time.time_ns()
 
     completed = sum(row["status"] == "completed" for row in rows)
+    attempted = sum(
+        row["status"] in {"completed", "partial", "timeout", "failure"}
+        for row in rows
+    )
+    partial_count = sum(row["status"] == "partial" for row in rows)
+    timeout_count = sum(row["status"] == "timeout" for row in rows)
+    skipped_count = sum(row["status"] == "skipped" for row in rows)
     markers = sum(int(row["completion_marker_received"]) for row in rows)
     complete_outputs = sum(int(row["output_complete"]) for row in rows)
     coverage_rates = [float(row["content_coverage_pct"]) for row in rows]
@@ -331,8 +342,15 @@ def run_stream(
         **_stream_base(trial, role, index, stream),
         "payload_name": payload["name"],
         "expected_transfers": sample_count,
+        "attempted_transfers": attempted,
         "completed_transfers": completed,
+        "partial_transfers": partial_count,
+        "timeout_transfers": timeout_count,
+        "skipped_transfers": skipped_count,
         "transfer_completion_rate_pct": f"{100.0 * completed / sample_count:.3f}",
+        "attempted_transfer_completion_rate_pct": (
+            f"{100.0 * completed / attempted:.3f}" if attempted else ""
+        ),
         "completion_markers_received": markers,
         "complete_outputs": complete_outputs,
         "output_completeness_pct": (
@@ -386,8 +404,13 @@ def unavailable_rows(
             **_stream_base(trial, role, index, dummy),
             "payload_name": payload["name"],
             "expected_transfers": sample_count,
+            "attempted_transfers": 0,
             "completed_transfers": 0,
+            "partial_transfers": 0,
+            "timeout_transfers": 0,
+            "skipped_transfers": 0,
             "transfer_completion_rate_pct": "0.000",
+            "attempted_transfer_completion_rate_pct": "",
             "completion_markers_received": 0,
             "complete_outputs": 0,
             "output_completeness_pct": "0.000",
@@ -426,6 +449,14 @@ def run_trial(
     live = cfg.get("LIVE_PROGRESS", "1") == "1"
     sample_count = int(cfg.get("SAMPLES_PER_STREAM_PER_TRIAL", "100"))
     live_every = int(cfg.get("LIVE_PROGRESS_EVERY", "10"))
+    continue_after_timeout = (
+        trial["protocol"] == "mosh"
+        and cfg.get("MOSH_CONTINUE_AFTER_TIMEOUT", "1") == "1"
+    )
+    barrier_timeout = timeout + (
+        float(cfg.get("MOSH_BARRIER_GRACE_SECONDS", "5"))
+        if continue_after_timeout else 0.0
+    )
     if sample_count <= 0 or live_every <= 0:
         raise ValueError("số mẫu và nhịp báo tiến trình phải dương")
     connection = connection_factory(
@@ -450,7 +481,7 @@ def run_trial(
                     run_stream,
                     trial, role, index, streams[role], selected_payloads[index],
                     remote_dir, sample_barrier, timeout, sample_count,
-                    live, live_every,
+                    live, live_every, continue_after_timeout, barrier_timeout,
                 ): role
                 for index, role in enumerate(roles)
             }
@@ -487,6 +518,13 @@ def run_trial(
     completed_transfers = sum(
         row["status"] == "completed" for row in transfers
     )
+    attempted_transfers = sum(
+        row["status"] in {"completed", "partial", "timeout", "failure"}
+        for row in transfers
+    )
+    partial_transfers = sum(row["status"] == "partial" for row in transfers)
+    timeout_transfers = sum(row["status"] == "timeout" for row in transfers)
+    skipped_transfers = sum(row["status"] == "skipped" for row in transfers)
     completed_streams = sum(
         int(row["stream_completed"]) for row in stream_rows
     )
@@ -514,9 +552,17 @@ def run_trial(
             bool(row["started_time_ns"]) for row in stream_rows
         ),
         "expected_transfers": expected,
+        "attempted_transfers": attempted_transfers,
         "completed_transfers": completed_transfers,
+        "partial_transfers": partial_transfers,
+        "timeout_transfers": timeout_transfers,
+        "skipped_transfers": skipped_transfers,
         "transfer_completion_rate_pct": (
             f"{100.0 * completed_transfers / expected:.3f}"
+        ),
+        "attempted_transfer_completion_rate_pct": (
+            f"{100.0 * completed_transfers / attempted_transfers:.3f}"
+            if attempted_transfers else ""
         ),
         "completed_streams": completed_streams,
         "stream_completion_rate_pct": (

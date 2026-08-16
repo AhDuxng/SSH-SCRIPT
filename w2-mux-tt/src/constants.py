@@ -43,7 +43,9 @@ TRANSFER_FIELDS = IDENTITY_FIELDS + (
 STREAM_FIELDS = IDENTITY_FIELDS + (
     "stream_role", "stream_index", "transport_stream_id",
     "conversation_stream_id", "payload_name", "expected_transfers",
-    "completed_transfers", "transfer_completion_rate_pct",
+    "attempted_transfers", "completed_transfers", "partial_transfers",
+    "timeout_transfers", "skipped_transfers",
+    "transfer_completion_rate_pct", "attempted_transfer_completion_rate_pct",
     "completion_markers_received", "complete_outputs",
     "output_completeness_pct", "mean_content_coverage_pct",
     "mean_verified_byte_ratio_pct", "mean_raw_byte_ratio_pct",
@@ -55,8 +57,10 @@ STREAM_FIELDS = IDENTITY_FIELDS + (
 TRIAL_FIELDS = IDENTITY_FIELDS + (
     "connection_valid", "connection_pid", "socket_count", "opened_streams",
     "unique_transport_streams", "conversation_count", "ready_streams",
-    "expected_transfers", "completed_transfers",
-    "transfer_completion_rate_pct", "completed_streams",
+    "expected_transfers", "attempted_transfers", "completed_transfers",
+    "partial_transfers", "timeout_transfers", "skipped_transfers",
+    "transfer_completion_rate_pct", "attempted_transfer_completion_rate_pct",
+    "completed_streams",
     "stream_completion_rate_pct", "complete_outputs",
     "output_completeness_pct", "mean_content_coverage_pct",
     "mean_verified_byte_ratio_pct", "mean_raw_byte_ratio_pct",

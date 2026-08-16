@@ -112,6 +112,12 @@ Nhận dấu hoàn thành nhưng thiếu hoặc sai output được ghi `partial
 dấu trước `TRANSFER_TIMEOUT` được ghi `timeout`. Với timeout, phần output đã
 quan sát vẫn được giữ lại để tính độ bao phủ nội dung.
 
+Với `MOSH_CONTINUE_AFTER_TIMEOUT=1`, timeout Mosh chỉ loại phép truyền hiện tại;
+runner giữ barrier hoạt động và tiếp tục batch kế tiếp. `MOSH_BARRIER_GRACE_SECONDS`
+cho stream đã hoàn thành sớm chờ stream timeout quay lại barrier mà không làm
+hỏng toàn bộ trial. Thống kê tách riêng planned, attempted, partial, timeout và
+skipped.
+
 ## Ý nghĩa stream theo giao thức
 
 - SSH dùng một ControlMaster và một session channel cho mỗi `output_X`.

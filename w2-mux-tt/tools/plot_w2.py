@@ -166,16 +166,17 @@ def plot_stream_metric(rows, output_dir, field, title, ylabel, stem, network):
     plt.close(fig)
 
 
-# Vẽ đồng thời tỷ lệ hoàn tất, xác thực byte và xác thực SHA-256.
+# Vẽ completion theo kế hoạch, theo mẫu đã gửi và xác thực nội dung.
 def plot_integrity(rows, output_dir, network):
     lookup = {(row["protocol"], row["scenario"]): row for row in rows}
     fields = (
-        ("transfer_completion_rate_pct", "Transfer complete"),
+        ("transfer_completion_rate_pct", "Planned complete"),
+        ("attempted_transfer_completion_rate_pct", "Attempted complete"),
         ("byte_verification_rate_pct", "100 KB verified"),
         ("hash_verification_rate_pct", "SHA-256 verified"),
     )
     x = np.arange(len(SCENARIOS) * len(PROTOCOLS))
-    width = 0.24
+    width = 0.19
     fig, axis = plt.subplots(figsize=(12, 5.8))
     for field_index, (field, label) in enumerate(fields):
         values = [
@@ -183,7 +184,8 @@ def plot_integrity(rows, output_dir, network):
             for scenario in SCENARIOS for protocol in PROTOCOLS
         ]
         bars = axis.bar(
-            x + (field_index - 1) * width, values, width,
+            x + (field_index - (len(fields) - 1) / 2) * width,
+            values, width,
             label=label, edgecolor="black", linewidth=0.5,
         )
         for bar, value in zip(bars, values):
@@ -201,7 +203,7 @@ def plot_integrity(rows, output_dir, network):
     axis.set_xticks(x, labels)
     axis.set_ylim(0, 108)
     axis.grid(axis="y", alpha=0.25)
-    axis.legend(ncol=3, loc="lower center")
+    axis.legend(ncol=4, loc="lower center")
     fig.tight_layout()
     output_dir.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_dir / "figure_5_output_integrity.png", dpi=180, bbox_inches="tight")
@@ -212,7 +214,8 @@ def plot_integrity(rows, output_dir, network):
 # Vẽ integrity theo từng output role, cùng bố cục với W1.
 def plot_stream_integrity(rows, output_dir, network):
     fields = (
-        ("transfer_completion_rate_pct", "Transfer complete"),
+        ("transfer_completion_rate_pct", "Planned complete"),
+        ("attempted_transfer_completion_rate_pct", "Attempted complete"),
         ("byte_verification_rate_pct", "100 KB verified"),
         ("hash_verification_rate_pct", "SHA-256 verified"),
     )
@@ -225,12 +228,13 @@ def plot_stream_integrity(rows, output_dir, network):
         ),
     )
     x = np.arange(len(ordered))
-    width = 0.24
+    width = 0.19
     fig, axis = plt.subplots(figsize=(16, 6))
     for field_index, (field, label) in enumerate(fields):
         values = [number(row, field) or 0.0 for row in ordered]
         axis.bar(
-            x + (field_index - 1) * width, values, width,
+            x + (field_index - (len(fields) - 1) / 2) * width,
+            values, width,
             label=label, edgecolor="black", linewidth=0.5,
         )
     labels = [
@@ -243,7 +247,7 @@ def plot_stream_integrity(rows, output_dir, network):
     axis.set_xticks(x, labels, fontsize=7)
     axis.set_ylim(0, 106)
     axis.grid(axis="y", alpha=0.25)
-    axis.legend(ncol=3, loc="lower center")
+    axis.legend(ncol=4, loc="lower center")
     fig.tight_layout()
     output_dir.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_dir / "figure_7_per_stream_integrity.png", dpi=180, bbox_inches="tight")

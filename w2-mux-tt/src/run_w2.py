@@ -167,6 +167,12 @@ def main() -> int:
             "and canonical SHA-256 equal to the deterministic payload manifest; "
             "SSH/SSH3 additionally require an exact raw byte-stream capture"
         ),
+        "mosh_continue_after_timeout": (
+            cfg.get("MOSH_CONTINUE_AFTER_TIMEOUT", "1") == "1"
+        ),
+        "mosh_barrier_grace_seconds": float(
+            cfg.get("MOSH_BARRIER_GRACE_SECONDS", "5")
+        ),
         "content_coverage_definition": (
             "unique exact payload lines observed divided by expected payload "
             "lines; duplicate and invalid terminal lines are excluded"

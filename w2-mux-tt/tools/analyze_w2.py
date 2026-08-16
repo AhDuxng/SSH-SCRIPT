@@ -150,6 +150,9 @@ def summarize_group(rows):
         "transfer_completion_rate_pct": fmt(
             100.0 * len(completed) / len(rows)
         ),
+        "attempted_transfer_completion_rate_pct": fmt(
+            100.0 * len(completed) / len(attempted) if attempted else ""
+        ),
         "output_completeness_pct": fmt(
             100.0 * sum(row["output_complete"] == "1" for row in rows)
             / len(rows)
