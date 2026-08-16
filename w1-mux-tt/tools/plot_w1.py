@@ -151,15 +151,19 @@ def plot_reliability(rows, output_dir, network):
         values = []
         for scenario in SCENARIOS:
             for protocol in PROTOCOLS:
-                values.append(number(lookup.get((protocol, scenario)), field) or 0.0)
+                values.append(number(lookup.get((protocol, scenario)), field))
+        bar_values = [value if value is not None else 0.0 for value in values]
         bars = ax.bar(
-            x + (field_index - (len(fields) - 1) / 2) * width, values, width,
+            x + (field_index - (len(fields) - 1) / 2) * width,
+            bar_values, width,
             label=label, edgecolor="black", linewidth=0.5,
         )
         for bar, value in zip(bars, values):
             ax.text(
-                bar.get_x() + bar.get_width() / 2, value + 0.25,
-                f"{value:.1f}", ha="center", va="bottom", fontsize=6, rotation=90,
+                bar.get_x() + bar.get_width() / 2,
+                (value if value is not None else 0.0) + 0.25,
+                "N/A" if value is None else f"{value:.1f}",
+                ha="center", va="bottom", fontsize=6, rotation=90,
             )
     tick_labels = [
         f"{scenario}\n{LABELS[protocol]}"
@@ -233,11 +237,19 @@ def plot_stream_reliability(rows, output_dir, network):
     width = 0.19
     fig, ax = plt.subplots(figsize=(16, 6))
     for field_index, (field, label) in enumerate(fields):
-        values = [number(row, field) or 0.0 for row in ordered]
-        ax.bar(
-            x + (field_index - (len(fields) - 1) / 2) * width, values, width,
+        values = [number(row, field) for row in ordered]
+        bar_values = [value if value is not None else 0.0 for value in values]
+        bars = ax.bar(
+            x + (field_index - (len(fields) - 1) / 2) * width,
+            bar_values, width,
             label=label, edgecolor="black", linewidth=0.5,
         )
+        for bar, value in zip(bars, values):
+            if value is None:
+                ax.text(
+                    bar.get_x() + bar.get_width() / 2, 0.25, "N/A",
+                    ha="center", va="bottom", fontsize=5, rotation=90,
+                )
     labels = [
         f"{row['scenario']}\nS{row['stream_role'].rsplit('_', 1)[1]}\n{LABELS[row['protocol']]}"
         for row in ordered
