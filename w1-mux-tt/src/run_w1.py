@@ -123,6 +123,9 @@ def main() -> int:
             "client completion-marker receive time minus client direct-command send time"
         ),
         "completion_definition": "the matching shell completion marker was received before timeout",
+        "mosh_continue_after_timeout": (
+            cfg.get("MOSH_CONTINUE_AFTER_TIMEOUT", "1") == "1"
+        ),
         "output_completeness_definition": (
             "SSH/SSH3: output was delimited by ordered start/end markers; "
             "Mosh: not verifiable from concurrent screen-state updates"

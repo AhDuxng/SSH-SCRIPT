@@ -135,16 +135,17 @@ def plot_setup(rows, output_dir, metric, network):
     save_figure(fig, output_dir, f"figure_2_setup_{metric}")
 
 
-# Vẽ command completion, stream completion và output completeness.
+# Vẽ completion theo kế hoạch, theo mẫu đã gửi, stream và output.
 def plot_reliability(rows, output_dir, network):
     lookup = {(row["protocol"], row["scenario"]): row for row in rows}
     fields = (
-        ("command_completion_rate_pct", "Command"),
+        ("command_completion_rate_pct", "Planned"),
+        ("attempted_completion_rate_pct", "Attempted"),
         ("stream_completion_rate_pct", "Stream"),
         ("output_completeness_pct", "Output"),
     )
     x = np.arange(len(SCENARIOS) * len(PROTOCOLS))
-    width = 0.24
+    width = 0.19
     fig, ax = plt.subplots(figsize=(12, 5.8))
     for field_index, (field, label) in enumerate(fields):
         values = []
@@ -152,7 +153,7 @@ def plot_reliability(rows, output_dir, network):
             for protocol in PROTOCOLS:
                 values.append(number(lookup.get((protocol, scenario)), field) or 0.0)
         bars = ax.bar(
-            x + (field_index - 1) * width, values, width,
+            x + (field_index - (len(fields) - 1) / 2) * width, values, width,
             label=label, edgecolor="black", linewidth=0.5,
         )
         for bar, value in zip(bars, values):
@@ -169,7 +170,7 @@ def plot_reliability(rows, output_dir, network):
     ax.set_xticks(x, tick_labels)
     ax.set_ylim(0, 108)
     ax.grid(axis="y", alpha=0.25)
-    ax.legend(ncol=3, loc="lower center")
+    ax.legend(ncol=4, loc="lower center")
     fig.tight_layout()
     save_figure(fig, output_dir, "figure_3_reliability")
 
@@ -215,7 +216,8 @@ def plot_stream_latency(rows, output_dir, metric, network):
 # Vẽ tỷ lệ hoàn thành và đầy đủ output riêng từng stream.
 def plot_stream_reliability(rows, output_dir, network):
     fields = (
-        ("command_completion_rate_pct", "Command"),
+        ("command_completion_rate_pct", "Planned"),
+        ("attempted_completion_rate_pct", "Attempted"),
         ("stream_completion_rate_pct", "Stream"),
         ("output_completeness_pct", "Output"),
     )
@@ -228,12 +230,12 @@ def plot_stream_reliability(rows, output_dir, network):
         ),
     )
     x = np.arange(len(ordered))
-    width = 0.24
+    width = 0.19
     fig, ax = plt.subplots(figsize=(16, 6))
     for field_index, (field, label) in enumerate(fields):
         values = [number(row, field) or 0.0 for row in ordered]
         ax.bar(
-            x + (field_index - 1) * width, values, width,
+            x + (field_index - (len(fields) - 1) / 2) * width, values, width,
             label=label, edgecolor="black", linewidth=0.5,
         )
     labels = [
@@ -245,7 +247,7 @@ def plot_stream_reliability(rows, output_dir, network):
     ax.set_xticks(x, labels, fontsize=7)
     ax.set_ylim(0, 106)
     ax.grid(axis="y", alpha=0.25)
-    ax.legend(ncol=3, loc="lower center")
+    ax.legend(ncol=4, loc="lower center")
     fig.tight_layout()
     save_figure(fig, output_dir, "figure_5_per_stream_reliability")
 

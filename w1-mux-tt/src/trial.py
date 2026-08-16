@@ -63,7 +63,7 @@ def _failed_sample(trial, role, index, stream, sample, status, note):
 # Chạy tuần tự toàn bộ kế hoạch mẫu trên một stream.
 def run_stream(
     trial, role, index, stream, barrier, command_timeout,
-    sample_plan, live_progress, live_every,
+    sample_plan, live_progress, live_every, continue_after_timeout=False,
 ):
     rows = []
     started_ns = 0
@@ -124,6 +124,8 @@ def run_stream(
                     )
                 if timed_out:
                     failure_note = note or "remote command timed out"
+                    if continue_after_timeout:
+                        continue
                     for remaining_sample in sample_plan[position + 1:]:
                         rows.append(_failed_sample(
                             trial, role, index, stream, remaining_sample,
@@ -135,6 +137,8 @@ def run_stream(
                 rows.append(_failed_sample(
                     trial, role, index, stream, sample, "timeout", failure_note,
                 ))
+                if continue_after_timeout:
+                    continue
                 for remaining_sample in sample_plan[position + 1:]:
                     rows.append(_failed_sample(
                         trial, role, index, stream, remaining_sample,
@@ -162,14 +166,25 @@ def run_stream(
         completed_ns = time.time_ns()
 
     completed = sum(row["status"] == "completed" for row in rows)
+    attempted = sum(
+        row["status"] in {"completed", "timeout", "failure"} for row in rows
+    )
+    timeout_count = sum(row["status"] == "timeout" for row in rows)
+    skipped_count = sum(row["status"] == "skipped" for row in rows)
     complete_outputs = sum(int(row["output_complete"]) for row in rows)
     verifiable_outputs = sum(int(row["output_verifiable"]) for row in rows)
     expected = len(sample_plan)
     summary = {
         **_sample_base(trial, role, index, stream),
         "expected_commands": expected,
+        "attempted_commands": attempted,
         "completed_commands": completed,
         "command_completion_rate_pct": f"{100.0 * completed / expected:.3f}",
+        "attempted_completion_rate_pct": (
+            f"{100.0 * completed / attempted:.3f}" if attempted else ""
+        ),
+        "timeout_commands": timeout_count,
+        "skipped_commands": skipped_count,
         "complete_outputs": complete_outputs,
         "output_completeness_pct": (
             f"{100.0 * complete_outputs / verifiable_outputs:.3f}"
@@ -197,8 +212,11 @@ def unavailable_rows(
             ))
         streams.append({
             **_sample_base(trial, role, index, dummy),
-            "expected_commands": len(sample_plan), "completed_commands": 0,
+            "expected_commands": len(sample_plan), "attempted_commands": 0,
+            "completed_commands": 0,
             "command_completion_rate_pct": "0.000", "complete_outputs": 0,
+            "attempted_completion_rate_pct": "", "timeout_commands": 0,
+            "skipped_commands": 0,
             "output_completeness_pct": "0.000", "stream_completed": 0,
             "started_time_ns": "", "completed_time_ns": "", "elapsed_ms": "",
             "note": note,
@@ -216,6 +234,10 @@ def run_trial(cfg: dict, trial: dict, connection_factory):
     samples_per_stream = int(cfg.get("SAMPLES_PER_STREAM_PER_TRIAL", "100"))
     live_every = int(cfg.get("LIVE_PROGRESS_EVERY", "10"))
     sample_plan = build_sample_plan(samples_per_stream)
+    continue_after_timeout = (
+        trial["protocol"] == "mosh"
+        and cfg.get("MOSH_CONTINUE_AFTER_TIMEOUT", "1") == "1"
+    )
     if live_every <= 0:
         raise ValueError("LIVE_PROGRESS_EVERY must be positive")
     connection = connection_factory(cfg, trial["protocol"], roles, trial["trial_tag"])
@@ -235,6 +257,7 @@ def run_trial(cfg: dict, trial: dict, connection_factory):
                 pool.submit(
                     run_stream, trial, role, index, streams[role], barrier,
                     timeout, sample_plan, live, live_every,
+                    continue_after_timeout,
                 ): role
                 for index, role in enumerate(roles)
             }
@@ -261,6 +284,9 @@ def run_trial(cfg: dict, trial: dict, connection_factory):
     samples.sort(key=lambda row: (int(row["stream_index"]), int(row["sample_index"])))
     stream_rows.sort(key=lambda row: int(row["stream_index"]))
     completed_commands = sum(int(row["completed_commands"]) for row in stream_rows)
+    attempted_commands = sum(int(row["attempted_commands"]) for row in stream_rows)
+    timeout_commands = sum(int(row["timeout_commands"]) for row in stream_rows)
+    skipped_commands = sum(int(row["skipped_commands"]) for row in stream_rows)
     complete_outputs = sum(int(row["complete_outputs"]) for row in stream_rows)
     verifiable_outputs = sum(
         int(row["output_verifiable"]) for row in samples
@@ -280,8 +306,15 @@ def run_trial(cfg: dict, trial: dict, connection_factory):
         "conversation_count": len(audit.conversation_ids),
         "ready_streams": sum(bool(row["started_time_ns"]) for row in stream_rows),
         "expected_commands": expected_commands,
+        "attempted_commands": attempted_commands,
         "completed_commands": completed_commands,
         "command_completion_rate_pct": f"{100.0 * completed_commands / expected_commands:.3f}",
+        "attempted_completion_rate_pct": (
+            f"{100.0 * completed_commands / attempted_commands:.3f}"
+            if attempted_commands else ""
+        ),
+        "timeout_commands": timeout_commands,
+        "skipped_commands": skipped_commands,
         "completed_streams": completed_streams,
         "stream_completion_rate_pct": f"{100.0 * completed_streams / len(roles):.3f}",
         "complete_outputs": complete_outputs,

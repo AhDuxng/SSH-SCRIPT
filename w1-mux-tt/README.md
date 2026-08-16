@@ -37,11 +37,17 @@ trial tạo 1.000 mẫu cho cùng một `stream_role` của từng tổ hợp
 ```env
 TRIALS_PER_COMBINATION=10
 SAMPLES_PER_STREAM_PER_TRIAL=100
+MOSH_CONTINUE_AFTER_TIMEOUT=1
 ```
 
 `SAMPLES_PER_STREAM_PER_TRIAL` phải là bội số dương của 5. Trong mỗi vai trò,
 lệnh sau chỉ được gửi khi đã nhận dấu hoàn thành của lệnh trước. Các vai trò
 trong cùng trial bắt đầu qua một hàng rào đồng bộ và chạy đồng thời.
+
+Với `MOSH_CONTINUE_AFTER_TIMEOUT=1`, một marker Mosh bị timeout chỉ làm hỏng
+mẫu tương ứng; runner tiếp tục gửi mẫu kế tiếp thay vì tự động bỏ qua toàn bộ
+phần còn lại của vai trò. Thống kê ghi riêng số mẫu dự kiến, mẫu thực sự đã gửi,
+timeout và skipped.
 
 Các kịch bản được cấu hình trong workload này:
 

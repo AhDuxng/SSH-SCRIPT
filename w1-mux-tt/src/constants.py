@@ -27,14 +27,18 @@ SAMPLE_FIELDS = IDENTITY_FIELDS + (
 STREAM_FIELDS = IDENTITY_FIELDS + (
     "stream_role", "stream_index", "transport_stream_id",
     "conversation_stream_id", "expected_commands", "completed_commands",
-    "command_completion_rate_pct", "complete_outputs", "output_completeness_pct",
+    "attempted_commands", "command_completion_rate_pct",
+    "attempted_completion_rate_pct", "timeout_commands", "skipped_commands",
+    "complete_outputs", "output_completeness_pct",
     "stream_completed", "started_time_ns", "completed_time_ns", "elapsed_ms", "note",
 )
 
 TRIAL_FIELDS = IDENTITY_FIELDS + (
     "connection_valid", "connection_pid", "socket_count", "opened_streams",
     "unique_transport_streams", "conversation_count", "ready_streams",
-    "expected_commands", "completed_commands", "command_completion_rate_pct",
+    "expected_commands", "attempted_commands", "completed_commands",
+    "command_completion_rate_pct", "attempted_completion_rate_pct",
+    "timeout_commands", "skipped_commands",
     "completed_streams", "stream_completion_rate_pct", "complete_outputs",
     "output_completeness_pct", "setup_ms", "workload_elapsed_ms", "status", "note",
 )
