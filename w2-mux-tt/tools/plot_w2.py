@@ -27,7 +27,7 @@ COLORS = {"ssh": "#1696D2", "ssh3": "#E69F00", "mosh": "#009E73"}
 HATCHES = {"ssh": "///", "ssh3": "--", "mosh": "\\\\\\"}
 STREAM_COUNTS = {"W2-S1": 1, "W2-S2": 2, "W2-S4": 4}
 SCENARIO_LABELS = {
-    scenario: f"{scenario}\n{count} stream{'s' if count > 1 else ''}"
+    scenario: f"{scenario}\n{count} concurrent workload{'s' if count > 1 else ''}"
     for scenario, count in STREAM_COUNTS.items()
 }
 
@@ -101,63 +101,76 @@ def plot_metric(rows, output_dir, field, title, ylabel, stem, network):
     plt.close(fig)
 
 
-# Vẽ một metric riêng cho từng output stream trong mỗi kịch bản.
-def plot_stream_metric(rows, output_dir, field, title, ylabel, stem, network):
+# Vẽ từng transport stream của SSH/SSH3 và một terminal vật lý của Mosh.
+def plot_stream_metric(
+    rows, scenario_rows, output_dir, field, title, ylabel, stem, network,
+):
     lookup = {
         (row["protocol"], row["scenario"], row["stream_role"]): row
         for row in rows
     }
+    scenario_lookup = {
+        (row["protocol"], row["scenario"]): row for row in scenario_rows
+    }
     fig, axes = plt.subplots(1, len(SCENARIOS), figsize=(15, 5.5), sharey=True)
-    width = 0.24
-    global_values = [number(row, field) for row in rows]
+    global_values = [
+        number(row, field) for row in rows if row["protocol"] != "mosh"
+    ] + [
+        number(scenario_lookup.get(("mosh", scenario)), field)
+        for scenario in SCENARIOS
+    ]
     ceiling = max(
         (value for value in global_values if value is not None), default=1.0
     )
     for scenario_index, scenario in enumerate(SCENARIOS):
         axis = axes[scenario_index]
         stream_count = STREAM_COUNTS[scenario]
-        x = np.arange(stream_count)
-        plotted = []
-        for protocol_index, protocol in enumerate(PROTOCOLS):
-            values = [
-                number(
-                    lookup.get((protocol, scenario, f"output_{stream_index}")),
-                    field,
-                )
-                for stream_index in range(stream_count)
-            ]
-            heights = [value if value is not None else 0.0 for value in values]
-            bars = axis.bar(
-                x + (protocol_index - 1) * width,
-                heights,
-                width,
-                label=LABELS[protocol],
-                color=COLORS[protocol],
-                edgecolor="black",
-                linewidth=0.6,
-                hatch=HATCHES[protocol],
+        items = []
+        for protocol in ("ssh", "ssh3"):
+            for stream_index in range(stream_count):
+                items.append((
+                    protocol,
+                    f"{LABELS[protocol]}\nStream {stream_index}",
+                    number(
+                        lookup.get((protocol, scenario, f"output_{stream_index}")),
+                        field,
+                    ),
+                ))
+        items.append((
+            "mosh", "Mosh\nTerminal",
+            number(scenario_lookup.get(("mosh", scenario)), field),
+        ))
+        x = np.arange(len(items))
+        bars = axis.bar(
+            x,
+            [value if value is not None else 0.0 for _, _, value in items],
+            0.72,
+            color=[COLORS[protocol] for protocol, _, _ in items],
+            edgecolor="black",
+            linewidth=0.6,
+            hatch=[HATCHES[protocol] for protocol, _, _ in items],
+        )
+        for bar, (_, _, value) in zip(bars, items):
+            shown = "N/A" if value is None else f"{value:.1f}"
+            axis.text(
+                bar.get_x() + bar.get_width() / 2,
+                (value or 0) + max(ceiling * 0.02, 0.1),
+                shown,
+                ha="center",
+                va="bottom",
+                fontsize=7,
             )
-            plotted.append((bars, values))
-        for bars, values in plotted:
-            for bar, value in zip(bars, values):
-                shown = "N/A" if value is None else f"{value:.1f}"
-                axis.text(
-                    bar.get_x() + bar.get_width() / 2,
-                    (value or 0) + max(ceiling * 0.02, 0.1),
-                    shown,
-                    ha="center",
-                    va="bottom",
-                    fontsize=7,
-                )
-        axis.set_title(f"{scenario} — {stream_count} stream{'s' if stream_count > 1 else ''}")
-        axis.set_xticks(x, [f"Stream {index}" for index in range(stream_count)])
+        axis.set_title(
+            f"{scenario} — {stream_count} concurrent workload"
+            f"{'s' if stream_count > 1 else ''}"
+        )
+        axis.set_xticks(x, [label for _, label, _ in items], fontsize=7)
         if field.endswith("_pct"):
             axis.set_ylim(0, 105)
         else:
             axis.set_ylim(0, max(1.0, ceiling * 1.22))
         axis.grid(axis="y", alpha=0.25)
     axes[0].set_ylabel(ylabel)
-    axes[0].legend(ncol=3, loc="upper left")
     fig.suptitle(f"{title} — {network.capitalize()}")
     fig.tight_layout()
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -211,38 +224,57 @@ def plot_integrity(rows, output_dir, network):
     plt.close(fig)
 
 
-# Vẽ integrity theo từng output role, cùng bố cục với W1.
-def plot_stream_integrity(rows, output_dir, network):
+# Vẽ integrity của từng SSH/SSH3 stream và một terminal Mosh tổng hợp.
+def plot_stream_integrity(rows, scenario_rows, output_dir, network):
     fields = (
         ("transfer_completion_rate_pct", "Planned complete"),
         ("attempted_transfer_completion_rate_pct", "Attempted complete"),
         ("byte_verification_rate_pct", "100 KB verified"),
         ("hash_verification_rate_pct", "SHA-256 verified"),
     )
-    ordered = sorted(
-        rows,
-        key=lambda row: (
-            SCENARIOS.index(row["scenario"]),
-            int(row["stream_role"].rsplit("_", 1)[1]),
-            PROTOCOLS.index(row["protocol"]),
-        ),
-    )
+    stream_lookup = {
+        (row["protocol"], row["scenario"], row["stream_role"]): row
+        for row in rows
+    }
+    scenario_lookup = {
+        (row["protocol"], row["scenario"]): row for row in scenario_rows
+    }
+    ordered = []
+    for scenario in SCENARIOS:
+        for protocol in ("ssh", "ssh3"):
+            for stream_index in range(STREAM_COUNTS[scenario]):
+                ordered.append((
+                    scenario,
+                    protocol,
+                    f"S{stream_index}",
+                    stream_lookup.get(
+                        (protocol, scenario, f"output_{stream_index}")
+                    ),
+                ))
+        ordered.append((
+            scenario,
+            "mosh",
+            "Terminal",
+            scenario_lookup.get(("mosh", scenario)),
+        ))
     x = np.arange(len(ordered))
     width = 0.19
     fig, axis = plt.subplots(figsize=(16, 6))
     for field_index, (field, label) in enumerate(fields):
-        values = [number(row, field) or 0.0 for row in ordered]
+        values = [number(row, field) or 0.0 for _, _, _, row in ordered]
         axis.bar(
             x + (field_index - (len(fields) - 1) / 2) * width,
             values, width,
             label=label, edgecolor="black", linewidth=0.5,
         )
     labels = [
-        f"{row['scenario']}\nS{row['stream_role'].rsplit('_', 1)[1]}\n"
-        f"{LABELS[row['protocol']]}"
-        for row in ordered
+        f"{scenario}\n{LABELS[protocol]}\n{role}"
+        for scenario, protocol, role, _ in ordered
     ]
-    axis.set_title(f"W2 per-stream output integrity — {network.capitalize()}")
+    axis.set_title(
+        f"W2 transport-stream output integrity — {network.capitalize()}\n"
+        "Mosh is one physical terminal per scenario"
+    )
     axis.set_ylabel("Rate (%)")
     axis.set_xticks(x, labels, fontsize=7)
     axis.set_ylim(0, 106)
@@ -285,10 +317,10 @@ def main() -> int:
     )
     for field, title, ylabel, stem in stream_plots:
         plot_stream_metric(
-            stream_rows, args.output_dir, field, title, ylabel, stem,
+            stream_rows, rows, args.output_dir, field, title, ylabel, stem,
             args.network,
         )
-    plot_stream_integrity(stream_rows, args.output_dir, args.network)
+    plot_stream_integrity(stream_rows, rows, args.output_dir, args.network)
     print(f"Saved W2 figures to {args.output_dir}")
     return 0
 
