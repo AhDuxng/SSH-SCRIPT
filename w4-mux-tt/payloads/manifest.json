@@ -1,0 +1,8 @@
+{
+  "name": "large_output_s0_1MiB.txt",
+  "bytes": 1048576,
+  "lines": 256,
+  "line_bytes": 4096,
+  "line_prefix": "W4O0|",
+  "sha256": "51a7200cd10e343f430ab6acb2b0e67b73adfafe5e07450dbc305d18bdfc2504"
+}

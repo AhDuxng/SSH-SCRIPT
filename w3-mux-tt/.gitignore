@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+*.pyc
+config.env
+artifacts/
+pi_runs/
+

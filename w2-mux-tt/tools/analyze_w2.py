@@ -134,6 +134,26 @@ def summarize_group(rows):
         for row in attempted
         if row.get("verified_byte_ratio_pct") or row["content_coverage_pct"]
     ]
+    expected_output_bytes = sum(int(row["expected_bytes"]) for row in rows)
+    verified_output_bytes = sum(int(row["verified_bytes"]) for row in rows)
+    attempted_expected_output_bytes = sum(
+        int(row["expected_bytes"]) for row in attempted
+    )
+    attempted_verified_output_bytes = sum(
+        int(row["verified_bytes"]) for row in attempted
+    )
+    fully_verified_outputs = sum(
+        row["bytes_complete"] == "1"
+        and row["lines_complete"] == "1"
+        and row["hash_complete"] == "1"
+        for row in rows
+    )
+    attempted_fully_verified_outputs = sum(
+        row["bytes_complete"] == "1"
+        and row["lines_complete"] == "1"
+        and row["hash_complete"] == "1"
+        for row in attempted
+    )
     completion_stats = latency_stats(completion_values)
     first_stats = latency_stats(first_values)
     return {
@@ -156,6 +176,28 @@ def summarize_group(rows):
         "output_completeness_pct": fmt(
             100.0 * sum(row["output_complete"] == "1" for row in rows)
             / len(rows)
+        ),
+        "fully_verified_outputs": fully_verified_outputs,
+        "fully_verified_output_rate_pct": fmt(
+            100.0 * fully_verified_outputs / len(rows)
+        ),
+        "attempted_fully_verified_outputs": attempted_fully_verified_outputs,
+        "attempted_fully_verified_output_rate_pct": fmt(
+            100.0 * attempted_fully_verified_outputs / len(attempted)
+            if attempted else ""
+        ),
+        "expected_output_bytes": expected_output_bytes,
+        "verified_output_bytes": verified_output_bytes,
+        "verified_output_ratio_pct": fmt(
+            100.0 * verified_output_bytes / expected_output_bytes
+            if expected_output_bytes else ""
+        ),
+        "attempted_expected_output_bytes": attempted_expected_output_bytes,
+        "attempted_verified_output_bytes": attempted_verified_output_bytes,
+        "attempted_verified_output_ratio_pct": fmt(
+            100.0 * attempted_verified_output_bytes
+            / attempted_expected_output_bytes
+            if attempted_expected_output_bytes else ""
         ),
         "mean_content_coverage_pct": fmt(
             statistics.mean(coverage_values) if coverage_values else ""
@@ -182,12 +224,13 @@ def summarize_group(rows):
             100.0 * sum(row["hash_complete"] == "1" for row in rows)
             / len(rows)
         ),
-        "raw_capture_exact_rate_pct": fmt(
-            100.0 * sum(
-                row.get("raw_capture_exact", row["output_complete"]) == "1"
-                for row in rows
+        "raw_capture_exact_rate_pct": (
+            "" if rows[0]["protocol"] == "mosh" else fmt(
+                100.0 * sum(
+                    row.get("raw_capture_exact", row["output_complete"]) == "1"
+                    for row in rows
+                ) / len(rows)
             )
-            / len(rows)
         ),
         "completion_mean_ms": completion_stats["mean_ms"],
         "completion_median_ms": completion_stats["median_ms"],
@@ -370,6 +413,30 @@ def write_csv(path: Path, rows) -> None:
         writer.writerows(rows)
 
 
+# Tạo bảng riêng diễn giải đúng độ đầy đủ output quan sát qua terminal Mosh.
+def mosh_output_rows(scenario_rows):
+    return [
+        {
+            "scenario": row["scenario"],
+            "planned_transfers": row["expected_transfers"],
+            "attempted_transfers": row["attempted_transfers"],
+            "fully_verified_transfers": row["fully_verified_outputs"],
+            "fully_verified_output_rate_pct": (
+                row["fully_verified_output_rate_pct"]
+            ),
+            "attempted_fully_verified_output_rate_pct": (
+                row["attempted_fully_verified_output_rate_pct"]
+            ),
+            "expected_output_bytes": row["expected_output_bytes"],
+            "verified_output_bytes": row["verified_output_bytes"],
+            "verified_output_ratio_pct": row["verified_output_ratio_pct"],
+            "verification_scope": "terminal_observed_deterministic_content",
+            "raw_lossless_stream_verification": "not_applicable",
+        }
+        for row in scenario_rows if row["protocol"] == "mosh"
+    ]
+
+
 # Tạo các bảng tổng hợp W2.
 def main() -> int:
     result_dir = Path(sys.argv[1] if len(sys.argv) > 1 else "artifacts/results")
@@ -377,7 +444,9 @@ def main() -> int:
         "trial_id", "protocol", "scenario", "stream_role", "status",
         "completion_latency_ms", "first_byte_latency_ms", "throughput_mib_s",
         "output_complete", "content_coverage_pct", "raw_byte_ratio_pct",
-        "bytes_complete", "hash_complete", "completion_marker_received",
+        "verified_bytes", "expected_bytes", "bytes_complete", "lines_complete",
+        "hash_complete",
+        "completion_marker_received",
         "sample_index",
     })
     streams = load_csv(result_dir / "streams.csv", {
@@ -394,6 +463,9 @@ def main() -> int:
         result_dir / "stream_summary.csv",
         summarize_streams(transfers, streams),
     )
+    mosh_rows = mosh_output_rows(scenario_rows)
+    if mosh_rows:
+        write_csv(result_dir / "mosh_output_completeness.csv", mosh_rows)
     comparisons = compare_ssh3_to_ssh(scenario_rows)
     if comparisons:
         write_csv(result_dir / "ssh3_vs_ssh.csv", comparisons)

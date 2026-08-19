@@ -183,35 +183,41 @@ def plot_stream_metric(
 def plot_integrity(rows, output_dir, network):
     lookup = {(row["protocol"], row["scenario"]): row for row in rows}
     fields = (
-        ("transfer_completion_rate_pct", "Planned complete"),
-        ("attempted_transfer_completion_rate_pct", "Attempted complete"),
-        ("byte_verification_rate_pct", "100 KB verified"),
-        ("hash_verification_rate_pct", "SHA-256 verified"),
+        ("completion_marker_rate_pct", "Command finished"),
+        ("fully_verified_output_rate_pct", "Full output + SHA-256"),
+        ("verified_output_ratio_pct", "Verified expected content"),
+        ("raw_capture_exact_rate_pct", "Lossless raw capture"),
     )
     x = np.arange(len(SCENARIOS) * len(PROTOCOLS))
     width = 0.19
     fig, axis = plt.subplots(figsize=(12, 5.8))
     for field_index, (field, label) in enumerate(fields):
         values = [
-            number(lookup.get((protocol, scenario)), field) or 0.0
+            number(lookup.get((protocol, scenario)), field)
             for scenario in SCENARIOS for protocol in PROTOCOLS
         ]
+        heights = [value if value is not None else 0.0 for value in values]
         bars = axis.bar(
             x + (field_index - (len(fields) - 1) / 2) * width,
-            values, width,
+            heights, width,
             label=label, edgecolor="black", linewidth=0.5,
         )
         for bar, value in zip(bars, values):
             axis.text(
-                bar.get_x() + bar.get_width() / 2, value + 0.25,
-                f"{value:.1f}", ha="center", va="bottom",
+                bar.get_x() + bar.get_width() / 2,
+                (value if value is not None else 0.0) + 0.25,
+                "N/A" if value is None else f"{value:.1f}",
+                ha="center", va="bottom",
                 fontsize=6, rotation=90,
             )
     labels = [
         f"{scenario}\n{LABELS[protocol]}"
         for scenario in SCENARIOS for protocol in PROTOCOLS
     ]
-    axis.set_title(f"W2 output integrity — {network.capitalize()}")
+    axis.set_title(
+        f"W2 verified output integrity — {network.capitalize()}\n"
+        "Mosh values refer to deterministic content observed on its terminal"
+    )
     axis.set_ylabel("Rate (%)")
     axis.set_xticks(x, labels)
     axis.set_ylim(0, 108)
@@ -227,10 +233,10 @@ def plot_integrity(rows, output_dir, network):
 # Vẽ integrity của từng SSH/SSH3 stream và một terminal Mosh tổng hợp.
 def plot_stream_integrity(rows, scenario_rows, output_dir, network):
     fields = (
-        ("transfer_completion_rate_pct", "Planned complete"),
-        ("attempted_transfer_completion_rate_pct", "Attempted complete"),
-        ("byte_verification_rate_pct", "100 KB verified"),
-        ("hash_verification_rate_pct", "SHA-256 verified"),
+        ("completion_marker_rate_pct", "Command finished"),
+        ("fully_verified_output_rate_pct", "Full output + SHA-256"),
+        ("verified_output_ratio_pct", "Verified expected content"),
+        ("raw_capture_exact_rate_pct", "Lossless raw capture"),
     )
     stream_lookup = {
         (row["protocol"], row["scenario"], row["stream_role"]): row
@@ -261,12 +267,18 @@ def plot_stream_integrity(rows, scenario_rows, output_dir, network):
     width = 0.19
     fig, axis = plt.subplots(figsize=(16, 6))
     for field_index, (field, label) in enumerate(fields):
-        values = [number(row, field) or 0.0 for _, _, _, row in ordered]
-        axis.bar(
+        values = [number(row, field) for _, _, _, row in ordered]
+        bars = axis.bar(
             x + (field_index - (len(fields) - 1) / 2) * width,
-            values, width,
+            [value if value is not None else 0.0 for value in values], width,
             label=label, edgecolor="black", linewidth=0.5,
         )
+        for bar, value in zip(bars, values):
+            if value is None:
+                axis.text(
+                    bar.get_x() + bar.get_width() / 2, 0.5, "N/A",
+                    ha="center", va="bottom", fontsize=5, rotation=90,
+                )
     labels = [
         f"{scenario}\n{LABELS[protocol]}\n{role}"
         for scenario, protocol, role, _ in ordered

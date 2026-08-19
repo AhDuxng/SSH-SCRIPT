@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import os
 import shlex
 import threading
@@ -22,6 +23,7 @@ class MoshConnection(MultiplexConnection):
         self.child = None
         self.reader_thread: threading.Thread | None = None
         self._write_lock = threading.Lock()
+        self._closing = threading.Event()
 
     # Gửi byte vào terminal Mosh.
     def _send(self, data: bytes):
@@ -35,21 +37,29 @@ class MoshConnection(MultiplexConnection):
         import pexpect
 
         role = self.specs[0].role
-        while self.child is not None:
+        child = self.child
+        if child is None:
+            return
+        while not self._closing.is_set():
             try:
-                chunk = self.child.read_nonblocking(size=4096, timeout=0.1)
+                chunk = child.read_nonblocking(size=4096, timeout=0.1)
             except pexpect.TIMEOUT:
                 continue
             except pexpect.EOF:
-                status = self.child.exitstatus
-                self.streams[role].put_exit(status)
+                break
+            except OSError as exc:
+                if self._closing.is_set() and exc.errno == errno.EBADF:
+                    break
+                self.streams[role].put_error(repr(exc))
                 return
             self.streams[role].put_data(chunk)
+        self.streams[role].put_exit(child.exitstatus)
 
     # Mở một terminal session Mosh.
     def open(self, timeout: float) -> dict[str, RawStream]:
         import pexpect
 
+        self._closing.clear()
         spec = self.specs[0]
         target = f"{self.cfg['SERVER_USER']}@{self.cfg['SERVER_HOST']}"
         command = [
@@ -99,6 +109,9 @@ class MoshConnection(MultiplexConnection):
         if self.child is None:
             return
         child = self.child
+        self._closing.set()
+        if self.reader_thread is not None:
+            self.reader_thread.join(timeout=0.5)
         try:
             child.sendeof()
         except Exception:
@@ -108,4 +121,7 @@ class MoshConnection(MultiplexConnection):
             time.sleep(0.05)
         if child.isalive():
             child.close(force=True)
+        if self.reader_thread is not None:
+            self.reader_thread.join(timeout=0.5)
+            self.reader_thread = None
         self.child = None

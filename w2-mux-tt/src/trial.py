@@ -27,6 +27,55 @@ def _fmt_ms(value) -> str:
     return "" if value is None else f"{value:.3f}"
 
 
+# Tính riêng tỷ lệ transfer đủ hoàn toàn và tỷ lệ byte nội dung đã xác thực.
+def _verified_output_metrics(rows: list[dict]) -> dict:
+    attempted = [
+        row for row in rows
+        if row["status"] in {"completed", "partial", "timeout", "failure"}
+    ]
+    expected_bytes = sum(int(row["expected_bytes"]) for row in rows)
+    verified_bytes = sum(int(row["verified_bytes"]) for row in rows)
+    attempted_expected_bytes = sum(
+        int(row["expected_bytes"]) for row in attempted
+    )
+    attempted_verified_bytes = sum(
+        int(row["verified_bytes"]) for row in attempted
+    )
+    fully_verified = sum(
+        int(row["bytes_complete"])
+        and int(row["lines_complete"])
+        and int(row["hash_complete"])
+        for row in rows
+    )
+    attempted_fully_verified = sum(
+        int(row["bytes_complete"])
+        and int(row["lines_complete"])
+        and int(row["hash_complete"])
+        for row in attempted
+    )
+    return {
+        "fully_verified_output_rate_pct": (
+            f"{100.0 * fully_verified / len(rows):.3f}" if rows else ""
+        ),
+        "attempted_fully_verified_output_rate_pct": (
+            f"{100.0 * attempted_fully_verified / len(attempted):.3f}"
+            if attempted else ""
+        ),
+        "expected_output_bytes": expected_bytes,
+        "verified_output_bytes": verified_bytes,
+        "verified_output_ratio_pct": (
+            f"{100.0 * verified_bytes / expected_bytes:.3f}"
+            if expected_bytes else ""
+        ),
+        "attempted_expected_output_bytes": attempted_expected_bytes,
+        "attempted_verified_output_bytes": attempted_verified_bytes,
+        "attempted_verified_output_ratio_pct": (
+            f"{100.0 * attempted_verified_bytes / attempted_expected_bytes:.3f}"
+            if attempted_expected_bytes else ""
+        ),
+    }
+
+
 # Đọc tập dòng payload chuẩn để tính độ bao phủ nội dung.
 def _load_expected_lines(payload_dir: Path, payload: dict) -> tuple[bytes, ...]:
     raw = (payload_dir / payload["name"]).read_bytes()
@@ -338,6 +387,7 @@ def run_stream(
         float(row["verified_byte_ratio_pct"]) for row in rows
     ]
     raw_byte_rates = [float(row["raw_byte_ratio_pct"]) for row in rows]
+    verified_output = _verified_output_metrics(rows)
     summary = {
         **_stream_base(trial, role, index, stream),
         "payload_name": payload["name"],
@@ -356,6 +406,7 @@ def run_stream(
         "output_completeness_pct": (
             f"{100.0 * complete_outputs / sample_count:.3f}"
         ),
+        **verified_output,
         "mean_content_coverage_pct": (
             f"{sum(coverage_rates) / sample_count:.3f}"
         ),
@@ -414,6 +465,14 @@ def unavailable_rows(
             "completion_markers_received": 0,
             "complete_outputs": 0,
             "output_completeness_pct": "0.000",
+            "fully_verified_output_rate_pct": "0.000",
+            "attempted_fully_verified_output_rate_pct": "",
+            "expected_output_bytes": sample_count * int(payload["bytes"]),
+            "verified_output_bytes": 0,
+            "verified_output_ratio_pct": "0.000",
+            "attempted_expected_output_bytes": 0,
+            "attempted_verified_output_bytes": 0,
+            "attempted_verified_output_ratio_pct": "",
             "mean_content_coverage_pct": "0.000",
             "mean_verified_byte_ratio_pct": "0.000",
             "mean_raw_byte_ratio_pct": "0.000",
@@ -537,6 +596,7 @@ def run_trial(
     ]
     raw_byte_rates = [float(row["raw_byte_ratio_pct"]) for row in transfers]
     expected = len(roles) * sample_count
+    verified_output = _verified_output_metrics(transfers)
     audit = connection.audit
     trial_row = {
         **trial,
@@ -572,6 +632,7 @@ def run_trial(
         "output_completeness_pct": (
             f"{100.0 * complete_outputs / expected:.3f}"
         ),
+        **verified_output,
         "mean_content_coverage_pct": (
             f"{sum(coverage_rates) / expected:.3f}"
         ),
