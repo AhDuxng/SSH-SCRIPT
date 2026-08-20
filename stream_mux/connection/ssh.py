@@ -8,6 +8,7 @@ import shlex
 import signal
 import subprocess
 import threading
+from pathlib import Path
 
 from .base import ConnectionAudit, MultiplexConnection, RawStream, StreamSpec
 from .common import (
@@ -16,6 +17,7 @@ from .common import (
     socket_rows,
     ssh_base,
 )
+from .congestion import TCPInfoSampler
 
 
 class SSHConnection(MultiplexConnection):
@@ -30,6 +32,7 @@ class SSHConnection(MultiplexConnection):
         self.readers: list[PipeReader] = []
         self.watchers: list[threading.Thread] = []
         self.master_pid = 0
+        self.tcp_sampler: TCPInfoSampler | None = None
 
     # Gửi dữ liệu vào một SSH channel.
     def _send(self, role: str, data: bytes):
@@ -147,10 +150,24 @@ class SSHConnection(MultiplexConnection):
         )
         if not valid:
             raise RuntimeError(f"invalid OpenSSH multiplex audit: {self.audit}")
+        congestion_dir = self.cfg.get("CONGESTION_LOG_DIR", "").strip()
+        if congestion_dir:
+            interval = float(
+                self.cfg.get("CONGESTION_SAMPLE_INTERVAL_SECONDS", "0.10")
+            )
+            self.tcp_sampler = TCPInfoSampler(
+                self.master_pid,
+                Path(congestion_dir) / f"{self.trial_tag}.ssh_tcp.jsonl",
+                interval,
+            )
+            self.tcp_sampler.start()
         return self.streams
 
     # Đóng các channel rồi đóng ControlMaster.
     def close(self) -> None:
+        if self.tcp_sampler is not None:
+            self.tcp_sampler.stop()
+            self.tcp_sampler = None
         for stream in self.streams.values():
             try:
                 stream.close_input()

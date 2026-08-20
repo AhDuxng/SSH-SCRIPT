@@ -6,12 +6,12 @@ cd "$SHARED_DIR"
 
 UPSTREAM_URL="${SSH3_UPSTREAM_URL:-https://github.com/francoismichel/ssh3.git}"
 UPSTREAM_COMMIT="${SSH3_UPSTREAM_COMMIT:-5b4b242db02a5cfbb9ebf9dfc5aad2c32e10f245}"
-OUTPUT_BIN="${SSH3_MUX_BIN:-bin/ssh3-mux-stdio}"
+OUTPUT_BIN="${SSH3_SERVER_BIN:-bin/ssh3-server-instrumented}"
 PATCH_PATH="$SHARED_DIR/patches/ssh3_mux_stdio.patch"
 CC_SOURCE_PATH="$SHARED_DIR/patches/mux_cc.go"
 PATCH_HASH="$(shasum -a 256 "$PATCH_PATH" "$CC_SOURCE_PATH" | shasum -a 256 | awk '{print $1}')"
-DEFAULT_BUILD_DIR=".build/ssh3-${UPSTREAM_COMMIT:0:12}-${PATCH_HASH:0:12}"
-BUILD_DIR="${SSH3_BUILD_DIR:-$DEFAULT_BUILD_DIR}"
+DEFAULT_BUILD_DIR=".build/ssh3-server-${UPSTREAM_COMMIT:0:12}-${PATCH_HASH:0:12}"
+BUILD_DIR="${SSH3_SERVER_BUILD_DIR:-$DEFAULT_BUILD_DIR}"
 
 if [[ "$BUILD_DIR" == /* ]]; then
   BUILD_PATH="$BUILD_DIR"
@@ -25,7 +25,7 @@ else
 fi
 
 if ! command -v go >/dev/null 2>&1; then
-  echo "Go >= 1.21 is required to build ssh3-mux-stdio" >&2
+  echo "Go >= 1.21 is required to build instrumented ssh3-server" >&2
   exit 2
 fi
 
@@ -39,20 +39,13 @@ git -C "$BUILD_PATH" checkout --detach "$UPSTREAM_COMMIT"
 if git -C "$BUILD_PATH" apply --check "$PATCH_PATH" 2>/dev/null; then
   git -C "$BUILD_PATH" apply "$PATCH_PATH"
 elif git -C "$BUILD_PATH" apply --reverse --check "$PATCH_PATH"; then
-  echo "Shared SSH3 multiplex patch is already applied"
+  echo "Shared SSH3 instrumentation patch is already applied"
 else
   echo "$PATCH_PATH does not apply cleanly to $UPSTREAM_COMMIT" >&2
   exit 3
 fi
 cp "$CC_SOURCE_PATH" "$BUILD_PATH/cmd/mux_cc.go"
 
-GO_BUILD_ARGS=(build -o "$OUTPUT_PATH")
-if [[ "$(uname -s)" == "Darwin" ]]; then
-  GO_BUILD_ARGS+=( -ldflags=-linkmode=external )
-fi
-(cd "$BUILD_PATH" && go "${GO_BUILD_ARGS[@]}" cmd/ssh3/main.go)
-if [[ "$(uname -s)" == "Darwin" ]]; then
-  codesign --force --sign - "$OUTPUT_PATH"
-fi
+(cd "$BUILD_PATH" && go build -o "$OUTPUT_PATH" cmd/ssh3-server/main.go)
 printf '%s\n' "$PATCH_HASH" > "${OUTPUT_PATH}.patch.sha256"
-echo "Built $OUTPUT_PATH from SSH3 commit $UPSTREAM_COMMIT"
+echo "Built $OUTPUT_PATH with server-side QUIC congestion tracing"

@@ -11,6 +11,7 @@ import signal
 import subprocess
 import threading
 import time
+from pathlib import Path
 
 from .base import ConnectionAudit, MultiplexConnection, RawStream, StreamSpec
 from .common import JSONPipeReader, PipeReader, cfg_bool, process_tree, socket_rows
@@ -123,6 +124,17 @@ class SSH3Connection(MultiplexConnection):
         command.append(f"{target}:{port}{path}")
 
         process_env = dict(os.environ)
+        congestion_dir = self.cfg.get("CONGESTION_LOG_DIR", "").strip()
+        if congestion_dir:
+            path = Path(congestion_dir)
+            path.mkdir(parents=True, exist_ok=True)
+            process_env["SSH3_MUX_CC_LOG"] = str(
+                path / f"{self.trial_tag}.ssh3_quic.jsonl"
+            )
+            interval = float(
+                self.cfg.get("CONGESTION_SAMPLE_INTERVAL_SECONDS", "0.10")
+            )
+            process_env["SSH3_MUX_CC_INTERVAL_MS"] = str(interval * 1000.0)
         if pty_specs:
             shape = pty_specs[0]
             process_env.update({
