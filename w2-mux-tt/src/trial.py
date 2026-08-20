@@ -10,6 +10,8 @@ from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
+from framing import request_token
+
 
 # Tạo phần định danh chung cho một output stream.
 def _stream_base(trial: dict, role: str, index: int, stream) -> dict:
@@ -85,18 +87,54 @@ def _load_expected_lines(payload_dir: Path, payload: dict) -> tuple[bytes, ...]:
     return tuple(lines)
 
 
+# Tạo nội dung và lệnh từ xa riêng cho từng trial/role/sample nhưng giữ 100 KiB.
+def _sample_payload_spec(
+    trial: dict, role: str, sample_index: int, payload: dict, remote_path: str,
+) -> dict:
+    request_id = f"{trial['trial_id']}:{role}:{sample_index}"
+    token = request_token(request_id)
+    base_prefix = payload["line_prefix"].encode("ascii")
+    sample_prefix = base_prefix + token.encode("ascii")
+    prefix_width = len(sample_prefix)
+    expected_lines = tuple(
+        sample_prefix + line[prefix_width:]
+        for line in payload["_expected_lines"]
+    )
+    expected_output = b"".join(expected_lines)
+    if len(expected_output) != int(payload["bytes"]):
+        raise AssertionError("payload theo sample không giữ nguyên kích thước")
+    sed_pattern = "." * prefix_width
+    sed_expression = f"s/^{sed_pattern}/{sample_prefix.decode('ascii')}/"
+    command = (
+        f"sed {shlex.quote(sed_expression)} {shlex.quote(remote_path)}"
+    )
+    return {
+        "request_id": request_id,
+        "sample_token": token,
+        "line_prefix": sample_prefix,
+        "expected_lines": expected_lines,
+        "expected_bytes": len(expected_output),
+        "expected_sha256": hashlib.sha256(expected_output).hexdigest(),
+        "command": command,
+    }
+
+
 # Tạo dòng lỗi khi stream không hoàn tất phép truyền.
 def _failed_transfer(
     trial: dict, role: str, index: int, stream,
     payload: dict, remote_path: str, sample_index: int,
     status: str, note: str,
 ) -> dict:
+    sample = _sample_payload_spec(
+        trial, role, sample_index, payload, remote_path
+    )
     return {
         **_stream_base(trial, role, index, stream),
         "payload_name": payload["name"],
         "remote_payload_path": remote_path,
         "sample_index": sample_index,
-        "request_id": f"{trial['trial_id']}:{role}:{sample_index}",
+        "request_id": sample["request_id"],
+        "sample_token": sample["sample_token"],
         "send_time_ns": "",
         "first_byte_time_ns": "",
         "last_byte_time_ns": "",
@@ -105,7 +143,7 @@ def _failed_transfer(
         "completion_latency_ms": "",
         "marker_latency_ms": "",
         "exit_code": "",
-        "expected_bytes": payload["bytes"],
+        "expected_bytes": sample["expected_bytes"],
         "received_bytes": 0,
         "raw_byte_ratio_pct": "0.000",
         "verified_bytes": 0,
@@ -118,7 +156,7 @@ def _failed_transfer(
         "duplicate_lines": 0,
         "invalid_lines": 0,
         "content_coverage_pct": "0.000",
-        "expected_sha256": payload["sha256"],
+        "expected_sha256": sample["expected_sha256"],
         "received_sha256": hashlib.sha256(b"").hexdigest(),
         "verified_sha256": hashlib.sha256(b"").hexdigest(),
         "verification_mode": (
@@ -148,7 +186,6 @@ def run_stream(
     barrier_timeout=None,
 ):
     remote_path = f"{remote_dir.rstrip('/')}/{payload['name']}"
-    command = f"cat {shlex.quote(remote_path)}"
     started_ns = 0
     completed_ns = 0
     failure_note = ""
@@ -156,7 +193,10 @@ def run_stream(
     try:
         started_ns = time.time_ns()
         for sample_index in range(1, sample_count + 1):
-            request_id = f"{trial['trial_id']}:{role}:{sample_index}"
+            sample = _sample_payload_spec(
+                trial, role, sample_index, payload, remote_path
+            )
+            request_id = sample["request_id"]
             try:
                 # Mỗi vòng đều bắt đầu đủ S1/S2/S4 vai trò cùng lúc. Điều này
                 # ngăn một stream chạy trước nhiều payload, đặc biệt quan trọng
@@ -164,20 +204,20 @@ def run_stream(
                 sample_barrier.wait(timeout=barrier_timeout or timeout)
                 result = stream.execute(
                     request_id,
-                    command,
-                    payload["line_prefix"].encode("ascii"),
+                    sample["command"],
+                    sample["line_prefix"],
                     timeout,
                 )
                 output = result["stdout"]
                 received_bytes = len(output)
                 received_lines = output.count(b"\n")
                 received_hash = hashlib.sha256(output).hexdigest()
-                expected_bytes = int(payload["bytes"])
+                expected_bytes = sample["expected_bytes"]
                 raw_byte_ratio_pct = (
                     100.0 * received_bytes / expected_bytes
                 )
                 observed_lines = output.splitlines(keepends=True)
-                expected_line_list = payload["_expected_lines"]
+                expected_line_list = sample["expected_lines"]
                 # Mosh xuất các bản cập nhật màn hình có thể vẽ lại dòng và
                 # chèn cursor sequence. Tìm chính xác từng dòng deterministic
                 # trong capture cho phép xác thực nội dung mà không nhầm raw
@@ -204,11 +244,11 @@ def run_stream(
                 verified_hash = hashlib.sha256(verified_output).hexdigest()
                 bytes_complete = verified_bytes == expected_bytes
                 lines_complete = valid_unique_lines == int(payload["lines"])
-                hash_complete = verified_hash == payload["sha256"]
+                hash_complete = verified_hash == sample["expected_sha256"]
                 raw_capture_exact = (
                     received_bytes == expected_bytes
                     and received_lines == int(payload["lines"])
-                    and received_hash == payload["sha256"]
+                    and received_hash == sample["expected_sha256"]
                 )
                 marker_received = bool(
                     result.get("completion_marker_received")
@@ -249,7 +289,7 @@ def run_stream(
                     problems.append(f"mã thoát={result.get('exit_code')}")
                 if not bytes_complete:
                     problems.append(
-                        f"byte xác thực={verified_bytes}/{payload['bytes']}"
+                        f"byte xác thực={verified_bytes}/{expected_bytes}"
                     )
                 if not lines_complete:
                     problems.append(
@@ -266,6 +306,7 @@ def run_stream(
                     "remote_payload_path": remote_path,
                     "sample_index": sample_index,
                     "request_id": request_id,
+                    "sample_token": sample["sample_token"],
                     "send_time_ns": result["send_time_ns"],
                     "first_byte_time_ns": (
                         result.get("first_byte_time_ns") or ""
@@ -285,7 +326,7 @@ def run_stream(
                         "" if result.get("exit_code") is None
                         else result["exit_code"]
                     ),
-                    "expected_bytes": payload["bytes"],
+                    "expected_bytes": expected_bytes,
                     "received_bytes": received_bytes,
                     "raw_byte_ratio_pct": f"{raw_byte_ratio_pct:.3f}",
                     "verified_bytes": verified_bytes,
@@ -298,7 +339,7 @@ def run_stream(
                     "duplicate_lines": duplicate_lines,
                     "invalid_lines": invalid_lines,
                     "content_coverage_pct": f"{content_coverage_pct:.3f}",
-                    "expected_sha256": payload["sha256"],
+                    "expected_sha256": sample["expected_sha256"],
                     "received_sha256": received_hash,
                     "verified_sha256": verified_hash,
                     "verification_mode": (
@@ -523,6 +564,8 @@ def run_trial(
     )
     setup_started = time.perf_counter_ns()
     workload_started = 0
+    server_workload_start_ns = None
+    server_workload_end_ns = None
     transfers, stream_rows = [], []
     note = ""
     try:
@@ -530,6 +573,9 @@ def run_trial(
         setup_ms = (time.perf_counter_ns() - setup_started) / 1_000_000.0
         time.sleep(warmup)
         connection.prepare_workload(ready_timeout)
+        server_workload_start_ns = connection.server_time_ns(
+            "workload-start", ready_timeout
+        )
         sample_barrier = threading.Barrier(
             len(roles), action=connection.prepare_sample
         )
@@ -549,6 +595,9 @@ def run_trial(
                 transfers.extend(transfer_rows)
                 stream_rows.append(summary)
         workload_ms = (time.perf_counter_ns() - workload_started) / 1_000_000.0
+        server_workload_end_ns = connection.server_time_ns(
+            "workload-end", ready_timeout
+        )
         if all(row["status"] == "completed" for row in transfers):
             status = "completed"
         elif all(row["completion_marker_received"] for row in transfers):
@@ -652,6 +701,8 @@ def run_trial(
         "workload_elapsed_ms": (
             f"{workload_ms:.3f}" if isinstance(workload_ms, float) else ""
         ),
+        "server_workload_start_ns": server_workload_start_ns or "",
+        "server_workload_end_ns": server_workload_end_ns or "",
         "status": status,
         "note": note or audit.note,
     }

@@ -37,6 +37,9 @@ mới bắt đầu đồng hồ và gửi phím cho riêng pane đó. Hình họ
 marker ngay trong terminal Mosh trước warm-up; runner không mở SSH phụ khi
 workload đang chạy. Trial dùng một tmux server/socket riêng và các phím chọn
 pane F5–F8 chỉ được bind trong server riêng đó, không sửa tmux của người dùng.
+Nếu một phím chọn pane chưa làm cursor chuyển sang vùng pane đích, runner gửi
+lại có giới hạn (`MOSH_PANE_SELECT_RETRIES`, mặc định 3). Mỗi lần retry được in
+thành `[PANE-RETRY]`; toàn bộ việc chọn/xác nhận pane vẫn nằm trước `send_ns`.
 
 ## Workload
 
@@ -122,9 +125,8 @@ python3 -m venv .venv
 TRIALS_PER_COMBINATION=1 \
 WARMUP_SECONDS=0.5 \
 INTER_TRIAL_DELAY_SECONDS=0 \
-RESULT_DIR=artifacts/smoke-all \
-LOG_DIR=artifacts/smoke-all/logs \
-bash run_w3.sh config.env 2>&1 | tee artifacts/smoke-all.log
+RESULT_DIR=/tmp/w3-smoke \
+bash run_w3.sh config.env 2>&1 | tee /tmp/w3-smoke.log
 ```
 
 Smoke đầy đủ có `3 protocol × 2 editor × 3 scenario = 18 trial`.
@@ -133,7 +135,7 @@ Smoke đầy đủ có `3 protocol × 2 editor × 3 scenario = 18 trial`.
 
 ```bash
 .venv/bin/python tools/plot_w3.py \
-  artifacts/smoke-all artifacts/smoke-all/figures --network low
+  /tmp/w3-smoke /tmp/w3-smoke/figures --network low
 ```
 
 Các hình `figure_1_{vim,nano}_per_stream_latency_{mean,median,p95,p99}` dùng
@@ -155,5 +157,9 @@ sha256=13a17464f650cd3d831c1433a226d4895555f56ce8cd52a13f8f3841a0bbd430
 ```
 
 ```bash
+mkdir -p artifacts
 bash run_w3.sh config.env 2>&1 | tee artifacts/full_run.log
 ```
+
+Congestion của SSH/SSH3 được lưu trong `artifacts/results/congestion/`, gồm log
+client, server và `summary.csv`. Runner không còn tạo raw `terminal.log`.

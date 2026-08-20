@@ -39,16 +39,16 @@ TRIALS_PER_COMBINATION=1 \
 SAMPLES_PER_STREAM_PER_TRIAL=5 \
 WARMUP_SECONDS=0 \
 INTER_TRIAL_DELAY_SECONDS=0 \
-RESULT_DIR=artifacts/smoke-all \
-bash run_w2.sh config.env 2>&1 | tee artifacts/smoke-all.log
+RESULT_DIR=/tmp/w2-smoke \
+bash run_w2.sh config.env 2>&1 | tee /tmp/w2-smoke.log
 ```
 
 Kiểm tra:
 
 ```bash
-column -s, -t < artifacts/smoke-all/trials.csv
-column -s, -t < artifacts/smoke-all/stream_audit.csv
-column -s, -t < artifacts/smoke-all/scenario_summary.csv
+column -s, -t < /tmp/w2-smoke/trials.csv
+column -s, -t < /tmp/w2-smoke/stream_audit.csv
+column -s, -t < /tmp/w2-smoke/scenario_summary.csv
 ```
 
 SSH và SSH3 phải đạt 100% byte, dòng và SHA-256. Mosh dùng
@@ -69,6 +69,7 @@ thực toàn vẹn chính xác.
 
 ```bash
 cd ~/SSH-SCRIPT/w2-mux-tt
+mkdir -p artifacts
 bash run_w2.sh config.env 2>&1 | tee artifacts/full_run.log
 ```
 
@@ -76,5 +77,5 @@ Vẽ hình sau khi chạy:
 
 ```bash
 .venv/bin/python tools/plot_w2.py \
-  artifacts/results artifacts/figures --network medium
+  artifacts/results artifacts/results/figures --network medium
 ```

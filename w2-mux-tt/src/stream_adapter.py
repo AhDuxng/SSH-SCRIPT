@@ -1,8 +1,8 @@
-"""Gửi lệnh cat trực tiếp qua các stream byte dùng chung."""
+"""Gửi lệnh xuất payload trực tiếp qua các stream byte dùng chung."""
 
 from __future__ import annotations
 
-import hashlib
+import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -12,7 +12,7 @@ from stream_mux import ConnectionAudit, RawStream, StreamSpec
 from stream_mux import open_multiplex_connection
 
 from constants import PAYLOAD_BYTES, PAYLOAD_LINE_BYTES, PAYLOAD_LINES
-from framing import MarkerDecoder, MarkerEvent, build_direct_line
+from framing import MarkerDecoder, MarkerEvent, build_direct_line, request_token
 
 
 @dataclass
@@ -53,9 +53,9 @@ class DirectCoordinator:
 
     # Tạo mã dấu mốc ổn định từ mã yêu cầu.
     def _token(self, request_id: str) -> str:
-        return hashlib.sha256(request_id.encode("utf-8")).hexdigest()[:24]
+        return request_token(request_id)
 
-    # Đăng ký lần truyền trước khi gửi lệnh cat.
+    # Đăng ký lần truyền trước khi gửi lệnh xuất payload.
     def _register(self, request_id: str, line_prefix: bytes) -> PendingTransfer:
         token = self._token(request_id)
         transfer = PendingTransfer(token, line_prefix)
@@ -146,7 +146,7 @@ class DirectCoordinator:
             transfer.error = message
             transfer.event.set()
 
-    # Gửi lệnh cat thật và chờ dấu hoàn thành.
+    # Gửi lệnh xuất payload thật và chờ dấu hoàn thành.
     def execute(
         self, request_id: str, command_text: str,
         line_prefix: bytes, timeout: float,
@@ -208,7 +208,7 @@ class DirectOutputStream:
         self.conversation_id = self.raw_stream.conversation_id
         self.request_lock = threading.Lock()
 
-    # Gửi tuần tự một lệnh cat trên vai trò này.
+    # Gửi tuần tự một lệnh output trên vai trò này.
     def execute(
         self, request_id: str, command: str,
         line_prefix: bytes, timeout: float,
@@ -233,6 +233,7 @@ class DirectW2Connection:
         self.coordinators: list[DirectCoordinator] = []
         self.pumps: list[threading.Thread] = []
         self.closing = False
+        self.sample_generation = 0
         self.audit = ConnectionAudit(protocol, False, 0, 0, 0, {}, [], {}, "chưa mở")
 
     # Tạo Bash thường trực cho từng mô hình transport.
@@ -343,13 +344,36 @@ class DirectW2Connection:
             for future in futures:
                 future.result()
 
-    # Xóa viewport Mosh giữa hai batch đồng bộ để redraw cũ không được tính
-    # nhầm là byte của sample mới. SSH/SSH3 là byte stream nên không cần bước này.
+    # Lấy timestamp đồng hồ server để lọc đúng cửa sổ congestion phía gửi.
+    def server_time_ns(self, label: str, timeout: float) -> int | None:
+        if self.protocol not in {"ssh", "ssh3"}:
+            return None
+        if not self.cfg.get("CONGESTION_LOG_DIR", ""):
+            return None
+        result = self.coordinators[0].execute(
+            f"{self.trial_tag}:server-time:{label}",
+            "date +%s%N", b"__W2TT_SERVER_TIME__", timeout,
+        )
+        match = re.search(rb"(?<![0-9])([0-9]{16,20})(?![0-9])", result["stdout"])
+        if result.get("timed_out") or result.get("exit_code") != 0 or not match:
+            raise RuntimeError(f"cannot read server timestamp for {label}")
+        return int(match.group(1))
+
+    # Xóa viewport Mosh và chờ marker hậu-xóa trước khi mở batch kế tiếp.
     def prepare_sample(self) -> None:
         if self.protocol != "mosh" or not self.coordinators:
             return
-        self.coordinators[0].raw_stream.send(b"printf '\033[2J\033[H'\n")
-        time.sleep(float(self.cfg.get("MOSH_CLEAR_SETTLE_SECONDS", "0.10")))
+        self.sample_generation += 1
+        timeout = float(self.cfg.get("MOSH_CLEAR_TIMEOUT", "10.0"))
+        self.coordinators[0].execute(
+            f"{self.trial_tag}:screen-clear:{self.sample_generation}",
+            "printf '\033[2J\033[H'",
+            b"__W2TT_NO_OUTPUT__",
+            timeout,
+        )
+        settle = float(self.cfg.get("MOSH_CLEAR_SETTLE_SECONDS", "0.02"))
+        if settle > 0:
+            time.sleep(settle)
 
     # Đóng Bash và connection sau trial.
     def close(self) -> None:

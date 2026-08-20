@@ -239,30 +239,71 @@ def pane_contains_cursor(pane: Pane, snapshot) -> bool:
 # Chọn một pane qua chính terminal Mosh trước khi bắt đầu đồng hồ đo.
 def select_mosh_pane(endpoint, cfg: dict, session: str, pane: Pane):
     timeout = float(cfg.get("MOSH_PANE_SELECT_TIMEOUT_SECONDS", "2.0"))
-    endpoint.wait_quiet(quiet_seconds=0.02, timeout=min(timeout, 0.5))
+    retries = int(cfg.get("MOSH_PANE_SELECT_RETRIES", "3"))
+    retry_delay = float(cfg.get("MOSH_PANE_SELECT_RETRY_DELAY_SECONDS", "0.05"))
+    if timeout <= 0:
+        raise ValueError("MOSH_PANE_SELECT_TIMEOUT_SECONDS must be > 0")
+    if retries < 0:
+        raise ValueError("MOSH_PANE_SELECT_RETRIES must be >= 0")
+    if retry_delay < 0:
+        raise ValueError("MOSH_PANE_SELECT_RETRY_DELAY_SECONDS must be >= 0")
+
+    quiet_timeout = min(timeout, 0.5)
+    endpoint.wait_quiet(quiet_seconds=0.02, timeout=quiet_timeout)
     target = f"{session}:0.{pane.index}"
     try:
         _, select_key = PANE_SELECT_KEYS[pane.index]
     except IndexError as exc:
         raise ValueError(f"unsupported tmux pane index: {pane.index}") from exc
-    endpoint.send(select_key)
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        snapshot = endpoint.snapshot()
-        if pane_contains_cursor(pane, snapshot):
-            endpoint.wait_quiet(quiet_seconds=0.02, timeout=min(timeout, 0.5))
-            confirmed = endpoint.snapshot()
-            if pane_contains_cursor(pane, confirmed):
-                return confirmed
-        if endpoint.terminal_error:
-            raise RuntimeError(endpoint.terminal_error)
-        if endpoint.exited.is_set():
-            raise EOFError("Mosh terminal exited while selecting tmux pane")
-        time.sleep(0.002)
+
     snapshot = endpoint.snapshot()
+    attempts = retries + 1
+    last_snapshot = snapshot
+    for attempt in range(1, attempts + 1):
+        endpoint.send(select_key)
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            snapshot = endpoint.snapshot()
+            last_snapshot = snapshot
+            if pane_contains_cursor(pane, snapshot):
+                endpoint.wait_quiet(quiet_seconds=0.02, timeout=quiet_timeout)
+                confirmed = endpoint.snapshot()
+                last_snapshot = confirmed
+                if pane_contains_cursor(pane, confirmed):
+                    return confirmed
+            if endpoint.terminal_error:
+                raise RuntimeError(endpoint.terminal_error)
+            if endpoint.exited.is_set():
+                raise EOFError("Mosh terminal exited while selecting tmux pane")
+            time.sleep(0.002)
+
+        # Phím F5-F8 đi qua chính Mosh input path nên có thể hiếm khi không được
+        # tmux nhận dưới impairment. Gửi lại cùng phím là thao tác idempotent và
+        # vẫn diễn ra hoàn toàn trước send_ns của ký tự workload.
+        if attempt < attempts:
+            with LIVE_PRINT_LOCK:
+                print(
+                    f"[PANE-RETRY] target={target} retry={attempt}/{retries} "
+                    f"cursor=({last_snapshot.row},{last_snapshot.column})",
+                    flush=True,
+                )
+            if retry_delay:
+                time.sleep(retry_delay)
+
+            # Có thể repaint đã tới trong khoảng nghỉ; xác nhận lại trước khi
+            # phát một phím chọn pane nữa.
+            snapshot = endpoint.snapshot()
+            last_snapshot = snapshot
+            if pane_contains_cursor(pane, snapshot):
+                endpoint.wait_quiet(quiet_seconds=0.02, timeout=quiet_timeout)
+                confirmed = endpoint.snapshot()
+                last_snapshot = confirmed
+                if pane_contains_cursor(pane, confirmed):
+                    return confirmed
+
     raise TimeoutError(
-        f"tmux pane selection not visible: target={target} "
-        f"cursor=({snapshot.row},{snapshot.column})"
+        f"tmux pane selection not visible after {attempts} attempts: "
+        f"target={target} cursor=({last_snapshot.row},{last_snapshot.column})"
     )
 
 
@@ -600,14 +641,11 @@ def run_trial(cfg: dict, trial: dict, probe: ProbeSource):
         )
         streams = connection.open(float(cfg.get("STREAM_READY_TIMEOUT_SECONDS", "15")))
         audit = connection.audit
-        log_dir = Path(cfg.get("LOG_DIR", "artifacts/logs"))
-        log_dir.mkdir(parents=True, exist_ok=True)
         for physical_role, stream in streams.items():
             endpoints[physical_role] = InteractiveEndpoint(
                 stream,
                 int(cfg.get("TERMINAL_ROWS", "48")),
                 int(cfg.get("TERMINAL_COLUMNS", "160")),
-                log_dir / f"{trial['trial_tag']}_{physical_role}.terminal.log",
             )
 
         if mosh_panes:
@@ -682,10 +720,6 @@ def run_trial(cfg: dict, trial: dict, probe: ProbeSource):
                 note = "; ".join(item for item in (note, f"close={exc!r}") if item)
         for endpoint in endpoints.values():
             endpoint.thread.join(timeout=1.0)
-            try:
-                endpoint.close()
-            except Exception:
-                pass
 
     logical_streams = (
         {role: streams.get("terminal") for role in roles}

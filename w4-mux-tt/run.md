@@ -18,16 +18,14 @@ python3 -m venv .venv
 ## Smoke test đủ 18 tổ hợp
 
 ```bash
-mkdir -p artifacts
 set -o pipefail
 
 TRIALS_PER_COMBINATION=1 \
 WARMUP_SECONDS=0.5 \
 KEY_INTERVAL_SECONDS=0.02 \
 INTER_TRIAL_DELAY_SECONDS=0 \
-RESULT_DIR=artifacts/smoke-all \
-LOG_DIR=artifacts/smoke-all/logs \
-bash run_w4.sh config.env 2>&1 | tee artifacts/smoke-all.log
+RESULT_DIR=/tmp/w4-smoke \
+bash run_w4.sh config.env 2>&1 | tee /tmp/w4-smoke.log
 
 echo "exit_code=$?"
 ```
@@ -35,17 +33,17 @@ echo "exit_code=$?"
 Kiểm tra nhanh:
 
 ```bash
-column -s, -t < artifacts/smoke-all/trials.csv
-column -s, -t < artifacts/smoke-all/scenario_summary.csv
-column -s, -t < artifacts/smoke-all/background_summary.csv
-column -s, -t < artifacts/smoke-all/stream_audit.csv
+column -s, -t < /tmp/w4-smoke/trials.csv
+column -s, -t < /tmp/w4-smoke/scenario_summary.csv
+column -s, -t < /tmp/w4-smoke/background_summary.csv
+column -s, -t < /tmp/w4-smoke/stream_audit.csv
 ```
 
 ## Vẽ hình
 
 ```bash
 .venv/bin/python tools/plot_w4.py \
-  artifacts/smoke-all artifacts/smoke-all/figures --network smoke
+  /tmp/w4-smoke /tmp/w4-smoke/figures --network smoke
 ```
 
 ## Chạy chính thức
@@ -54,6 +52,7 @@ Giữ warm-up 5 giây, interval 0,2 giây và số trial trong `config.env`:
 
 ```bash
 set -o pipefail
+mkdir -p artifacts
 bash run_w4.sh config.env 2>&1 | tee artifacts/full_run.log
 echo "exit_code=$?"
 ```

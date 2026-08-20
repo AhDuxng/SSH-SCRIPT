@@ -28,22 +28,19 @@ python3 -m venv .venv
 ## Smoke test
 
 ```bash
-mkdir -p artifacts
-
 TRIALS_PER_COMBINATION=1 \
 WARMUP_SECONDS=0.5 \
 INTER_TRIAL_DELAY_SECONDS=0 \
-RESULT_DIR=artifacts/smoke-all \
-LOG_DIR=artifacts/smoke-all/logs \
-bash run_w3.sh config.env 2>&1 | tee artifacts/smoke-all.log
+RESULT_DIR=/tmp/w3-smoke \
+bash run_w3.sh config.env 2>&1 | tee /tmp/w3-smoke.log
 ```
 
 Kiểm tra:
 
 ```bash
-column -s, -t < artifacts/smoke-all/trials.csv
-column -s, -t < artifacts/smoke-all/scenario_summary.csv
-column -s, -t < artifacts/smoke-all/stream_audit.csv
+column -s, -t < /tmp/w3-smoke/trials.csv
+column -s, -t < /tmp/w3-smoke/scenario_summary.csv
+column -s, -t < /tmp/w3-smoke/stream_audit.csv
 ```
 
 Smoke riêng phép đo từng Mosh pane sau khi đổi thiết kế:
@@ -56,9 +53,8 @@ TRIALS_PER_COMBINATION=1 \
 WARMUP_SECONDS=0.5 \
 KEY_INTERVAL_SECONDS=0.02 \
 INTER_TRIAL_DELAY_SECONDS=0 \
-RESULT_DIR=artifacts/smoke-mosh-panes \
-LOG_DIR=artifacts/smoke-mosh-panes/logs \
-bash run_w3.sh config.env 2>&1 | tee artifacts/smoke-mosh-panes.log
+RESULT_DIR=/tmp/w3-smoke-mosh-panes \
+bash run_w3.sh config.env 2>&1 | tee /tmp/w3-smoke-mosh-panes.log
 ```
 
 Cuối smoke test, verifier phải báo `independent Mosh pane timing passed`.
@@ -67,7 +63,7 @@ Cuối smoke test, verifier phải báo `independent Mosh pane timing passed`.
 
 ```bash
 .venv/bin/python tools/plot_w3.py \
-  artifacts/smoke-all artifacts/smoke-all/figures --network smoke
+  /tmp/w3-smoke /tmp/w3-smoke/figures --network smoke
 ```
 
 ## Chạy chính thức
@@ -78,6 +74,7 @@ Mosh I2/I4 lần lượt chọn từng pane rồi đo riêng; thao tác chọn p
 trước `send_ns` và không nằm trong keystroke latency.
 
 ```bash
+mkdir -p artifacts
 bash run_w3.sh config.env 2>&1 | tee artifacts/full_run.log
 ```
 
@@ -85,5 +82,5 @@ Vẽ theo network profile thật:
 
 ```bash
 .venv/bin/python tools/plot_w3.py \
-  artifacts/results artifacts/figures --network high
+  artifacts/results artifacts/results/figures --network high
 ```

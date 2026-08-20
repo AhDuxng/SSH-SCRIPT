@@ -147,15 +147,22 @@ def main() -> int:
         "connection_scope": "one new connection per trial",
         "stream_open_rule": "all roles opened and READY before warm-up and barrier",
         "sample_start_rule": (
-            "all roles synchronize before every sample; Mosh clears its viewport "
-            "before releasing the per-sample barrier"
+            "all roles synchronize before every sample; Mosh receives a unique "
+            "post-clear marker before the per-sample barrier is released"
+        ),
+        "sample_identity_rule": (
+            "every trial/role/sample replaces the first 29 payload bytes of every "
+            "line with a unique role-specific token while preserving 102400 bytes"
         ),
         "setup_latency_definition": (
             "from immediately before connection open until transport audit "
             "and all physical shells respond to the readiness probe"
         ),
         "warmup_seconds": float(cfg.get("WARMUP_SECONDS", "5")),
-        "execution_mode": "direct cat command in persistent Bash; no remote agent",
+        "execution_mode": (
+            "direct per-sample sed output command in persistent Bash; "
+            "no remote agent"
+        ),
         "completion_latency_definition": (
             "client last observed payload byte time minus client direct-command send time"
         ),
@@ -173,6 +180,21 @@ def main() -> int:
         "mosh_barrier_grace_seconds": float(
             cfg.get("MOSH_BARRIER_GRACE_SECONDS", "5")
         ),
+        "mosh_clear_timeout_seconds": float(
+            cfg.get("MOSH_CLEAR_TIMEOUT", "10")
+        ),
+        "congestion_logging": {
+            "enabled": congestion_enabled,
+            "directory": str(congestion_dir.resolve()),
+            "interval_seconds": float(
+                cfg.get("CONGESTION_SAMPLE_INTERVAL_SECONDS", "0.10")
+            ),
+            "ssh": "Linux ss -tinp TCP_INFO sampled by ControlMaster PID",
+            "ssh3": (
+                "quic-go tracer: RTT, cwnd, bytes in flight, packet loss, "
+                "congestion state and PTO"
+            ),
+        },
         "content_coverage_definition": (
             "unique exact payload lines observed divided by expected payload "
             "lines; duplicate and invalid terminal lines are excluded"

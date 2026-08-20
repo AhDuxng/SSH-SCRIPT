@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import dataclass, field
 
@@ -48,7 +49,12 @@ class TerminalControlFilter:
         return bytes(output)
 
 
-# Tạo dòng Bash chạy cat trực tiếp giữa hai dấu mốc.
+# Tạo token duy nhất và ổn định cho một yêu cầu W2.
+def request_token(request_id: str) -> str:
+    return hashlib.sha256(request_id.encode("utf-8")).hexdigest()[:24]
+
+
+# Tạo dòng Bash chạy lệnh output trực tiếp giữa hai dấu mốc.
 def build_direct_line(command: str, token: str, background: bool) -> bytes:
     body = (
         "printf '__W2TT_%s__:%s\\n' START '" + token + "'; "

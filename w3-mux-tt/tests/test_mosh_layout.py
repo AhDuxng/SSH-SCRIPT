@@ -10,7 +10,8 @@ sys.path[:0] = [str(ROOT), str(SRC)]
 
 from probe import ProbeItem
 from trial import (
-    Pane, measure_mosh, mosh_spec, pane_contains_cursor, wait_tmux_layout,
+    Pane, measure_mosh, mosh_spec, pane_contains_cursor, select_mosh_pane,
+    wait_tmux_layout,
 )
 
 
@@ -40,6 +41,24 @@ class FakeMeasuredEndpoint:
 
     def wait_render(self, _before, _character, sent_ns, _timeout):
         return sent_ns + (self.current_pane + 1) * 1_000_000
+
+
+class FakePaneSelectionEndpoint:
+    def __init__(self, switch_after_sends):
+        self.switch_after_sends = switch_after_sends
+        self.send_count = 0
+        self.terminal_error = ""
+        self.exited = SimpleNamespace(is_set=lambda: False)
+
+    def wait_quiet(self, **_kwargs):
+        return None
+
+    def snapshot(self):
+        column = 90 if self.send_count >= self.switch_after_sends else 4
+        return SimpleNamespace(row=4, column=column)
+
+    def send(self, _data):
+        self.send_count += 1
 
 
 class MoshLayoutTests(unittest.TestCase):
@@ -81,6 +100,36 @@ class MoshLayoutTests(unittest.TestCase):
         self.assertIn("-L w3_test_socket -f /dev/null", command)
         self.assertIn("bind-key -n F5 select-pane", command)
         self.assertIn("bind-key -n F6 select-pane", command)
+
+    def test_pane_selection_retries_a_lost_first_key(self):
+        endpoint = FakePaneSelectionEndpoint(switch_after_sends=2)
+        pane = Pane("interactive_1", 1, 80, 0, 80, 23, False)
+        selected = select_mosh_pane(
+            endpoint,
+            {
+                "MOSH_PANE_SELECT_TIMEOUT_SECONDS": "0.003",
+                "MOSH_PANE_SELECT_RETRIES": "2",
+                "MOSH_PANE_SELECT_RETRY_DELAY_SECONDS": "0",
+            },
+            "session", pane,
+        )
+        self.assertEqual(endpoint.send_count, 2)
+        self.assertTrue(pane_contains_cursor(pane, selected))
+
+    def test_pane_selection_reports_exhausted_attempts(self):
+        endpoint = FakePaneSelectionEndpoint(switch_after_sends=99)
+        pane = Pane("interactive_1", 1, 80, 0, 80, 23, False)
+        with self.assertRaisesRegex(TimeoutError, "after 2 attempts"):
+            select_mosh_pane(
+                endpoint,
+                {
+                    "MOSH_PANE_SELECT_TIMEOUT_SECONDS": "0.003",
+                    "MOSH_PANE_SELECT_RETRIES": "1",
+                    "MOSH_PANE_SELECT_RETRY_DELAY_SECONDS": "0",
+                },
+                "session", pane,
+            )
+        self.assertEqual(endpoint.send_count, 2)
 
     def test_each_mosh_pane_gets_an_independent_timing_sample(self):
         endpoint = FakeMeasuredEndpoint()

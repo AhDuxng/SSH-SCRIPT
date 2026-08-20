@@ -5,7 +5,6 @@ from __future__ import annotations
 import codecs
 import threading
 import time
-from pathlib import Path
 
 from terminal_screen import ScreenSnapshot, TerminalScreen
 
@@ -13,14 +12,11 @@ from terminal_screen import ScreenSnapshot, TerminalScreen
 class InteractiveEndpoint:
     """Đọc RawStream liên tục, cập nhật màn hình ảo và hỗ trợ chờ render."""
 
-    def __init__(self, raw_stream, rows: int, columns: int, log_path: Path | None = None):
+    # Khởi tạo terminal ảo, không ghi bản sao raw output ra file riêng.
+    def __init__(self, raw_stream, rows: int, columns: int):
         self.raw_stream = raw_stream
         self.screen = TerminalScreen(rows, columns)
         self.decoder = codecs.getincrementaldecoder("utf-8")("replace")
-        self.log_path = log_path
-        self.log_handle = (
-            log_path.open("wb") if log_path is not None else None
-        )
         self.recent = bytearray()
         self.recent_lock = threading.RLock()
         self.terminal_error = ""
@@ -39,9 +35,6 @@ class InteractiveEndpoint:
                 except TimeoutError:
                     continue
                 if event.kind == "data":
-                    if self.log_handle is not None:
-                        self.log_handle.write(event.data)
-                        self.log_handle.flush()
                     with self.recent_lock:
                         self.recent.extend(event.data)
                         if len(self.recent) > 262144:
@@ -62,11 +55,6 @@ class InteractiveEndpoint:
         except Exception as exc:
             self.terminal_error = repr(exc)
             self.exited.set()
-
-    def close(self):
-        if self.log_handle is not None:
-            self.log_handle.close()
-            self.log_handle = None
 
     def recent_contains(self, marker: bytes) -> bool:
         with self.recent_lock:

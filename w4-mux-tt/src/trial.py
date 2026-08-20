@@ -413,12 +413,9 @@ def run_trial(cfg, trial, probe):
         connection = open_multiplex_connection(cfg, trial["protocol"], specs, trial["trial_tag"])
         streams = connection.open(float(cfg.get("STREAM_READY_TIMEOUT_SECONDS", "15")))
         audit = connection.audit
-        log_dir = Path(cfg.get("LOG_DIR", "artifacts/logs"))
-        log_dir.mkdir(parents=True, exist_ok=True)
         physical = streams["terminal"] if trial["protocol"] == "mosh" else streams["interactive_0"]
         endpoint = InteractiveEndpoint(
             physical, int(cfg.get("TERMINAL_ROWS", "48")), int(cfg.get("TERMINAL_COLUMNS", "180")),
-            log_dir / f"{trial['trial_tag']}_terminal.log",
             observers=(collector.feed,) if collector else (),
         )
         if trial["protocol"] == "mosh":
@@ -486,7 +483,6 @@ def run_trial(cfg, trial, probe):
                 note = "; ".join(filter(None, (note, f"close={exc!r}")))
         if endpoint is not None:
             endpoint.thread.join(timeout=1)
-            endpoint.close()
 
     if not cfg_bool(cfg, "VERIFY_FINAL_OUTPUT", "1"):
         file_bytes = probe.data

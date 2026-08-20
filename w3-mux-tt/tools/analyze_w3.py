@@ -231,7 +231,22 @@ def main() -> int:
                 f"[CHECK] {row['editor']} {row['scenario']}: SSH3/SSH median="
                 f"{row['ssh3_over_ssh_latency_ratio']}", flush=True,
             )
-    print(f"[OK] analyzed {len(key_rows)} keystrokes from {len(trial_rows)} trials")
+    incomplete = [row for row in trial_rows if row.get("status") != "completed"]
+    if incomplete:
+        trial_ids = ", ".join(row["trial_id"] for row in incomplete[:5])
+        suffix = " ..." if len(incomplete) > 5 else ""
+        print(
+            f"[WARN] analyzed {len(key_rows)} keystrokes from {len(trial_rows)} "
+            f"trials; completed={len(trial_rows) - len(incomplete)}/{len(trial_rows)}; "
+            f"incomplete={trial_ids}{suffix}",
+            flush=True,
+        )
+    else:
+        print(
+            f"[OK] analyzed {len(key_rows)} keystrokes from {len(trial_rows)} "
+            f"trials; completed={len(trial_rows)}/{len(trial_rows)}",
+            flush=True,
+        )
     return 0
 
 

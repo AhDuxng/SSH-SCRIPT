@@ -59,9 +59,14 @@ stream_mux/
 │   ├── ssh3.py       # QUIC multi-stream qua Go bridge
 │   └── mosh.py       # Một terminal session Mosh
 ├── patches/
+│   ├── mux_cc.go
 │   └── ssh3_mux_stdio.patch
 └── scripts/
-    └── build_ssh3_mux.sh
+    ├── analyze_congestion.py
+    ├── build_ssh3_mux.sh
+    ├── build_ssh3_server.sh
+    ├── congestion_run.sh
+    └── remote_tcp_sampler.py
 ```
 
 Ví dụ phần chuyên biệt của W1 nằm trong:
@@ -213,3 +218,28 @@ stream_mux/bin/ssh3-mux-stdio.patch.sha256
 Source build nằm trong cache `.build/` có tên theo commit và checksum patch. Khi
 patch thay đổi, script tự dùng cache mới nên không tái sử dụng source đã áp dụng
 patch cũ.
+
+## Congestion dùng chung cho W1-W4
+
+Các runner W1-W4 cùng source `scripts/congestion_run.sh`. SSH được lấy TCP_INFO
+ở ControlMaster phía client và socket sshd phía server. SSH3 dùng quic-go tracer
+ở cả client và server. Kết quả của mỗi workload nằm duy nhất trong:
+
+```text
+artifacts/
+├── full_run.log
+└── results/
+    └── congestion/
+        ├── client/
+        ├── server/
+        └── summary.csv
+```
+
+Mosh không có TCP/QUIC congestion row vì chỉ có terminal UDP; runner vẫn lưu
+network-stack snapshot để đối chiếu môi trường. SSH3 server phải được build bằng
+`scripts/build_ssh3_server.sh` và bật drop-in trong `systemd/`.
+
+Trong `summary.csv`, client được lọc theo timestamp mẫu thực đo. W2 còn có
+timestamp server riêng nên lọc được đúng workload ở cả hai đầu; W1/W3/W4 ghi
+server theo toàn bộ vòng đời connection và đánh dấu rõ
+`window_scope=connection_lifetime`, không giả vờ hai đồng hồ đã đồng bộ.

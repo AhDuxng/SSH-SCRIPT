@@ -2,7 +2,7 @@
 
 `w2-mux-tt` triển khai W2 – Multiplexed Large Output trong
 `Thiết kế thí nghiệm.pdf`. Workload dùng chung cách mở connection và stream từ
-`../stream_mux/`, nhưng gửi trực tiếp lệnh `cat` vào Bash thường trực trên Pi2;
+`../stream_mux/`, nhưng gửi trực tiếp lệnh xuất payload vào Bash thường trực trên Pi2;
 không có chương trình phụ nhận lệnh, JSON hay Base64 ở tầng workload.
 
 ## Payload
@@ -44,8 +44,9 @@ a8992235b2c46fc84f8c2387c6d9d74be87190d67563a87cdf53ae35e5309f11
 - `W2-S4`: bốn output stream đồng thời, mỗi stream một payload 100 KB.
 
 Mỗi trial tạo một connection mới, mở đủ stream, chờ READY và warm-up năm giây.
-Tất cả vai trò đi qua một barrier ở đầu từng sample; Mosh còn xóa viewport ngay
-trong barrier trước khi đồng thời chạy `cat`. Mỗi output stream truyền tuần tự
+Tất cả vai trò đi qua một barrier ở đầu từng sample. Với Mosh, driver xóa
+viewport và phải nhận marker hậu-xóa riêng trước khi barrier cho phép chạy batch
+kế tiếp. Mỗi output stream truyền tuần tự
 payload 100 lần trong cùng connection. Mặc định mỗi tổ hợp giao
 thức × kịch bản có 10 trial, tức mỗi vai trò thu được 1.000 mẫu.
 
@@ -57,14 +58,19 @@ SAMPLES_PER_STREAM_PER_TRIAL=100
 
 ## Gửi trực tiếp và phép đo end-to-end
 
-Với mỗi output stream, Pi1 gửi một dòng Bash chứa trực tiếp:
+Với mỗi output stream, Pi1 gửi một dòng Bash dùng `sed` để thay 29 byte đầu của
+mỗi dòng bằng prefix chứa token riêng của `trial/role/sample`, rồi xuất toàn bộ
+file:
 
 ```text
-cat /tmp/w2_mux_tt_payloads/large_output_sX_100KB.txt
+sed 's/^............................./W2SX|<sample-token>/' \
+  /tmp/w2_mux_tt_payloads/large_output_sX_100KB.txt
 ```
 
 Hai dấu mốc văn bản ngắn bao quanh lệnh để phân tách payload và lấy mã thoát.
-Chúng không mã hóa payload và không thay thế lệnh `cat`.
+Phép thay thế giữ nguyên đúng 102.400 byte và 25 dòng. Nhờ token riêng, redraw
+của sample cũ không thể khớp nội dung kỳ vọng của sample mới. Cách tạo output
+này được dùng giống nhau cho SSH, SSH3 và Mosh.
 
 Các mốc thời gian:
 
@@ -108,6 +114,22 @@ chẩn đoán và có thể vượt 100% khi Mosh vẽ lại dữ liệu. Với 
 thô còn phải khớp nguyên bản; với Mosh, chương trình dựng lại payload canonical
 từ 25 dòng đã xác thực rồi kiểm tra byte và SHA-256.
 
+Bộ phân tích báo cáo hai đại lượng không được đánh đồng:
+
+- `fully_verified_output_rate_pct`: phần trăm phép truyền quan sát đủ cả 25 dòng,
+  đủ 102.400 byte nội dung hợp lệ và khớp SHA-256. Thiếu dù một dòng thì phép
+  truyền không được tính vào tỷ lệ này. Chỉ số này đánh giá độ đầy đủ nội dung;
+  `transfer_completion_rate_pct` nghiêm ngặt hơn vì còn yêu cầu marker và mã
+  thoát 0.
+- `verified_output_ratio_pct`: tổng byte nội dung deterministic đã xác thực chia
+  cho tổng byte output theo kế hoạch. Chỉ số này cho biết lượng nội dung thực sự
+  quan sát được ngay cả khi nhiều phép truyền chỉ nhận được một phần.
+
+Riêng Mosh, hai chỉ số trên mô tả nội dung đã quan sát và xác thực trên terminal,
+không phải tỷ lệ byte thô được truyền lossless. `raw_capture_exact_rate_pct` vì
+thế được để `N/A` cho Mosh. Bảng rút gọn dành riêng cho Mosh được lưu tại
+`mosh_output_completeness.csv`.
+
 Nhận dấu hoàn thành nhưng thiếu hoặc sai output được ghi `partial`; không nhận
 dấu trước `TRANSFER_TIMEOUT` được ghi `timeout`. Với timeout, phần output đã
 quan sát vẫn được giữ lại để tính độ bao phủ nội dung.
@@ -134,7 +156,8 @@ viewport nhỏ hơn batch của kịch bản.
 
 Mosh truyền trạng thái màn hình thay vì luồng byte lossless. Vì vậy raw terminal
 bytes không được so trực tiếp với file. Trước mỗi sample, viewport được xóa và
-tất cả vai trò đi qua cùng một barrier; sau đó chương trình lọc redraw/control
+client phải nhận marker xác nhận sau lệnh xóa; tất cả vai trò sau đó đi qua cùng
+một barrier. Chương trình lọc redraw/control
 bytes, gom đủ 25 dòng duy nhất theo prefix và dựng lại đúng thứ tự canonical để
 kiểm tra 102.400 byte cùng SHA-256. Nếu thiếu dù một dòng, sample vẫn là
 `partial`/`timeout`, không được đổi thành hoàn tất giả.
@@ -145,6 +168,8 @@ Tạo môi trường trên Pi1:
 
 ```bash
 cd ~/SSH-SCRIPT/w2-mux-tt
+sudo apt-get update
+sudo apt-get install -y iproute2 mosh python3-venv
 python3 -m venv .venv
 .venv/bin/python -m pip install --upgrade pip
 .venv/bin/pip install -r requirements.txt
@@ -158,14 +183,15 @@ TRIALS_PER_COMBINATION=1 \
 SAMPLES_PER_STREAM_PER_TRIAL=5 \
 WARMUP_SECONDS=0 \
 INTER_TRIAL_DELAY_SECONDS=0 \
-RESULT_DIR=artifacts/smoke-all \
-bash run_w2.sh config.env 2>&1 | tee artifacts/smoke-all.log
+RESULT_DIR=/tmp/w2-smoke \
+bash run_w2.sh config.env 2>&1 | tee /tmp/w2-smoke.log
 ```
 
 Chạy chính thức 10 trial:
 
 ```bash
 cd ~/SSH-SCRIPT/w2-mux-tt
+mkdir -p artifacts
 bash run_w2.sh config.env 2>&1 | tee artifacts/full_run.log
 ```
 
@@ -181,6 +207,10 @@ artifacts/results/scenario_summary.csv
 artifacts/results/stream_summary.csv
 artifacts/results/ssh3_vs_ssh.csv
 artifacts/results/metadata.json
+artifacts/results/congestion/client/*.ssh_tcp.jsonl
+artifacts/results/congestion/client/*.ssh3_quic.jsonl
+artifacts/results/congestion/server/*.jsonl
+artifacts/results/congestion/summary.csv
 ```
 
 Bộ hình dùng cùng bố cục, màu, hatch, nhãn số và cách nhóm như W1:
@@ -202,6 +232,47 @@ phần nội dung hợp lệ của mẫu `partial`/`timeout` mà không tính re
 `ssh3_vs_ssh.csv` ghi median latency, mean throughput, tỷ số SSH3/SSH và verdict
 cho từng kịch bản. Nếu SSH3 chậm hơn quá 5%, analyzer in `[CHECK]`; đây là cảnh
 báo kiểm tra kết quả thực đo, không tự sửa hay loại mẫu.
+
+## Log congestion control
+
+Khi `CONGESTION_LOG_ENABLED=1`, mỗi trial SSH/SSH3 có log ở cả client và server
+trong `RESULT_DIR/congestion/`:
+
+- `client/*.ssh_tcp.jsonl` và `server/*.ssh_server_tcp.jsonl`: Linux TCP_INFO của hai
+  đầu socket; file server mới là phía gửi output chính của W2;
+- `client/*.ssh3_quic.jsonl` và `server/*.ssh3_server_quic.jsonl`: callback recovery
+  trực tiếp từ quic-go ở hai đầu, gồm latest,
+  smoothed và min RTT, `cwnd_bytes`, bytes/packets in flight, packet loss,
+  congestion state và PTO. Bản quic-go được pin trong dự án dùng Reno
+  (`NewCubicSender(..., useReno=true)`); TCP của SSH ghi thuật toán thực tế do
+  kernel trả về, ví dụ `cubic`.
+- `client|server/network_stack_before|after.txt`: thuật toán TCP, qdisc,
+  UDP buffer, thống kê qdisc và interface ở đầu/cuối lượt chạy.
+
+`../stream_mux/scripts/analyze_congestion.py` tổng hợp event congestion.
+Client dùng timestamp của Pi; server dùng timestamp lấy trực tiếp bằng
+`date +%s%N` trên PC. Vì vậy phép ghép không giả định đồng hồ hai máy đã đồng bộ.
+Với W2 (output server→client), hàng `endpoint=server` là hàng chính để giải thích
+cửa sổ tắc nghẽn của phía gửi.
+Bảng kết quả là `RESULT_DIR/congestion/summary.csv`, mỗi trial có một dòng
+`endpoint=client` và một dòng `endpoint=server`. Mosh không có file này vì phần
+audit này dùng để đối chiếu TCP của SSH với QUIC của SSH3.
+
+SSH3 server phải dùng binary instrumented và có biến môi trường log:
+
+```bash
+cd ~/SSH-SCRIPT
+sudo apt-get update
+sudo apt-get install -y iproute2
+SSH3_SERVER_BIN=/tmp/ssh3-server-instrumented \
+  bash stream_mux/scripts/build_ssh3_server.sh
+sudo install -m 0755 /tmp/ssh3-server-instrumented /usr/local/bin/ssh3-server
+sudo mkdir -p /etc/systemd/system/ssh3-server.service.d
+sudo cp stream_mux/systemd/ssh3-server-congestion.conf.example \
+  /etc/systemd/system/ssh3-server.service.d/congestion.conf
+sudo systemctl daemon-reload
+sudo systemctl restart ssh3-server
+```
 
 ## Cấu trúc
 

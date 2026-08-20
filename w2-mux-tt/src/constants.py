@@ -25,7 +25,8 @@ IDENTITY_FIELDS = (
 TRANSFER_FIELDS = IDENTITY_FIELDS + (
     "stream_role", "stream_index", "transport_stream_id",
     "conversation_stream_id", "payload_name", "remote_payload_path",
-    "sample_index", "request_id", "send_time_ns", "first_byte_time_ns",
+    "sample_index", "request_id", "sample_token",
+    "send_time_ns", "first_byte_time_ns",
     "last_byte_time_ns", "marker_time_ns", "first_byte_latency_ms",
     "completion_latency_ms", "marker_latency_ms", "exit_code",
     "expected_bytes", "received_bytes", "raw_byte_ratio_pct",
@@ -76,6 +77,7 @@ TRIAL_FIELDS = IDENTITY_FIELDS + (
     "mean_verified_byte_ratio_pct", "mean_raw_byte_ratio_pct",
     "byte_verification_rate_pct", "hash_verification_rate_pct",
     "setup_ms", "workload_elapsed_ms",
+    "server_workload_start_ns", "server_workload_end_ns",
     "status", "note",
 )
 

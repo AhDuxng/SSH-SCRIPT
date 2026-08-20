@@ -28,11 +28,15 @@ while IFS= read -r line || [[ -n "$line" ]]; do
   fi
 done < "$CONFIG"
 
-mkdir -p "${RESULT_DIR:-artifacts/results}"
+PYTHON_COMMAND="${PYTHON_BIN:-python3}"
+RESULT_PATH="${RESULT_DIR:-artifacts/results}"
+mkdir -p "$RESULT_PATH"
+source "$REPO_DIR/stream_mux/scripts/congestion_run.sh"
 
 if [[ ",${PROTOCOLS}," == *,ssh3,* ]]; then
   PATCH_PATH="$REPO_DIR/stream_mux/patches/ssh3_mux_stdio.patch"
-  PATCH_HASH="$(shasum -a 256 "$PATCH_PATH" | awk '{print $1}')"
+  CC_SOURCE_PATH="$REPO_DIR/stream_mux/patches/mux_cc.go"
+  PATCH_HASH="$(shasum -a 256 "$PATCH_PATH" "$CC_SOURCE_PATH" | shasum -a 256 | awk '{print $1}')"
   BUILT_HASH="$(test -f "${SSH3_MUX_BIN}.patch.sha256" && sed -n '1p' "${SSH3_MUX_BIN}.patch.sha256" || true)"
   if [[ ! -x "$SSH3_MUX_BIN" || "$PATCH_HASH" != "$BUILT_HASH" ]]; then
     if [[ "${AUTO_BUILD_SSH3_MUX:-1}" != "1" ]]; then
@@ -43,12 +47,15 @@ if [[ ",${PROTOCOLS}," == *,ssh3,* ]]; then
   fi
 fi
 
+stream_mux_cc_prepare "$RESULT_PATH"
+
 # Chạy trực tiếp nên không triển khai chương trình phụ lên máy đích.
 PYTHONPATH="$REPO_DIR${PYTHONPATH:+:$PYTHONPATH}" \
-  "${PYTHON_BIN:-python3}" src/run_w1.py "$CONFIG"
-"${PYTHON_BIN:-python3}" tools/analyze_w1.py "${RESULT_DIR:-artifacts/results}"
+  "$PYTHON_COMMAND" src/run_w1.py "$CONFIG"
+"$PYTHON_COMMAND" tools/analyze_w1.py "$RESULT_PATH"
 if [[ ",${PROTOCOLS}," == *,ssh3,* ]]; then
-  "${PYTHON_BIN:-python3}" tools/verify_ssh3_mux.py "${RESULT_DIR:-artifacts/results}"
+  "$PYTHON_COMMAND" tools/verify_ssh3_mux.py "$RESULT_PATH"
 fi
+stream_mux_cc_finish "$RESULT_PATH"
 
-echo "Done. See ${RESULT_DIR:-artifacts/results}/scenario_summary.csv"
+echo "Done. See $RESULT_PATH/scenario_summary.csv"

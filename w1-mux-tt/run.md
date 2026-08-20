@@ -29,6 +29,7 @@ cộng mỗi `stream_role` có 1.000 mẫu qua 10 connection độc lập.
 
 ```bash
 cd ~/SSH-SCRIPT/w1-mux-tt
+mkdir -p artifacts
 bash run_w1.sh config.env 2>&1 | tee artifacts/full_run.log
 ```
 
@@ -75,11 +76,11 @@ TRIALS_PER_COMBINATION=1 \
 SAMPLES_PER_STREAM_PER_TRIAL=5 \
 WARMUP_SECONDS=0 \
 INTER_TRIAL_DELAY_SECONDS=0 \
-RESULT_DIR=artifacts/smoke-ssh3 \
+RESULT_DIR=/tmp/w1-smoke-ssh3 \
 bash run_w1.sh config.env
 
-column -s, -t < artifacts/smoke-ssh3/trials.csv
-column -s, -t < artifacts/smoke-ssh3/stream_audit.csv
+column -s, -t < /tmp/w1-smoke-ssh3/trials.csv
+column -s, -t < /tmp/w1-smoke-ssh3/stream_audit.csv
 ```
 
 Smoke test chỉ đạt khi `verify_ssh3_mux.py` in `PASSED`, mọi trial có
@@ -95,7 +96,7 @@ TRIALS_PER_COMBINATION=1 \
 SAMPLES_PER_STREAM_PER_TRIAL=5 \
 WARMUP_SECONDS=0 \
 INTER_TRIAL_DELAY_SECONDS=0 \
-RESULT_DIR=artifacts/smoke-ssh-mosh \
+RESULT_DIR=/tmp/w1-smoke-ssh-mosh \
 bash run_w1.sh config.env
 ```
 
@@ -112,6 +113,7 @@ Chạy nhanh một ma trận smoke sau khi cấu hình target:
 cd w1-mux-tt
 TRIALS_PER_COMBINATION=1 SAMPLES_PER_STREAM_PER_TRIAL=5 \
   INTER_TRIAL_DELAY_SECONDS=0 \
+  RESULT_DIR=/tmp/w1-smoke-all \
   bash run_w1.sh config.env
 ```
 
@@ -126,7 +128,7 @@ Vẽ toàn bộ hình từ bảng tổng hợp:
 
 ```bash
 .venv/bin/python tools/plot_w1.py \
-  artifacts/results artifacts/figures --network low
+  artifacts/results artifacts/results/figures --network low
 ```
 
 `scenario_summary.csv` và các hình `figure_1_*` gộp mọi stream trong kịch bản.

@@ -157,6 +157,13 @@ def main() -> int:
         ),
         "mosh_pane_switch_timing": "pane selection and repaint complete before send_ns",
         "mosh_pane_order": "rotating_round_robin_per_character",
+        "mosh_pane_select_timeout_seconds": float(
+            cfg.get("MOSH_PANE_SELECT_TIMEOUT_SECONDS", "2.0")
+        ),
+        "mosh_pane_select_retries": int(cfg.get("MOSH_PANE_SELECT_RETRIES", "3")),
+        "mosh_pane_select_retry_delay_seconds": float(
+            cfg.get("MOSH_PANE_SELECT_RETRY_DELAY_SECONDS", "0.05")
+        ),
         "mosh_prediction": mosh_predict,
     }
     (result_dir / "metadata.json").write_text(

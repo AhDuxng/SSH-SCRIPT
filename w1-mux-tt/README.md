@@ -103,6 +103,7 @@ Trên Pi1:
 cd ~/SSH-SCRIPT/w1-mux-tt
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
+mkdir -p artifacts
 bash run_w1.sh config.env 2>&1 | tee artifacts/full_run.log
 ```
 
@@ -114,7 +115,7 @@ TRIALS_PER_COMBINATION=1 \
 SAMPLES_PER_STREAM_PER_TRIAL=5 \
 WARMUP_SECONDS=0 \
 INTER_TRIAL_DELAY_SECONDS=0 \
-RESULT_DIR=artifacts/smoke-all \
+RESULT_DIR=/tmp/w1-smoke-all \
 bash run_w1.sh config.env
 ```
 
@@ -129,7 +130,11 @@ artifacts/results/command_summary.csv
 artifacts/results/scenario_summary.csv
 artifacts/results/stream_summary.csv
 artifacts/results/metadata.json
+artifacts/results/congestion/summary.csv
 ```
+
+Raw congestion nằm trong `artifacts/results/congestion/client|server`; không
+tạo thư mục terminal log riêng.
 
 ## Cấu trúc
 

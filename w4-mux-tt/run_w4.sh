@@ -31,14 +31,17 @@ done < "$CONFIG"
 PYTHON_COMMAND="${PYTHON_BIN:-python3}"
 PAYLOAD_PATH="${PAYLOAD_DIR:-payloads}"
 REMOTE_PATH="${W4_REMOTE_PAYLOAD_DIR:-/tmp/w4_mux_tt_payloads}"
-mkdir -p "${RESULT_DIR:-artifacts/results}" "${LOG_DIR:-artifacts/logs}"
+RESULT_PATH="${RESULT_DIR:-artifacts/results}"
+mkdir -p "$RESULT_PATH"
+source "$REPO_DIR/stream_mux/scripts/congestion_run.sh"
 
 # Payload is generated and deployed before any measured connection is opened.
 "$PYTHON_COMMAND" tools/generate_payload.py "$PAYLOAD_PATH"
 
 if [[ ",${PROTOCOLS}," == *,ssh3,* ]]; then
   PATCH_PATH="$REPO_DIR/stream_mux/patches/ssh3_mux_stdio.patch"
-  PATCH_HASH="$(shasum -a 256 "$PATCH_PATH" | awk '{print $1}')"
+  CC_SOURCE_PATH="$REPO_DIR/stream_mux/patches/mux_cc.go"
+  PATCH_HASH="$(shasum -a 256 "$PATCH_PATH" "$CC_SOURCE_PATH" | shasum -a 256 | awk '{print $1}')"
   BUILT_HASH="$(test -f "${SSH3_MUX_BIN}.patch.sha256" && sed -n '1p' "${SSH3_MUX_BIN}.patch.sha256" || true)"
   if [[ ! -x "$SSH3_MUX_BIN" || "$PATCH_HASH" != "$BUILT_HASH" ]]; then
     if [[ "${AUTO_BUILD_SSH3_MUX:-1}" != "1" ]]; then
@@ -69,9 +72,12 @@ scp "${SCP_ARGS[@]}" "$PAYLOAD_PATH/large_output_s0_1MiB.txt" "$PAYLOAD_PATH/SHA
 ssh "${SSH_ARGS[@]}" "${SERVER_USER}@${SERVER_HOST}" \
   "cd $REMOTE_QUOTED && sha256sum -c SHA256SUMS"
 
+stream_mux_cc_prepare "$RESULT_PATH"
+
 PYTHONPATH="$REPO_DIR${PYTHONPATH:+:$PYTHONPATH}" \
   "$PYTHON_COMMAND" src/run_w4.py "$CONFIG"
-"$PYTHON_COMMAND" tools/analyze_w4.py "${RESULT_DIR:-artifacts/results}"
-"$PYTHON_COMMAND" tools/verify_mux.py "${RESULT_DIR:-artifacts/results}"
+"$PYTHON_COMMAND" tools/analyze_w4.py "$RESULT_PATH"
+"$PYTHON_COMMAND" tools/verify_mux.py "$RESULT_PATH"
+stream_mux_cc_finish "$RESULT_PATH"
 
-echo "Hoàn tất. Xem ${RESULT_DIR:-artifacts/results}/scenario_summary.csv"
+echo "Hoàn tất. Xem $RESULT_PATH/scenario_summary.csv"
