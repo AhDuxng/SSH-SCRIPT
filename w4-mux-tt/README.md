@@ -99,7 +99,8 @@ SSH connection is used to retrieve the result.
 - `scenario_summary.csv`: interactive Mean/Median/P95/P99 and reliability.
 - `background_summary.csv`: background completion and output completeness.
 - `ssh3_vs_ssh.csv`: SSH3/SSH interactive median checks.
-- `congestion/summary.csv`: RTT, cwnd, in-flight, loss/retransmission của SSH và
-  SSH3 ở client/server; raw terminal log không được tạo.
+
+W4 không bật collector congestion và không tạo thư mục `congestion/`; raw
+terminal log cũng không được tạo.
 
 See `run.md` for deployment, smoke test, full run, and plotting commands.

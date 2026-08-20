@@ -33,7 +33,6 @@ PAYLOAD_PATH="${PAYLOAD_DIR:-payloads}"
 REMOTE_PATH="${W4_REMOTE_PAYLOAD_DIR:-/tmp/w4_mux_tt_payloads}"
 RESULT_PATH="${RESULT_DIR:-artifacts/results}"
 mkdir -p "$RESULT_PATH"
-source "$REPO_DIR/stream_mux/scripts/congestion_run.sh"
 
 # Payload is generated and deployed before any measured connection is opened.
 "$PYTHON_COMMAND" tools/generate_payload.py "$PAYLOAD_PATH"
@@ -72,12 +71,9 @@ scp "${SCP_ARGS[@]}" "$PAYLOAD_PATH/large_output_s0_1MiB.txt" "$PAYLOAD_PATH/SHA
 ssh "${SSH_ARGS[@]}" "${SERVER_USER}@${SERVER_HOST}" \
   "cd $REMOTE_QUOTED && sha256sum -c SHA256SUMS"
 
-stream_mux_cc_prepare "$RESULT_PATH"
-
 PYTHONPATH="$REPO_DIR${PYTHONPATH:+:$PYTHONPATH}" \
   "$PYTHON_COMMAND" src/run_w4.py "$CONFIG"
 "$PYTHON_COMMAND" tools/analyze_w4.py "$RESULT_PATH"
 "$PYTHON_COMMAND" tools/verify_mux.py "$RESULT_PATH"
-stream_mux_cc_finish "$RESULT_PATH"
 
 echo "Hoàn tất. Xem $RESULT_PATH/scenario_summary.csv"

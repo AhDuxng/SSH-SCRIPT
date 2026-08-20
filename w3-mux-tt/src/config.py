@@ -20,10 +20,7 @@ def load_env(path: str | Path) -> dict[str, str]:
     for key in tuple(values):
         if key in os.environ:
             values[key] = os.environ[key]
-    for key in (
-        "RUN_ID", "CONGESTION_LOG_DIR", "SERVER_CONGESTION_LOG_DIR",
-        "REMOTE_CONGESTION_SAMPLER",
-    ):
+    for key in ("RUN_ID",):
         if key in os.environ:
             values[key] = os.environ[key]
     return values

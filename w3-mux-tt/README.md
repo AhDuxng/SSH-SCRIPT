@@ -161,5 +161,5 @@ mkdir -p artifacts
 bash run_w3.sh config.env 2>&1 | tee artifacts/full_run.log
 ```
 
-Congestion của SSH/SSH3 được lưu trong `artifacts/results/congestion/`, gồm log
-client, server và `summary.csv`. Runner không còn tạo raw `terminal.log`.
+W3 không bật collector congestion và không tạo thư mục `congestion/`; runner
+chỉ lưu dữ liệu tương tác, audit multiplex và các bảng tổng hợp trong `results/`.

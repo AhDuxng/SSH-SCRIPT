@@ -219,9 +219,9 @@ Source build nằm trong cache `.build/` có tên theo commit và checksum patch
 patch thay đổi, script tự dùng cache mới nên không tái sử dụng source đã áp dụng
 patch cũ.
 
-## Congestion dùng chung cho W1-W4
+## Congestion dùng chung cho W1-W2
 
-Các runner W1-W4 cùng source `scripts/congestion_run.sh`. SSH được lấy TCP_INFO
+Các runner W1-W2 cùng source `scripts/congestion_run.sh`. SSH được lấy TCP_INFO
 ở ControlMaster phía client và socket sshd phía server. SSH3 dùng quic-go tracer
 ở cả client và server. Kết quả của mỗi workload nằm duy nhất trong:
 
@@ -235,9 +235,9 @@ artifacts/
         └── summary.csv
 ```
 
-Mosh không có TCP/QUIC congestion row vì chỉ có terminal UDP; runner vẫn lưu
-network-stack snapshot để đối chiếu môi trường. SSH3 server phải được build bằng
-`scripts/build_ssh3_server.sh` và bật drop-in trong `systemd/`.
+Mosh không có TCP/QUIC congestion row vì chỉ có terminal UDP. W3 và W4 không
+gọi collector này. SSH3 server phải được build bằng
+`scripts/build_ssh3_server.sh` và chỉ bật drop-in trong lượt congestion W1/W2.
 
 Máy chưa có unit `ssh3-server.service` có thể cài
 `systemd/ssh3-server.service.example` làm unit chính; file

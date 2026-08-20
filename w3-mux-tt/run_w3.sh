@@ -31,7 +31,6 @@ done < "$CONFIG"
 PYTHON_COMMAND="${PYTHON_BIN:-python3}"
 RESULT_PATH="${RESULT_DIR:-artifacts/results}"
 mkdir -p "$RESULT_PATH"
-source "$REPO_DIR/stream_mux/scripts/congestion_run.sh"
 
 if [[ ",${PROTOCOLS}," == *,ssh3,* ]]; then
   PATCH_PATH="$REPO_DIR/stream_mux/patches/ssh3_mux_stdio.patch"
@@ -69,12 +68,9 @@ for binary in "${REMOTE_BINS[@]}"; do
 done
 "${SSH_PREFLIGHT[@]}" "${SERVER_USER}@${SERVER_HOST}" "$CHECK_COMMAND"
 
-stream_mux_cc_prepare "$RESULT_PATH"
-
 PYTHONPATH="$REPO_DIR${PYTHONPATH:+:$PYTHONPATH}" \
   "$PYTHON_COMMAND" src/run_w3.py "$CONFIG"
 "$PYTHON_COMMAND" tools/analyze_w3.py "$RESULT_PATH"
 "$PYTHON_COMMAND" tools/verify_mux.py "$RESULT_PATH"
-stream_mux_cc_finish "$RESULT_PATH"
 
 echo "Hoàn tất. Xem $RESULT_PATH/scenario_summary.csv"
