@@ -70,9 +70,11 @@ def editor_command(cfg, editor: str, path: str, ready_marker="") -> str:
         command = f"{shlex.quote(cfg.get('NANO_BIN', 'nano'))} -w -- {shlex.quote(path)}"
     # Validation remains on the same measured transport stream. After the
     # editor exits, emit short hex chunks that fit even in the main Mosh pane.
+    # Use POSIX/coreutils tools instead of xxd so a separate vim-common/xxd
+    # package is not required on the server.
     final = (
         f"if [ -f {shlex.quote(path)} ]; then "
-        f"xxd -p -c 16 {shlex.quote(path)} | "
+        f"od -An -v -tx1 {shlex.quote(path)} | tr -d '[:space:]' | fold -w 32 | "
         "awk '{printf \"__W4FINAL__:%06d:%s\\n\", NR, $0}'; "
         f"__w4_final_bytes=$(wc -c < {shlex.quote(path)} | tr -d '[:space:]'); "
         "printf '__W4FINAL_END__:%s\\n' \"$__w4_final_bytes\"; "

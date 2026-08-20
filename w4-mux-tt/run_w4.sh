@@ -65,7 +65,7 @@ if [[ "${SSH_BATCH_MODE:-1}" == "1" ]]; then SSH_ARGS+=(-o BatchMode=yes); SCP_A
 
 REMOTE_QUOTED="$(printf '%q' "$REMOTE_PATH")"
 ssh "${SSH_ARGS[@]}" "${SERVER_USER}@${SERVER_HOST}" \
-  "mkdir -p $REMOTE_QUOTED && command -v ${VIM_BIN:-vim} >/dev/null && command -v ${NANO_BIN:-nano} >/dev/null && command -v ${TMUX_BIN:-tmux} >/dev/null && command -v xxd >/dev/null && command -v sha256sum >/dev/null"
+  "mkdir -p $REMOTE_QUOTED && command -v ${VIM_BIN:-vim} >/dev/null && command -v ${NANO_BIN:-nano} >/dev/null && command -v ${TMUX_BIN:-tmux} >/dev/null && command -v od >/dev/null && command -v fold >/dev/null && command -v sha256sum >/dev/null"
 scp "${SCP_ARGS[@]}" "$PAYLOAD_PATH/large_output_s0_1MiB.txt" "$PAYLOAD_PATH/SHA256SUMS" \
   "${SERVER_USER}@${SERVER_HOST}:${REMOTE_PATH}/"
 ssh "${SSH_ARGS[@]}" "${SERVER_USER}@${SERVER_HOST}" \
