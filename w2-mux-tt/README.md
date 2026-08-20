@@ -184,16 +184,17 @@ SAMPLES_PER_STREAM_PER_TRIAL=5 \
 WARMUP_SECONDS=0 \
 INTER_TRIAL_DELAY_SECONDS=0 \
 RESULT_DIR=/tmp/w2-smoke \
-bash run_w2.sh config.env 2>&1 | tee /tmp/w2-smoke.log
+bash run_w2.sh config.env
 ```
 
 Chạy chính thức 10 trial:
 
 ```bash
 cd ~/SSH-SCRIPT/w2-mux-tt
-mkdir -p artifacts
-bash run_w2.sh config.env 2>&1 | tee artifacts/full_run.log
+bash run_w2.sh config.env
 ```
+
+Runner tự ghi `artifacts/full_run.log`; không nối thêm `| tee`.
 
 Các tệp kết quả:
 

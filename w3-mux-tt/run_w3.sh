@@ -31,6 +31,8 @@ done < "$CONFIG"
 PYTHON_COMMAND="${PYTHON_BIN:-python3}"
 RESULT_PATH="${RESULT_DIR:-artifacts/results}"
 mkdir -p "$RESULT_PATH"
+source "$REPO_DIR/stream_mux/scripts/run_logging.sh"
+stream_mux_start_run_log "$RESULT_PATH" "$PROJECT_DIR/run_w3.sh" "$CONFIG"
 
 if [[ ",${PROTOCOLS}," == *,ssh3,* ]]; then
   PATCH_PATH="$REPO_DIR/stream_mux/patches/ssh3_mux_stdio.patch"

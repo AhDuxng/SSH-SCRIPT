@@ -103,9 +103,10 @@ Trên Pi1:
 cd ~/SSH-SCRIPT/w1-mux-tt
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
-mkdir -p artifacts
-bash run_w1.sh config.env 2>&1 | tee artifacts/full_run.log
+bash run_w1.sh config.env
 ```
+
+Runner tự ghi `artifacts/full_run.log`; không nối thêm `| tee`.
 
 Smoke test cả ba giao thức, mỗi tổ hợp một trial và năm mẫu mỗi vai trò:
 

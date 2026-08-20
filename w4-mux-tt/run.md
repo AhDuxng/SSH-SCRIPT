@@ -25,7 +25,7 @@ WARMUP_SECONDS=0.5 \
 KEY_INTERVAL_SECONDS=0.02 \
 INTER_TRIAL_DELAY_SECONDS=0 \
 RESULT_DIR=/tmp/w4-smoke \
-bash run_w4.sh config.env 2>&1 | tee /tmp/w4-smoke.log
+bash run_w4.sh config.env
 
 echo "exit_code=$?"
 ```
@@ -52,7 +52,8 @@ Giữ warm-up 5 giây, interval 0,2 giây và số trial trong `config.env`:
 
 ```bash
 set -o pipefail
-mkdir -p artifacts
-bash run_w4.sh config.env 2>&1 | tee artifacts/full_run.log
+bash run_w4.sh config.env
 echo "exit_code=$?"
 ```
+
+Runner tự ghi `artifacts/full_run.log`; không nối thêm `| tee`.

@@ -35,6 +35,8 @@ RUN_ID="${RUN_ID:-$(date +%Y%m%dT%H%M%S)}"
 export RUN_ID
 RESULT_PATH="${RESULT_DIR:-artifacts/results}"
 mkdir -p "$RESULT_PATH"
+source "$REPO_DIR/stream_mux/scripts/run_logging.sh"
+stream_mux_start_run_log "$RESULT_PATH" "$PROJECT_DIR/run_w2.sh" "$CONFIG"
 source "$REPO_DIR/stream_mux/scripts/congestion_run.sh"
 
 # Tạo lại cùng một bộ payload xác định trước ở ngoài khoảng đo.

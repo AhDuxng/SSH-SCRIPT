@@ -32,7 +32,7 @@ TRIALS_PER_COMBINATION=1 \
 WARMUP_SECONDS=0.5 \
 INTER_TRIAL_DELAY_SECONDS=0 \
 RESULT_DIR=/tmp/w3-smoke \
-bash run_w3.sh config.env 2>&1 | tee /tmp/w3-smoke.log
+bash run_w3.sh config.env
 ```
 
 Kiểm tra:
@@ -54,7 +54,7 @@ WARMUP_SECONDS=0.5 \
 KEY_INTERVAL_SECONDS=0.02 \
 INTER_TRIAL_DELAY_SECONDS=0 \
 RESULT_DIR=/tmp/w3-smoke-mosh-panes \
-bash run_w3.sh config.env 2>&1 | tee /tmp/w3-smoke-mosh-panes.log
+bash run_w3.sh config.env
 ```
 
 Cuối smoke test, verifier phải báo `independent Mosh pane timing passed`.
@@ -74,9 +74,10 @@ Mosh I2/I4 lần lượt chọn từng pane rồi đo riêng; thao tác chọn p
 trước `send_ns` và không nằm trong keystroke latency.
 
 ```bash
-mkdir -p artifacts
-bash run_w3.sh config.env 2>&1 | tee artifacts/full_run.log
+bash run_w3.sh config.env
 ```
+
+Runner tự ghi `artifacts/full_run.log`; không nối thêm `| tee`.
 
 Vẽ theo network profile thật:
 

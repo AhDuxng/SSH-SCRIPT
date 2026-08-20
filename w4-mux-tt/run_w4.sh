@@ -33,6 +33,8 @@ PAYLOAD_PATH="${PAYLOAD_DIR:-payloads}"
 REMOTE_PATH="${W4_REMOTE_PAYLOAD_DIR:-/tmp/w4_mux_tt_payloads}"
 RESULT_PATH="${RESULT_DIR:-artifacts/results}"
 mkdir -p "$RESULT_PATH"
+source "$REPO_DIR/stream_mux/scripts/run_logging.sh"
+stream_mux_start_run_log "$RESULT_PATH" "$PROJECT_DIR/run_w4.sh" "$CONFIG"
 
 # Payload is generated and deployed before any measured connection is opened.
 "$PYTHON_COMMAND" tools/generate_payload.py "$PAYLOAD_PATH"

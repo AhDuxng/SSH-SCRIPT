@@ -31,6 +31,8 @@ done < "$CONFIG"
 PYTHON_COMMAND="${PYTHON_BIN:-python3}"
 RESULT_PATH="${RESULT_DIR:-artifacts/results}"
 mkdir -p "$RESULT_PATH"
+source "$REPO_DIR/stream_mux/scripts/run_logging.sh"
+stream_mux_start_run_log "$RESULT_PATH" "$PROJECT_DIR/run_w1.sh" "$CONFIG"
 source "$REPO_DIR/stream_mux/scripts/congestion_run.sh"
 
 if [[ ",${PROTOCOLS}," == *,ssh3,* ]]; then

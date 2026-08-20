@@ -29,9 +29,10 @@ cộng mỗi `stream_role` có 1.000 mẫu qua 10 connection độc lập.
 
 ```bash
 cd ~/SSH-SCRIPT/w1-mux-tt
-mkdir -p artifacts
-bash run_w1.sh config.env 2>&1 | tee artifacts/full_run.log
+bash run_w1.sh config.env
 ```
+
+Runner tự ghi `artifacts/full_run.log`; không nối thêm `| tee`.
 
 Khi bắt đầu, chương trình phải in:
 

@@ -126,7 +126,7 @@ TRIALS_PER_COMBINATION=1 \
 WARMUP_SECONDS=0.5 \
 INTER_TRIAL_DELAY_SECONDS=0 \
 RESULT_DIR=/tmp/w3-smoke \
-bash run_w3.sh config.env 2>&1 | tee /tmp/w3-smoke.log
+bash run_w3.sh config.env
 ```
 
 Smoke đầy đủ có `3 protocol × 2 editor × 3 scenario = 18 trial`.
@@ -157,9 +157,10 @@ sha256=13a17464f650cd3d831c1433a226d4895555f56ce8cd52a13f8f3841a0bbd430
 ```
 
 ```bash
-mkdir -p artifacts
-bash run_w3.sh config.env 2>&1 | tee artifacts/full_run.log
+bash run_w3.sh config.env
 ```
+
+Runner tự ghi `artifacts/full_run.log`; không nối thêm `| tee`.
 
 W3 không bật collector congestion và không tạo thư mục `congestion/`; runner
 chỉ lưu dữ liệu tương tác, audit multiplex và các bảng tổng hợp trong `results/`.
