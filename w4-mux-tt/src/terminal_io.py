@@ -5,20 +5,17 @@ from __future__ import annotations
 import codecs
 import threading
 import time
-from pathlib import Path
 
 from terminal_screen import ScreenSnapshot, TerminalScreen
 
 
 class InteractiveEndpoint:
     def __init__(
-        self, raw_stream, rows: int, columns: int, log_path: Path | None = None,
-        observers=(),
+        self, raw_stream, rows: int, columns: int, observers=(),
     ):
         self.raw_stream = raw_stream
         self.screen = TerminalScreen(rows, columns)
         self.decoder = codecs.getincrementaldecoder("utf-8")("replace")
-        self.log_handle = log_path.open("wb") if log_path is not None else None
         self.observers = list(observers)
         self.recent = bytearray()
         self.recent_lock = threading.RLock()
@@ -38,9 +35,6 @@ class InteractiveEndpoint:
                 if event.kind == "data":
                     observed_ns = time.perf_counter_ns()
                     wall_ns = time.time_ns()
-                    if self.log_handle is not None:
-                        self.log_handle.write(event.data)
-                        self.log_handle.flush()
                     with self.recent_lock:
                         self.recent.extend(event.data)
                         if len(self.recent) > 524288:
@@ -62,11 +56,6 @@ class InteractiveEndpoint:
         except Exception as exc:
             self.terminal_error = repr(exc)
             self.exited.set()
-
-    def close(self):
-        if self.log_handle is not None:
-            self.log_handle.close()
-            self.log_handle = None
 
     def recent_text(self) -> str:
         with self.recent_lock:
