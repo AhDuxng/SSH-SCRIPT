@@ -132,6 +132,8 @@ def main() -> int:
 
     result_dir = Path(cfg.get("RESULT_DIR", "artifacts/results"))
     result_dir.mkdir(parents=True, exist_ok=True)
+    congestion_enabled = bool(cfg.get("CONGESTION_LOG_DIR", "").strip())
+    congestion_dir = result_dir / "congestion"
     write_csv(result_dir / "experiment_order.csv", ORDER_FIELDS, schedule)
     metadata = {
         "run_id": run_id,
