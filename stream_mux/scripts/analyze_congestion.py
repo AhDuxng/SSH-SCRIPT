@@ -161,6 +161,11 @@ def summarize_trial(
         int(event["value"]) for event in workload_events
         if event.get("event") == "pto_count" and event.get("value") is not None
     ]
+    notes = list(parse_errors)
+    if not metrics:
+        notes.append(f"no congestion metrics inside {window_scope}")
+    if collector_errors:
+        notes.append(f"collector_errors={collector_errors}")
     row = {
         **base,
         "endpoint": endpoint,
@@ -206,7 +211,7 @@ def summarize_trial(
         "delivery_rate_mean_bps": fmt(
             statistics.mean(delivery_rates) if delivery_rates else None
         ),
-        "note": "; ".join(parse_errors),
+        "note": "; ".join(notes),
     }
     return row
 
@@ -341,7 +346,11 @@ def main() -> int:
     if invalid:
         print("Congestion audit incomplete:")
         for row in invalid:
-            print(f"- {row['trial_id']}: {row['status']} {row['note']}")
+            print(
+                f"- {row['trial_id']} endpoint={row['endpoint']}: "
+                f"status={row['status']} metrics={row['metric_samples']} "
+                f"scope={row['window_scope']} note={row['note']}"
+            )
         return 1
     return 0
 

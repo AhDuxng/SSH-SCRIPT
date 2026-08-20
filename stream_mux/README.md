@@ -242,6 +242,11 @@ network-stack snapshot để đối chiếu môi trường. SSH3 server phải �
 Máy chưa có unit `ssh3-server.service` có thể cài
 `systemd/ssh3-server.service.example` làm unit chính; file
 `systemd/ssh3-server-congestion.conf.example` là drop-in bật tracer congestion.
+Drop-in dùng chu kỳ cố định 100 ms trong mọi môi trường để kết quả không phụ
+thuộc latency quan sát được. Smoke test phải chạy đủ số transfer để tạo một cửa
+sổ quan sát dài hơn chu kỳ này; không tự giảm chu kỳ theo kết quả. Chỉ bật
+drop-in trong lượt chẩn đoán congestion. Lượt latency chính phải gỡ hoặc đổi tên
+drop-in rồi restart server, đồng thời đặt `CONGESTION_LOG_ENABLED=0` ở client.
 
 Trong `summary.csv`, client được lọc theo timestamp mẫu thực đo. W2 còn có
 timestamp server riêng nên lọc được đúng workload ở cả hai đầu; W1/W3/W4 ghi
