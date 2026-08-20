@@ -1,0 +1,13 @@
+[Unit]
+Description=Instrumented SSH3 server over QUIC
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/ssh3-server -bind 0.0.0.0:443 -url-path /ssh3-term -cert /etc/ssh3/cert.pem -key /etc/ssh3/priv.key
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

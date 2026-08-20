@@ -239,6 +239,10 @@ Mosh không có TCP/QUIC congestion row vì chỉ có terminal UDP; runner vẫn
 network-stack snapshot để đối chiếu môi trường. SSH3 server phải được build bằng
 `scripts/build_ssh3_server.sh` và bật drop-in trong `systemd/`.
 
+Máy chưa có unit `ssh3-server.service` có thể cài
+`systemd/ssh3-server.service.example` làm unit chính; file
+`systemd/ssh3-server-congestion.conf.example` là drop-in bật tracer congestion.
+
 Trong `summary.csv`, client được lọc theo timestamp mẫu thực đo. W2 còn có
 timestamp server riêng nên lọc được đúng workload ở cả hai đầu; W1/W3/W4 ghi
 server theo toàn bộ vòng đời connection và đánh dấu rõ
