@@ -110,6 +110,27 @@ def mosh_session_name(trial):
     return ("w4_" + re.sub(r"[^A-Za-z0-9]", "_", trial["trial_tag"]))[:80]
 
 
+def mosh_socket_name(session: str) -> str:
+    """Return an isolated tmux socket name for one W4 trial."""
+    return f"{session[:40]}_socket"
+
+
+def tmux_command(cfg, socket: str) -> str:
+    """Build a tmux command that ignores machine-specific user config."""
+    return (
+        f"{shlex.quote(cfg.get('TMUX_BIN', 'tmux'))} "
+        f"-L {shlex.quote(socket)} -f /dev/null"
+    )
+
+
+def _idle_loop(stop_file: str) -> str:
+    """Keep an unused pane alive so every Mosh scenario has identical geometry."""
+    return (
+        f"while [ ! -e {shlex.quote(stop_file)} ]; do sleep 0.10; done; "
+        "sleep 1"
+    )
+
+
 def _command_loop(start_file, stop_file, settle):
     cases = " ".join(
         f"{index}) {command} ;;" for index, command in enumerate(COMMANDS, start=1)
@@ -141,15 +162,16 @@ def _output_loop(cfg, start_file, stop_file, settle):
 
 
 def mosh_spec(cfg, trial, roles, path):
-    tmux = shlex.quote(cfg.get("TMUX_BIN", "tmux"))
     session = mosh_session_name(trial)
+    socket = mosh_socket_name(session)
+    tmux = tmux_command(cfg, socket)
     columns = int(cfg.get("TERMINAL_COLUMNS", "180"))
     rows = int(cfg.get("TERMINAL_ROWS", "48"))
     start_file = f"/tmp/{session}.start"
     stop_file = f"/tmp/{session}.stop"
     settle = float(cfg.get("MOSH_BACKGROUND_MARKER_SETTLE_SECONDS", "0.05"))
     commands = [
-        f"{tmux} kill-session -t {shlex.quote(session)} 2>/dev/null || true",
+        f"{tmux} kill-server 2>/dev/null || true",
         f"rm -f {shlex.quote(start_file)} {shlex.quote(stop_file)}",
         (
             f"{tmux} new-session -d -x {columns} -y {rows} -s {shlex.quote(session)} "
@@ -159,16 +181,22 @@ def mosh_spec(cfg, trial, roles, path):
         f"{tmux} set-option -t {shlex.quote(session)} base-index 0",
         f"{tmux} set-window-option -t {shlex.quote(session)} pane-base-index 0",
     ]
-    for role in roles[1:]:
-        loop = (
-            _command_loop(start_file, stop_file, settle)
-            if role == "command_0" else _output_loop(cfg, start_file, stop_file, settle)
-        )
+    # Always create the same three panes in the same order.  An absent logical
+    # workload gets an idle pane, so OUTPUT is not given twice the visible area
+    # in W4-OUTPUT compared with W4-MIX.
+    for role in ("command_0", "output_0"):
+        if role not in roles:
+            loop = _idle_loop(stop_file)
+        elif role == "command_0":
+            loop = _command_loop(start_file, stop_file, settle)
+        else:
+            loop = _output_loop(cfg, start_file, stop_file, settle)
         commands.append(
             f"{tmux} split-window -d -t {shlex.quote(session)} "
             f"{shlex.quote('/bin/bash -lc ' + shlex.quote(loop))}"
         )
     commands += [
+        f"{tmux} set-window-option -t {shlex.quote(session)} main-pane-width {max(1, columns // 2)}",
         f"{tmux} select-layout -t {shlex.quote(session)} main-vertical",
         f"{tmux} select-pane -t {shlex.quote(session)}.0",
         f"{tmux} bind-key -n F12 run-shell {shlex.quote('touch ' + start_file)}",
@@ -188,10 +216,10 @@ def mosh_spec(cfg, trial, roles, path):
         terminal_type=cfg.get("TERMINAL_TYPE", "xterm-256color"),
         columns=columns, rows=rows,
     )
-    return [spec], session, start_file, stop_file
+    return [spec], session, socket, start_file, stop_file
 
 
-def wait_tmux_layout(endpoint, cfg, roles):
+def wait_tmux_layout(endpoint, cfg, expected_panes=3):
     deadline = time.monotonic() + float(cfg.get("MOSH_LAYOUT_QUERY_TIMEOUT_SECONDS", "10"))
     last = ""
     while time.monotonic() < deadline:
@@ -205,8 +233,9 @@ def wait_tmux_layout(endpoint, cfg, roles):
                 if not dead:
                     panes.append((index, left, top, width, height, bool(active)))
         panes.sort()
-        if len(panes) == len(roles):
-            return [Pane(role, *values) for role, values in zip(roles, panes)]
+        if len(panes) == expected_panes:
+            pane_roles = ("interactive_0", "command_0", "output_0")
+            return [Pane(role, *values) for role, values in zip(pane_roles, panes)]
         time.sleep(0.1)
     raise TimeoutError(f"tmux panes not ready: {last[-1000:]!r}")
 
@@ -290,13 +319,20 @@ def wait_final_output(endpoint, timeout=4.0):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         with endpoint.screen.lock:
-            lines = ["".join(row) for row in endpoint.screen.screen]
+            screen_text = "\n".join("".join(row) for row in endpoint.screen.screen)
+        recent_text = endpoint.recent_text() if hasattr(endpoint, "recent_text") else ""
+        # Direct streams normally preserve marker lines in recent_text. Mosh
+        # may interleave ANSI screen diffs, so also inspect reconstructed cells.
+        recent_text = re.sub(
+            r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))",
+            "", recent_text,
+        ).replace("\r", "\n")
         chunks = {}
         expected_bytes = None
-        for line in lines:
-            for match in FINAL_CHUNK_RE.finditer(line):
+        for text in (recent_text, screen_text):
+            for match in FINAL_CHUNK_RE.finditer(text):
                 chunks[int(match.group(1))] = match.group(2)
-            end = FINAL_END_RE.search(line)
+            end = FINAL_END_RE.search(text)
             if end:
                 expected_bytes = int(end.group(1))
         if expected_bytes is not None:
@@ -312,10 +348,11 @@ def wait_final_output(endpoint, timeout=4.0):
     return None
 
 
-def remote_cleanup(cfg, paths, session=""):
+def remote_cleanup(cfg, paths, session="", socket=""):
     commands = []
     if session:
-        commands.append(f"{shlex.quote(cfg.get('TMUX_BIN', 'tmux'))} kill-session -t {shlex.quote(session)} 2>/dev/null || true")
+        tmux = tmux_command(cfg, socket) if socket else shlex.quote(cfg.get("TMUX_BIN", "tmux"))
+        commands.append(f"{tmux} kill-server 2>/dev/null || true")
     existing = [path for path in paths if path]
     if existing:
         commands.append("rm -f " + " ".join(shlex.quote(path) for path in existing))
@@ -392,7 +429,7 @@ def run_trial(cfg, trial, probe):
     roles = roles_for(trial["scenario"])
     background_roles = roles[1:]
     path = remote_file(trial)
-    session = start_file = stop_file = ""
+    session = socket = start_file = stop_file = ""
     connection = None
     endpoint = None
     collector = MoshBackgroundCollector() if trial["protocol"] == "mosh" else None
@@ -407,7 +444,9 @@ def run_trial(cfg, trial, probe):
     file_bytes = None
     try:
         if trial["protocol"] == "mosh":
-            specs, session, start_file, stop_file = mosh_spec(cfg, trial, roles, path)
+            specs, session, socket, start_file, stop_file = mosh_spec(
+                cfg, trial, roles, path
+            )
             ready_marker = b""
         else:
             specs, ready_marker = direct_specs(cfg, trial, roles, path)
@@ -421,7 +460,7 @@ def run_trial(cfg, trial, probe):
             observers=(collector.feed,) if collector else (),
         )
         if trial["protocol"] == "mosh":
-            wait_tmux_layout(endpoint, cfg, roles)
+            wait_tmux_layout(endpoint, cfg)
             ready = len(roles)
         else:
             endpoint.wait_marker(ready_marker, float(cfg.get("STREAM_READY_TIMEOUT_SECONDS", "15")))
@@ -555,5 +594,5 @@ def run_trial(cfg, trial, probe):
         "note": "; ".join(filter(None, (audit.note, note))),
     }
     if cfg_bool(cfg, "CLEANUP_REMOTE_FILES", "1"):
-        remote_cleanup(cfg, [path, start_file, stop_file], session)
+        remote_cleanup(cfg, [path, start_file, stop_file], session, socket)
     return key_rows, background_rows, stream_rows, trial_row, audit_rows

@@ -1,3 +1,8 @@
 .DS_Store
 __pycache__/
 *.pyc
+
+# Generated experiment outputs (all workloads).
+**/artifacts/
+**/pi_runs*/
+*.log

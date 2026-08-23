@@ -45,30 +45,50 @@ def annotate(axis, bars, values, scale):
         )
 
 
-def plot_latency(rows, output, editor, metric, network):
-    lookup = {(row["protocol"], row["scenario"]): row for row in rows if row["editor"] == editor}
-    all_values = [number(row, f"{metric}_ms") for row in lookup.values()]
+def plot_latency(rows, output, metric, network):
+    """Plot Vim and Nano side by side using the same scale, as in W3."""
+    lookup = {
+        (row["editor"], row["protocol"], row["scenario"]): row
+        for row in rows
+    }
+    all_values = [
+        number(lookup.get((editor, protocol, scenario)), f"{metric}_ms")
+        for editor in EDITORS
+        for scenario in SCENARIOS
+        for protocol in PROTOCOLS
+    ]
     ceiling = max((value for value in all_values if value is not None), default=1)
-    fig, axes = plt.subplots(1, 3, figsize=(15, 5.5), sharey=True)
-    x, width = np.arange(1), .23
-    for axis, scenario in zip(axes, SCENARIOS):
+    fig, axes = plt.subplots(1, 2, figsize=(16, 5.8), sharey=True)
+    x, width = np.arange(len(SCENARIOS)), .24
+    for axis, editor in zip(axes, EDITORS):
         for index, protocol in enumerate(PROTOCOLS):
-            value = number(lookup.get((protocol, scenario)), f"{metric}_ms")
+            values = [
+                number(
+                    lookup.get((editor, protocol, scenario)),
+                    f"{metric}_ms",
+                )
+                for scenario in SCENARIOS
+            ]
             bars = axis.bar(
-                x + (index - 1) * width, [value or 0], width,
+                x + (index - 1) * width,
+                [value or 0 for value in values],
+                width,
                 label=LABELS[protocol], color=COLORS[protocol], hatch=HATCHES[protocol],
                 edgecolor="black", linewidth=.6,
             )
-            annotate(axis, bars, [value], ceiling)
-        axis.set_title(scenario)
-        axis.set_xticks(x, ["interactive_0"])
+            annotate(axis, bars, values, ceiling)
+        axis.set_title(editor.capitalize())
+        axis.set_xticks(x, SCENARIOS)
         axis.set_ylim(0, max(1, ceiling * 1.25))
         axis.grid(axis="y", alpha=.25)
     axes[0].set_ylabel("Keystroke latency (ms)")
     axes[0].legend(ncol=3, loc="upper left")
-    fig.suptitle(f"W4 {editor.capitalize()} interactive latency under background — {network} — {metric.upper()}")
-    fig.tight_layout()
-    stem = f"figure_1_{editor}_interactive_latency_{metric}"
+    fig.suptitle(
+        f"W4 interactive latency under background — {network} — "
+        f"{metric.upper()}"
+    )
+    fig.tight_layout(rect=(0, 0, 1, .95))
+    stem = f"figure_1_interactive_latency_{metric}"
     fig.savefig(output / f"{stem}.png", dpi=180, bbox_inches="tight")
     fig.savefig(output / f"{stem}.pdf", bbox_inches="tight")
     plt.close(fig)
@@ -148,11 +168,14 @@ def main() -> int:
     parser.add_argument("--network", default="unspecified")
     args = parser.parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
+    # Thư mục chỉ chứa hình do plot_w4 tạo; bỏ các hình tách editor cũ.
+    for pattern in ("figure_*.png", "figure_*.pdf"):
+        for path in args.output_dir.glob(pattern):
+            path.unlink()
     scenarios = load(args.result_dir / "scenario_summary.csv")
     backgrounds = load(args.result_dir / "background_summary.csv")
-    for editor in EDITORS:
-        for metric in ("mean", "median", "p95", "p99"):
-            plot_latency(scenarios, args.output_dir, editor, metric, args.network)
+    for metric in ("mean", "median", "p95", "p99"):
+        plot_latency(scenarios, args.output_dir, metric, args.network)
     plot_reliability(scenarios, args.output_dir, args.network)
     plot_background(backgrounds, args.output_dir, args.network)
     print(f"[OK] W4 figures saved to {args.output_dir}")

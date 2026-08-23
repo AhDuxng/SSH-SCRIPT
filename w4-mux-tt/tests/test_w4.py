@@ -19,7 +19,7 @@ from constants import PAYLOAD_BYTES, PAYLOAD_LINES, PAYLOAD_SHA256
 from generate_payload import build_payload
 from run_w4 import build_schedule
 from stream_mux import RawStream
-from trial import roles_for, wait_final_output
+from trial import mosh_spec, roles_for, wait_final_output
 from terminal_screen import TerminalScreen
 
 
@@ -105,6 +105,41 @@ class W4Tests(unittest.TestCase):
         endpoint.terminal_error = ""
         endpoint.screen.feed("\r\n".join(lines), 1)
         self.assertEqual(wait_final_output(endpoint, .1), payload)
+
+    def test_final_output_is_reconstructed_from_recent_ansi_output(self):
+        payload = b"final-output-from-same-stream"
+        marker = (
+            "\x1b[32m__W4FINAL__:000001:"
+            + payload.hex()
+            + "\x1b[0m\r\n"
+            + f"__W4FINAL_END__:{len(payload)}\r\n"
+        )
+        endpoint = type("E", (), {})()
+        endpoint.screen = TerminalScreen(4, 40)
+        endpoint.terminal_error = ""
+        endpoint.recent_text = lambda: marker
+        self.assertEqual(wait_final_output(endpoint, .1), payload)
+
+    def test_mosh_scenarios_use_isolated_identical_three_pane_layout(self):
+        cfg = {"TMUX_BIN": "tmux", "TERMINAL_COLUMNS": "180"}
+        commands = {}
+        for scenario in ("W4-CMD", "W4-OUTPUT", "W4-MIX"):
+            trial = {
+                "trial_tag": f"trial-{scenario}", "editor": "nano",
+                "scenario": scenario,
+            }
+            specs, _session, _socket, _start, _stop = mosh_spec(
+                cfg, trial, roles_for(scenario), "/tmp/probe.c"
+            )
+            commands[scenario] = specs[0].remote_command
+        for command in commands.values():
+            self.assertIn("-f /dev/null", command)
+            self.assertIn("main-pane-width 90", command)
+            self.assertEqual(command.count(" split-window "), 2)
+        self.assertIn("cat ", commands["W4-OUTPUT"])
+        self.assertIn("case ", commands["W4-CMD"])
+        self.assertIn("cat ", commands["W4-MIX"])
+        self.assertIn("case ", commands["W4-MIX"])
 
 
 if __name__ == "__main__":

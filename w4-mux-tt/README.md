@@ -35,14 +35,19 @@ and opens one real QUIC bidirectional stream for each role. The audit records
 every SSH3 StreamID and the shared conversation StreamID.
 
 Mosh has no channel/stream multiplexing API. It therefore opens exactly one UDP
-terminal session and runs each logical workload in a distinct visible tmux pane:
+terminal session. Every scenario uses the same isolated three-pane tmux layout;
+an absent logical workload gets an idle placeholder so pane geometry and visible
+output area do not change between CMD, OUTPUT, and MIX:
 
 ```text
 one Mosh terminal
  ├─ pane 0: interactive editor (active pane)
- ├─ pane 1: command or output background
- └─ pane 2: second background in W4-MIX
+ ├─ pane 1: command background or idle placeholder
+ └─ pane 2: output background or idle placeholder
 ```
+
+The trial uses a private tmux socket and `-f /dev/null`, so the user's existing
+tmux server and `~/.tmux.conf` cannot change the experimental layout.
 
 The panes are not synchronized: input characters go only to the active editor.
 F12 releases a server-side barrier for background panes immediately before the

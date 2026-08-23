@@ -16,19 +16,33 @@ def load(path):
 
 def main() -> int:
     root = Path(sys.argv[1] if len(sys.argv) > 1 else "artifacts/results")
-    trials, audits = load(root / "trials.csv"), load(root / "stream_audit.csv")
+    trials = load(root / "trials.csv")
+    audits = load(root / "stream_audit.csv")
+    streams = load(root / "streams.csv")
     grouped = defaultdict(list)
+    stream_grouped = defaultdict(list)
     for row in audits:
         grouped[row["trial_id"]].append(row)
+    for row in streams:
+        stream_grouped[row["trial_id"]].append(row)
     errors = []
     for trial in trials:
         rows = grouped[trial["trial_id"]]
+        measured_streams = stream_grouped[trial["trial_id"]]
         count = int(trial["logical_workload_count"])
         if len(rows) != count:
             errors.append(f"{trial['trial_id']}: audit rows={len(rows)} expected={count}")
             continue
         if trial["connection_valid"] != "1" or trial["socket_count"] != "1":
             errors.append(f"{trial['trial_id']}: invalid connection/socket evidence")
+        interactive = next(
+            (row for row in measured_streams if row["stream_role"] == "interactive_0"),
+            None,
+        )
+        if interactive is None or interactive["complete_outputs"] != "1":
+            errors.append(
+                f"{trial['trial_id']}: final 100-byte editor output not verified"
+            )
         protocol = trial["protocol"]
         if protocol == "ssh":
             if int(trial["opened_transport_streams"]) != count:
