@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import codecs
 import re
 import threading
 import time
@@ -13,6 +14,7 @@ from stream_mux import open_multiplex_connection
 
 from constants import PAYLOAD_BYTES, PAYLOAD_LINE_BYTES, PAYLOAD_LINES
 from framing import MarkerDecoder, MarkerEvent, build_direct_line, request_token
+from terminal_screen import TerminalScreen
 
 
 @dataclass
@@ -41,7 +43,8 @@ class DirectCoordinator:
 
     # Khởi tạo bộ điều phối và giới hạn vùng giữ output.
     def __init__(
-        self, raw_stream: RawStream, background: bool, max_capture_bytes: int
+        self, raw_stream: RawStream, background: bool, max_capture_bytes: int,
+        screen: TerminalScreen | None = None,
     ):
         self.raw_stream = raw_stream
         self.background = background
@@ -50,6 +53,10 @@ class DirectCoordinator:
         self.pending: dict[str, PendingTransfer] = {}
         self.active: dict[str, PendingTransfer] = {}
         self.lock = threading.Lock()
+        self.screen = screen
+        self.screen_decoder = (
+            codecs.getincrementaldecoder("utf-8")("replace") if screen else None
+        )
 
     # Tạo mã dấu mốc ổn định từ mã yêu cầu.
     def _token(self, request_id: str) -> str:
@@ -133,8 +140,31 @@ class DirectCoordinator:
     def feed_bytes(self, data: bytes) -> None:
         wall_ns = time.time_ns()
         mono_ns = time.perf_counter_ns()
+        if self.screen is not None and self.screen_decoder is not None:
+            text = self.screen_decoder.decode(data)
+            if text:
+                self.screen.feed(text)
         for event in self.decoder.feed(data):
             self.feed(event, wall_ns, mono_ns)
+
+    # Chờ viewport ngừng thay đổi rồi chụp các hàng đang hiển thị.
+    def stable_screen_lines(
+        self, quiet_seconds: float, timeout: float,
+    ) -> tuple[bytes, ...]:
+        if self.screen is None:
+            return ()
+        deadline = time.monotonic() + timeout
+        previous = self.screen.current_revision()
+        stable_since = time.monotonic()
+        while time.monotonic() < deadline:
+            time.sleep(min(0.02, quiet_seconds))
+            current = self.screen.current_revision()
+            if current != previous:
+                previous = current
+                stable_since = time.monotonic()
+            elif time.monotonic() - stable_since >= quiet_seconds:
+                return self.screen.visible_lines()
+        return self.screen.visible_lines()
 
     # Báo lỗi cho toàn bộ lần truyền đang chờ.
     def fail_all(self, message: str) -> None:
@@ -234,6 +264,8 @@ class DirectW2Connection:
         self.pumps: list[threading.Thread] = []
         self.closing = False
         self.sample_generation = 0
+        self.sample_screen_lines: tuple[bytes, ...] = ()
+        self.sample_screen_lock = threading.Lock()
         self.audit = ConnectionAudit(protocol, False, 0, 0, 0, {}, [], {}, "chưa mở")
 
     # Tạo Bash thường trực cho từng mô hình transport.
@@ -295,7 +327,13 @@ class DirectW2Connection:
                 f"MAX_CAPTURE_BYTES phải ít nhất {PAYLOAD_BYTES}"
             )
         if self.protocol == "mosh":
-            coordinator = DirectCoordinator(raw_streams["terminal"], True, max_capture)
+            screen = TerminalScreen(
+                int(self.cfg.get("W2_MOSH_ROWS", "128")),
+                int(self.cfg.get("W2_MOSH_COLUMNS", "4096")),
+            )
+            coordinator = DirectCoordinator(
+                raw_streams["terminal"], True, max_capture, screen
+            )
             self.coordinators.append(coordinator)
             for role in self.roles:
                 self.streams[role] = DirectOutputStream(role, coordinator)
@@ -364,6 +402,8 @@ class DirectW2Connection:
         if self.protocol != "mosh" or not self.coordinators:
             return
         self.sample_generation += 1
+        with self.sample_screen_lock:
+            self.sample_screen_lines = ()
         timeout = float(self.cfg.get("MOSH_CLEAR_TIMEOUT", "10.0"))
         self.coordinators[0].execute(
             f"{self.trial_tag}:screen-clear:{self.sample_generation}",
@@ -374,6 +414,21 @@ class DirectW2Connection:
         settle = float(self.cfg.get("MOSH_CLEAR_SETTLE_SECONDS", "0.02"))
         if settle > 0:
             time.sleep(settle)
+
+    # Sau khi mọi workload báo DONE, chờ terminal ổn định và chụp một lần chung.
+    def finish_sample(self) -> None:
+        if self.protocol != "mosh" or not self.coordinators:
+            return
+        quiet = float(self.cfg.get("MOSH_POST_MARKER_QUIET_SECONDS", "0.10"))
+        timeout = float(self.cfg.get("MOSH_POST_MARKER_TIMEOUT", "2.0"))
+        lines = self.coordinators[0].stable_screen_lines(quiet, timeout)
+        with self.sample_screen_lock:
+            self.sample_screen_lines = lines
+
+    # Trả snapshot màn hình dùng chung của sample vừa hoàn thành.
+    def visible_sample_lines(self) -> tuple[bytes, ...]:
+        with self.sample_screen_lock:
+            return self.sample_screen_lines
 
     # Đóng Bash và connection sau trial.
     def close(self) -> None:

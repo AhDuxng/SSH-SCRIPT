@@ -61,6 +61,11 @@ class InteractiveEndpoint:
         with self.recent_lock:
             return bytes(self.recent).decode("utf-8", errors="replace")
 
+    def clear_recent(self) -> None:
+        """Discard terminal bytes observed before a new verification phase."""
+        with self.recent_lock:
+            self.recent.clear()
+
     def recent_contains(self, marker: bytes) -> bool:
         with self.recent_lock:
             return marker in self.recent

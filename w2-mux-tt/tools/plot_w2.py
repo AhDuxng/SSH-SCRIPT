@@ -26,6 +26,7 @@ LABELS = {"ssh": "SSH", "ssh3": "SSH3", "mosh": "Mosh"}
 COLORS = {"ssh": "#1696D2", "ssh3": "#E69F00", "mosh": "#009E73"}
 HATCHES = {"ssh": "///", "ssh3": "--", "mosh": "\\\\\\"}
 STREAM_COUNTS = {"W2-S1": 1, "W2-S2": 2, "W2-S4": 4}
+MIN_COMPLETION_RATE_PCT = 95.0
 SCENARIO_LABELS = {
     scenario: f"{scenario}\n{count} concurrent workload{'s' if count > 1 else ''}"
     for scenario, count in STREAM_COUNTS.items()
@@ -44,6 +45,17 @@ def number(row, field):
     return float(value) if value else None
 
 
+# Chỉ công bố completion latency khi ít nhất 95% phép truyền đã thử hoàn tất.
+def metric_value(row, field):
+    value = number(row, field)
+    if not field.startswith("completion_"):
+        return value
+    completion_rate = number(row, "attempted_transfer_completion_rate_pct")
+    if completion_rate is None or completion_rate < MIN_COMPLETION_RATE_PCT:
+        return None
+    return value
+
+
 # Vẽ một metric theo ba giao thức và ba kịch bản.
 def plot_metric(rows, output_dir, field, title, ylabel, stem, network):
     lookup = {(row["protocol"], row["scenario"]): row for row in rows}
@@ -54,7 +66,7 @@ def plot_metric(rows, output_dir, field, title, ylabel, stem, network):
     all_values = []
     for protocol in PROTOCOLS:
         values = [
-            number(lookup.get((protocol, scenario)), field)
+            metric_value(lookup.get((protocol, scenario)), field)
             for scenario in SCENARIOS
         ]
         series.append((protocol, values))
@@ -94,7 +106,17 @@ def plot_metric(rows, output_dir, field, title, ylabel, stem, network):
         axis.set_ylim(0, max(1.0, ceiling * 1.24))
     axis.grid(axis="y", alpha=0.25)
     axis.legend(ncol=3)
-    fig.tight_layout()
+    if field.startswith("completion_"):
+        fig.text(
+            0.5, 0.01,
+            "N/A: fewer than 95% of attempted transfers completed with full "
+            "verified output.",
+            ha="center", fontsize=8,
+        )
+    if field.startswith("completion_"):
+        fig.tight_layout(rect=(0, 0.035, 1, 1))
+    else:
+        fig.tight_layout()
     output_dir.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_dir / f"{stem}.png", dpi=180, bbox_inches="tight")
     fig.savefig(output_dir / f"{stem}.pdf", bbox_inches="tight")
@@ -114,9 +136,10 @@ def plot_stream_metric(
     }
     fig, axes = plt.subplots(1, len(SCENARIOS), figsize=(15, 5.5), sharey=True)
     global_values = [
-        number(row, field) for row in rows if row["protocol"] != "mosh"
+        metric_value(row, field)
+        for row in rows if row["protocol"] != "mosh"
     ] + [
-        number(scenario_lookup.get(("mosh", scenario)), field)
+        metric_value(scenario_lookup.get(("mosh", scenario)), field)
         for scenario in SCENARIOS
     ]
     ceiling = max(
@@ -131,14 +154,14 @@ def plot_stream_metric(
                 items.append((
                     protocol,
                     f"{LABELS[protocol]}\nStream {stream_index}",
-                    number(
+                    metric_value(
                         lookup.get((protocol, scenario, f"output_{stream_index}")),
                         field,
                     ),
                 ))
         items.append((
             "mosh", "Mosh\nTerminal",
-            number(scenario_lookup.get(("mosh", scenario)), field),
+            metric_value(scenario_lookup.get(("mosh", scenario)), field),
         ))
         x = np.arange(len(items))
         bars = axis.bar(
@@ -172,7 +195,17 @@ def plot_stream_metric(
         axis.grid(axis="y", alpha=0.25)
     axes[0].set_ylabel(ylabel)
     fig.suptitle(f"{title} — {network.capitalize()}")
-    fig.tight_layout()
+    if field.startswith("completion_"):
+        fig.text(
+            0.5, 0.01,
+            "N/A: fewer than 95% of attempted transfers completed with full "
+            "verified output.",
+            ha="center", fontsize=8,
+        )
+    if field.startswith("completion_"):
+        fig.tight_layout(rect=(0, 0.035, 1, 1))
+    else:
+        fig.tight_layout()
     output_dir.mkdir(parents=True, exist_ok=True)
     fig.savefig(output_dir / f"{stem}.png", dpi=180, bbox_inches="tight")
     fig.savefig(output_dir / f"{stem}.pdf", bbox_inches="tight")
@@ -311,6 +344,7 @@ def main() -> int:
     plots = []
     for metric in ("mean", "median", "p95", "p99"):
         plots.extend((
+            (f"command_visible_{metric}_ms", f"W2 command visible — {metric.upper()}", "Latency (ms)", f"figure_0_command_visible_{metric}"),
             (f"completion_{metric}_ms", f"W2 transfer completion — {metric.upper()}", "Latency (ms)", f"figure_1_completion_{metric}"),
             (f"setup_{metric}_ms", f"W2 connection + streams READY — {metric.upper()}", "Setup time (ms)", f"figure_4_setup_{metric}"),
         ))

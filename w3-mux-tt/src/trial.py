@@ -391,8 +391,7 @@ def print_live_key(cfg: dict, row: dict):
     every = int(cfg.get("LIVE_PROGRESS_EVERY", "1"))
     index = int(row["char_index"])
     total = int(row["char_total"])
-    # Mặc định every=1 nên in đủ 100 mẫu/stream. Nếu giảm tần suất thì vẫn
-    # luôn hiện mẫu đầu/cuối và mọi lỗi, timeout hoặc stall.
+
     if (
         every > 1
         and index not in {1, total}
@@ -535,13 +534,89 @@ def measure_mosh(cfg, trial, endpoint, panes, session, probe):
 
 
 def refresh_editors(editor: str, endpoints: list[InteractiveEndpoint], shared=False):
-    """Yêu cầu editor repaint mà không đưa byte điều khiển vào file."""
+    """Đưa editor về đầu buffer và repaint ngoài khoảng thời gian đo."""
     targets = endpoints[:1] if shared else endpoints
     for endpoint in targets:
         if editor == "vim":
-            endpoint.send(b"\x1b\x0ci")
+            # Normal mode -> first line/column -> redraw -> insert mode.
+            endpoint.send(b"\x1bgg0\x0ci")
         else:
-            endpoint.send(b"\x0c")
+            # Nano uses row 0 for its title; Ctrl-A puts the edit cursor at
+            # column zero after Ctrl-L has requested a complete repaint.
+            endpoint.send(b"\x0c\x01")
+
+
+def editor_origin(editor: str) -> tuple[int, int]:
+    """Return the expected empty-buffer cursor cell in a direct terminal."""
+    return (0, 0) if editor == "vim" else (1, 0)
+
+
+def _wait_direct_editor_origins(cfg, editor, roles, endpoints):
+    """Require every direct editor cursor and screen state to be stable."""
+    timeout = float(cfg.get("EDITOR_CURSOR_READY_TIMEOUT_SECONDS", "3.0"))
+    stable_seconds = float(cfg.get("EDITOR_CURSOR_STABLE_SECONDS", "0.20"))
+    expected = editor_origin(editor)
+    deadline = time.monotonic() + timeout
+    signatures = {}
+    stable_since = {}
+    snapshots = {}
+
+    while time.monotonic() < deadline:
+        now = time.monotonic()
+        for role in roles:
+            endpoint = endpoints[role]
+            if endpoint.terminal_error:
+                raise RuntimeError(f"{role}: {endpoint.terminal_error}")
+            if endpoint.exited.is_set():
+                raise EOFError(f"{role}: editor exited while stabilizing cursor")
+            snapshot = endpoint.snapshot()
+            snapshots[role] = snapshot
+            signature = (
+                snapshot.row, snapshot.column,
+                snapshot.write_seq, snapshot.event_seq,
+            )
+            if (snapshot.row, snapshot.column) != expected:
+                signatures.pop(role, None)
+                stable_since.pop(role, None)
+            elif signatures.get(role) != signature:
+                signatures[role] = signature
+                stable_since[role] = now
+
+        if len(stable_since) == len(roles) and all(
+            now - stable_since[role] >= stable_seconds for role in roles
+        ):
+            return snapshots
+        time.sleep(0.01)
+
+    positions = {
+        role: (snapshot.row, snapshot.column)
+        for role, snapshot in snapshots.items()
+    }
+    raise TimeoutError(
+        f"direct editor cursor did not stabilize at {expected}: {positions}"
+    )
+
+
+def synchronize_direct_editors(cfg, editor, roles, endpoints):
+    """Repaint and verify direct editors before any measured key is sent."""
+    retries = int(cfg.get("EDITOR_CURSOR_REFRESH_RETRIES", "1"))
+    last_error = None
+    for attempt in range(retries + 1):
+        refresh_editors(editor, [endpoints[role] for role in roles])
+        try:
+            return _wait_direct_editor_origins(
+                cfg, editor, roles, endpoints,
+            )
+        except TimeoutError as exc:
+            last_error = exc
+            if attempt < retries and cfg_bool(cfg, "LIVE_PROGRESS", "1"):
+                with LIVE_PRINT_LOCK:
+                    print(
+                        f"[CURSOR-RETRY] editor={editor} "
+                        f"retry={attempt + 1}/{retries} reason={exc}",
+                        flush=True,
+                    )
+    raise last_error
 
 
 def discard_editors(editor: str, endpoints: list[InteractiveEndpoint], shared=False):
@@ -684,10 +759,14 @@ def run_trial(cfg: dict, trial: dict, probe: ProbeSource):
             refresh_mosh_panes(
                 cfg, trial, endpoints["terminal"], panes, session,
             )
+            # Preserve Mosh's existing post-selection quiet period. Direct
+            # streams use the stricter origin-and-screen stability check below.
+            endpoints["terminal"].wait_quiet()
         else:
-            refresh_editors(trial["editor"], refresh_targets)
+            synchronize_direct_editors(
+                cfg, trial["editor"], roles, endpoints,
+            )
         for endpoint in refresh_targets:
-            endpoint.wait_quiet()
             endpoint.screen.clear_history()
 
         workload_start = time.perf_counter_ns()

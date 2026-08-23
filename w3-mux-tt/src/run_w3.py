@@ -80,8 +80,6 @@ def main() -> int:
     if len(protocols) != len(set(protocols)) or len(editors) != len(set(editors)) or len(scenarios) != len(set(scenarios)):
         raise ValueError("ma trận không được chứa giá trị lặp")
 
-    # W3 đo lợi thế local echo của Mosh, vì vậy không cho một biến môi trường
-    # vô tình chuyển prediction sang adaptive/never hoặc bỏ hẳn tùy chọn.
     mosh_predict = cfg.get("MOSH_PREDICT", "always").strip().lower() or "always"
     if "mosh" in protocols and mosh_predict != "always":
         raise ValueError(
@@ -104,6 +102,16 @@ def main() -> int:
             raise ValueError(f"{key} không được âm")
     if float(cfg.get("STALL_THRESHOLD_SECONDS", "1")) >= float(cfg.get("KEY_TIMEOUT_SECONDS", "2")):
         raise ValueError("STALL_THRESHOLD_SECONDS phải nhỏ hơn KEY_TIMEOUT_SECONDS")
+    cursor_ready_timeout = float(cfg.get("EDITOR_CURSOR_READY_TIMEOUT_SECONDS", "3.0"))
+    cursor_stable_seconds = float(cfg.get("EDITOR_CURSOR_STABLE_SECONDS", "0.20"))
+    cursor_refresh_retries = int(cfg.get("EDITOR_CURSOR_REFRESH_RETRIES", "1"))
+    if cursor_ready_timeout <= 0 or not 0 < cursor_stable_seconds < cursor_ready_timeout:
+        raise ValueError(
+            "EDITOR_CURSOR_READY_TIMEOUT_SECONDS phải lớn hơn "
+            "EDITOR_CURSOR_STABLE_SECONDS > 0"
+        )
+    if cursor_refresh_retries < 0:
+        raise ValueError("EDITOR_CURSOR_REFRESH_RETRIES không được âm")
 
     columns = int(cfg.get("TERMINAL_COLUMNS", "160"))
     rows = int(cfg.get("TERMINAL_ROWS", "48"))
@@ -148,6 +156,9 @@ def main() -> int:
         "key_interval_seconds": float(cfg.get("KEY_INTERVAL_SECONDS", "0.2")),
         "key_timeout_seconds": float(cfg.get("KEY_TIMEOUT_SECONDS", "2")),
         "stall_threshold_seconds": float(cfg.get("STALL_THRESHOLD_SECONDS", "1")),
+        "editor_cursor_ready_timeout_seconds": cursor_ready_timeout,
+        "editor_cursor_stable_seconds": cursor_stable_seconds,
+        "editor_cursor_refresh_retries": cursor_refresh_retries,
         "live_progress": cfg.get("LIVE_PROGRESS", "1"),
         "live_progress_every": live_progress_every,
         "terminal": {"columns": columns, "rows": rows, "type": cfg.get("TERMINAL_TYPE")},

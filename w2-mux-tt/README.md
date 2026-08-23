@@ -217,6 +217,7 @@ artifacts/results/congestion/summary.csv
 Bộ hình dùng cùng bố cục, màu, hatch, nhãn số và cách nhóm như W1:
 
 ```text
+figure_0_command_visible_*.png/pdf         marker-visible Mean/Median/P95/P99
 figure_1_completion_*.png/pdf             latency Mean/Median/P95/P99
 figure_2_first_byte_median.png/pdf         latency byte đầu
 figure_3_throughput_mean.png/pdf           thông lượng byte đã xác thực
@@ -229,6 +230,14 @@ figure_7_per_stream_integrity.png/pdf     integrity từng stream
 Hai hình integrity dùng trục 0–100%. `Transfer complete` chỉ đạt 100% khi nhận
 đủ marker, byte, dòng và SHA-256. Bảng CSV vẫn giữ `content_coverage_pct` để xem
 phần nội dung hợp lệ của mẫu `partial`/`timeout` mà không tính redraw hay dòng lặp.
+
+`figure_0_command_visible_*.png/pdf` đo từ lúc gửi lệnh đến khi dấu `DONE` hiện
+trên terminal. Chỉ số này vẫn được báo cáo cho Mosh khi output không còn đủ
+100 KiB, vì nó phản ánh lúc người dùng thấy lệnh đã kết thúc. Các hình
+`figure_1_completion_*` vẫn là phép đo lossless-output và có thể ghi `N/A` cho
+Mosh. Mosh luôn dùng một terminal vật lý; sau khi mọi tiến trình của sample báo
+`DONE`, runner áp dụng ANSI/cursor update vào một viewport chung, chờ màn hình
+ổn định rồi mới tính content coverage.
 
 `ssh3_vs_ssh.csv` ghi median latency, mean throughput, tỷ số SSH3/SSH và verdict
 cho từng kịch bản. Nếu SSH3 chậm hơn quá 5%, analyzer in `[CHECK]`; đây là cảnh

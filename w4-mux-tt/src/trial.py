@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import math
 import re
 import shlex
@@ -72,13 +73,19 @@ def editor_command(cfg, editor: str, path: str, ready_marker="") -> str:
     # editor exits, emit short hex chunks that fit even in the main Mosh pane.
     # Use POSIX/coreutils tools instead of xxd so a separate vim-common/xxd
     # package is not required on the server.
+    final_hold = float(cfg.get("FINAL_OUTPUT_HOLD_SECONDS", "12"))
     final = (
         f"if [ -f {shlex.quote(path)} ]; then "
+        # Put every final marker in a clean, stable viewport.  This matters for
+        # Mosh, which may omit intermediate terminal states, and also prevents
+        # an editor's alternate-screen cursor position from scrolling away the
+        # first chunks before the client can reconstruct the file.
+        "printf '\\033[2J\\033[H'; "
         f"od -An -v -tx1 {shlex.quote(path)} | tr -d '[:space:]' | fold -w 32 | "
         "awk '{printf \"__W4FINAL__:%06d:%s\\n\", NR, $0}'; "
         f"__w4_final_bytes=$(wc -c < {shlex.quote(path)} | tr -d '[:space:]'); "
         "printf '__W4FINAL_END__:%s\\n' \"$__w4_final_bytes\"; "
-        "else printf '__W4FINAL_END__:0\\n'; fi; sleep 5"
+        f"else printf '__W4FINAL_END__:0\\n'; fi; sleep {final_hold:g}"
     )
     return f"rm -f {shlex.quote(path)}; {prefix}{command}; __w4_editor_rc=$?; {final}; exit \"$__w4_editor_rc\""
 
@@ -303,18 +310,55 @@ def measure_interactive(cfg, trial, endpoint, probe):
 
 
 def save_editor(editor, endpoint):
+    # The final-output capture must not be polluted or evicted by editor
+    # repaint bytes accumulated during the measured workload.
+    if hasattr(endpoint, "clear_recent"):
+        endpoint.clear_recent()
     if editor == "vim":
-        endpoint.send(b"\x1b:wq\r")
+        endpoint.send(b"\x1b")
+        time.sleep(0.05)
+        endpoint.send(b":wq\r")
     else:
-        endpoint.send(b"\x0f\r\x18")
-    time.sleep(0.8)
+        endpoint.send(b"\x0f")
+        time.sleep(0.10)
+        endpoint.send(b"\r")
+        time.sleep(0.20)
+        endpoint.send(b"\x18")
 
 
-FINAL_CHUNK_RE = re.compile(r"__W4FINAL__:(\d{6}):([0-9a-f]+)")
+FINAL_CHUNK_RE = re.compile(
+    r"__W4FINAL__:(\d{6}):([0-9a-f]{2,32})(?![0-9a-f])"
+)
 FINAL_END_RE = re.compile(r"__W4FINAL_END__:(\d+)")
 
 
-def wait_final_output(endpoint, timeout=4.0):
+def _reconstruct_final_output(texts):
+    """Reconstruct one contiguous indexed hex payload from terminal text."""
+    chunks = {}
+    expected_bytes = None
+    for text in texts:
+        for match in FINAL_CHUNK_RE.finditer(text):
+            index, value = int(match.group(1)), match.group(2)
+            # Prefer a complete raw-stream chunk over a shorter partial marker
+            # that may remain in the reconstructed screen during a redraw.
+            if len(value) > len(chunks.get(index, "")):
+                chunks[index] = value
+        end_matches = list(FINAL_END_RE.finditer(text))
+        if end_matches:
+            expected_bytes = int(end_matches[-1].group(1))
+    if expected_bytes is None:
+        return None
+    expected_chunks = (expected_bytes + 15) // 16
+    if set(chunks) != set(range(1, expected_chunks + 1)):
+        return None
+    try:
+        output = bytes.fromhex("".join(chunks[index] for index in range(1, expected_chunks + 1)))
+    except ValueError:
+        return None
+    return output if len(output) == expected_bytes else None
+
+
+def wait_final_output(endpoint, timeout=10.0):
     """Reconstruct the saved probe from short marker lines on the same stream."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -327,21 +371,9 @@ def wait_final_output(endpoint, timeout=4.0):
             r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))",
             "", recent_text,
         ).replace("\r", "\n")
-        chunks = {}
-        expected_bytes = None
-        for text in (recent_text, screen_text):
-            for match in FINAL_CHUNK_RE.finditer(text):
-                chunks[int(match.group(1))] = match.group(2)
-            end = FINAL_END_RE.search(text)
-            if end:
-                expected_bytes = int(end.group(1))
-        if expected_bytes is not None:
-            try:
-                output = bytes.fromhex("".join(chunks[index] for index in sorted(chunks)))
-            except (ValueError, KeyError):
-                output = b""
-            if len(output) == expected_bytes:
-                return output
+        output = _reconstruct_final_output((recent_text, screen_text))
+        if output is not None:
+            return output
         if endpoint.terminal_error:
             break
         time.sleep(0.02)
@@ -363,11 +395,13 @@ def remote_cleanup(cfg, paths, session="", socket=""):
         pass
 
 
-def summarize_interactive(trial, stream, rows, output_complete, probe, note=""):
+def summarize_interactive(trial, stream, rows, file_bytes, probe, note=""):
     completed = [row for row in rows if row["completed"] == 1]
     values = [float(row["latency_ms"]) for row in completed]
     stalls = sum(row["stall"] == 1 for row in rows)
     timeouts = sum(row["timeout"] == 1 for row in rows)
+    output_complete = file_bytes == probe.data
+    received_bytes = len(file_bytes) if file_bytes is not None else 0
     complete = len(completed) == len(rows) and output_complete
     return {
         **{key: trial[key] for key in (
@@ -385,7 +419,7 @@ def summarize_interactive(trial, stream, rows, output_complete, probe, note=""):
         "stall_count": stalls, "stall_rate_pct": fmt(100 * stalls / len(rows) if rows else 0),
         "timeout_count": timeouts, "timeout_rate_pct": fmt(100 * timeouts / len(rows) if rows else 0),
         "complete_outputs": int(output_complete), "output_completeness_pct": fmt(100 if output_complete else 0),
-        "expected_bytes": len(probe.data), "received_bytes": len(probe.data) if output_complete else 0,
+        "expected_bytes": len(probe.data), "received_bytes": received_bytes,
         "mean_ms": fmt(statistics.mean(values) if values else ""),
         "median_ms": fmt(statistics.median(values) if values else ""),
         "p95_ms": fmt(percentile(values, .95)), "p99_ms": fmt(percentile(values, .99)),
@@ -509,7 +543,7 @@ def run_trial(cfg, trial, probe):
         workload_ms = (time.perf_counter_ns() - workload_start) / 1e6
         save_editor(trial["editor"], endpoint)
         file_bytes = wait_final_output(
-            endpoint, float(cfg.get("FINAL_OUTPUT_TIMEOUT_SECONDS", "4"))
+            endpoint, float(cfg.get("FINAL_OUTPUT_TIMEOUT_SECONDS", "10"))
         )
     except Exception as exc:
         note = repr(exc)
@@ -527,6 +561,18 @@ def run_trial(cfg, trial, probe):
 
     if not cfg_bool(cfg, "VERIFY_FINAL_OUTPUT", "1"):
         file_bytes = probe.data
+    elif file_bytes is None:
+        note = "; ".join(filter(None, (
+            note,
+            "final output markers were not reconstructed before timeout",
+        )))
+    elif file_bytes != probe.data:
+        note = "; ".join(filter(None, (
+            note,
+            "final output mismatch: "
+            f"bytes={len(file_bytes)}/{len(probe.data)} "
+            f"sha256={hashlib.sha256(file_bytes).hexdigest()}",
+        )))
     final_output_complete = file_bytes == probe.data
     logical_streams = {
         role: streams.get("terminal") if trial["protocol"] == "mosh" else streams.get(role)
@@ -536,7 +582,7 @@ def run_trial(cfg, trial, probe):
         for item in probe.items():
             key_rows.append(key_row(trial, logical_streams.get("interactive_0"), item, 0, 0, "trial_unavailable", note, None))
     stream_rows.append(summarize_interactive(
-        trial, logical_streams.get("interactive_0"), key_rows, final_output_complete, probe, note
+        trial, logical_streams.get("interactive_0"), key_rows, file_bytes, probe, note
     ))
     for role in background_roles:
         role_rows = [row for row in background_rows if row["stream_role"] == role]
@@ -569,7 +615,7 @@ def run_trial(cfg, trial, probe):
     unique_streams = len({value for value in audit.stream_ids.values() if value})
     trial_ok = (
         audit.valid and ready == len(roles) and completed_keys == len(key_rows)
-        and all(any(row["stream_role"] == role for row in background_rows) for role in background_roles)
+        and completed_streams == len(stream_rows)
         and final_output_complete
     )
     trial_row = {

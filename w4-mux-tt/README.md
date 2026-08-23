@@ -92,7 +92,11 @@ second time to manufacture an unstable reference.
 After the timed interval, the editor saves and exits. The same workload stream
 prints the file as short indexed hex chunks that fit inside a Mosh tmux pane;
 the client reconstructs it and compares all 100 bytes with the probe. No second
-SSH connection is used to retrieve the result.
+SSH connection is used to retrieve the result. Before saving, the client resets
+its final-output capture; after the editor exits, the server clears the viewport
+and keeps the indexed markers stable longer than the client verification timeout.
+This prevents old editor redraws or a partially visible marker from being
+mistaken for the saved file.
 
 ## Results
 
@@ -104,6 +108,11 @@ SSH connection is used to retrieve the result.
 - `scenario_summary.csv`: interactive Mean/Median/P95/P99 and reliability.
 - `background_summary.csv`: background completion and output completeness.
 - `ssh3_vs_ssh.csv`: SSH3/SSH interactive median checks.
+
+`tools/verify_mux.py` checks the exact role set required by each scenario and
+requires every background role to contain completed samples. Interactive
+verification additionally requires all 100 keystrokes and the exact saved
+100-byte editor file.
 
 W4 không bật collector congestion và không tạo thư mục `congestion/`; raw
 terminal log cũng không được tạo.

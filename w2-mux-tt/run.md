@@ -63,6 +63,11 @@ nội dung theo kịch bản. `raw_byte_ratio_pct` chỉ dùng phát hiện Mosh
 lặp output; `verified_byte_ratio_pct`, SHA-256 và `output_complete` mới là xác
 thực toàn vẹn chính xác.
 
+Mosh vẫn chỉ có một terminal. Runner dựng lại viewport theo ANSI, chờ mọi role
+báo `DONE` và màn hình ổn định rồi mới xác thực nội dung. Xem thêm
+`command_visible_*` trong `scenario_summary.csv`: đây là độ trễ người dùng thấy
+lệnh kết thúc, được báo cáo tách biệt với lossless-output completion.
+
 ## Chạy chính thức
 
 `config.env` đã đặt 10 trial và 100 mẫu trên mỗi stream trong từng trial:

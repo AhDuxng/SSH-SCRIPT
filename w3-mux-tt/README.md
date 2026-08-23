@@ -50,8 +50,11 @@ thành `[PANE-RETRY]`; toàn bộ việc chọn/xác nhận pane vẫn nằm tr�
 - SSH/SSH3 đồng bộ các stream trước từng ký tự. Mosh I2/I4 đo các pane theo
   round-robin cho từng ký tự rồi xoay pane bắt đầu ở ký tự kế tiếp để tránh
   thiên lệch thứ tự; không gõ hết file ở một pane trước pane khác.
-- Sau warm-up 5 giây, editor được repaint, lịch sử parser được xóa và workload
-  mới bắt đầu.
+- Sau warm-up 5 giây, Vim/Nano được đưa về đầu buffer và repaint. Với SSH/SSH3,
+  mọi cursor phải cùng ở đúng ô đầu vùng edit và screen-state phải đứng yên
+  qua khoảng xác nhận trước khi lịch sử parser được xóa và workload bắt đầu.
+  Repaint được thử lại ngoài khoảng đo nếu cursor còn nằm ở status bar hoặc
+  một trạng thái trung gian.
 - Trước từng phím, reader chờ terminal hết repaint cũ rồi xóa event history,
   tương đương `drain_pending_output()` của `w3_minimal`; bước này nằm ngoài
   khoảng `t_send → t_render`.

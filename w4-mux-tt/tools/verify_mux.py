@@ -14,6 +14,15 @@ def load(path):
         return list(csv.DictReader(handle))
 
 
+def expected_roles(scenario):
+    roles = ["interactive_0"]
+    if scenario in {"W4-CMD", "W4-MIX"}:
+        roles.append("command_0")
+    if scenario in {"W4-OUTPUT", "W4-MIX"}:
+        roles.append("output_0")
+    return set(roles)
+
+
 def main() -> int:
     root = Path(sys.argv[1] if len(sys.argv) > 1 else "artifacts/results")
     trials = load(root / "trials.csv")
@@ -30,19 +39,54 @@ def main() -> int:
         rows = grouped[trial["trial_id"]]
         measured_streams = stream_grouped[trial["trial_id"]]
         count = int(trial["logical_workload_count"])
+        roles = expected_roles(trial["scenario"])
         if len(rows) != count:
             errors.append(f"{trial['trial_id']}: audit rows={len(rows)} expected={count}")
             continue
+        if {row["stream_role"] for row in rows} != roles:
+            errors.append(f"{trial['trial_id']}: audited stream roles do not match {sorted(roles)}")
+            continue
         if trial["connection_valid"] != "1" or trial["socket_count"] != "1":
             errors.append(f"{trial['trial_id']}: invalid connection/socket evidence")
+            # A trial that never opened cannot possibly produce a final editor
+            # file or meaningful stream IDs.  Avoid reporting those downstream
+            # consequences as independent verification failures.
+            continue
+        if len(measured_streams) != count:
+            errors.append(
+                f"{trial['trial_id']}: measured stream rows={len(measured_streams)} "
+                f"expected={count}"
+            )
+            continue
+        if {row["stream_role"] for row in measured_streams} != roles:
+            errors.append(f"{trial['trial_id']}: measured stream roles do not match {sorted(roles)}")
+            continue
+        keystrokes_complete = (
+            trial["completed_keystrokes"] == trial["expected_keystrokes"]
+        )
+        if not keystrokes_complete:
+            errors.append(
+                f"{trial['trial_id']}: interactive keystrokes="
+                f"{trial['completed_keystrokes']}/{trial['expected_keystrokes']}"
+            )
         interactive = next(
             (row for row in measured_streams if row["stream_role"] == "interactive_0"),
             None,
         )
-        if interactive is None or interactive["complete_outputs"] != "1":
+        if keystrokes_complete and (
+            interactive is None or interactive["complete_outputs"] != "1"
+        ):
             errors.append(
                 f"{trial['trial_id']}: final 100-byte editor output not verified"
             )
+        for row in measured_streams:
+            if row["stream_role"] == "interactive_0":
+                continue
+            if row["stream_complete"] != "1":
+                errors.append(
+                    f"{trial['trial_id']}: {row['stream_role']} stream incomplete: "
+                    f"{row['completed_units']}/{row['expected_units']} samples"
+                )
         protocol = trial["protocol"]
         if protocol == "ssh":
             if int(trial["opened_transport_streams"]) != count:

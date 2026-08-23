@@ -85,6 +85,12 @@ def main() -> int:
         raise ValueError("TRIALS_PER_COMBINATION phải dương")
     if float(cfg.get("STALL_THRESHOLD_SECONDS", "1")) >= float(cfg.get("KEY_TIMEOUT_SECONDS", "2")):
         raise ValueError("STALL_THRESHOLD_SECONDS phải nhỏ hơn KEY_TIMEOUT_SECONDS")
+    final_timeout = float(cfg.get("FINAL_OUTPUT_TIMEOUT_SECONDS", "10"))
+    final_hold = float(cfg.get("FINAL_OUTPUT_HOLD_SECONDS", "12"))
+    if final_timeout <= 0 or final_hold <= final_timeout:
+        raise ValueError(
+            "FINAL_OUTPUT_HOLD_SECONDS phải lớn hơn FINAL_OUTPUT_TIMEOUT_SECONDS > 0"
+        )
 
     probe = ProbeSource(cfg.get("PROBE_TEXT_FILE", "payloads/probe_text.c"))
     if (
@@ -115,6 +121,8 @@ def main() -> int:
         "key_interval_seconds": float(cfg.get("KEY_INTERVAL_SECONDS", "0.2")),
         "key_timeout_seconds": float(cfg.get("KEY_TIMEOUT_SECONDS", "2")),
         "stall_threshold_seconds": float(cfg.get("STALL_THRESHOLD_SECONDS", "1")),
+        "final_output_timeout_seconds": final_timeout,
+        "final_output_hold_seconds": final_hold,
         "connection_scope": "one new measured connection per trial",
         "ssh_semantics": "one TCP ControlMaster; one SSH session channel per logical workload",
         "ssh3_semantics": "one QUIC connection/conversation; one bidirectional stream per logical workload",

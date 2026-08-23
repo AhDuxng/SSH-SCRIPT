@@ -168,6 +168,10 @@ def main() -> int:
         "completion_latency_definition": (
             "client last observed payload byte time minus client direct-command send time"
         ),
+        "command_visible_latency_definition": (
+            "client completion-marker observation time minus direct-command send time; "
+            "for Mosh this measures command-visible terminal response, not lossless output"
+        ),
         "first_byte_latency_definition": (
             "client first observed payload byte time minus client direct-command send time"
         ),
@@ -184,6 +188,14 @@ def main() -> int:
         ),
         "mosh_clear_timeout_seconds": float(
             cfg.get("MOSH_CLEAR_TIMEOUT", "10")
+        ),
+        "mosh_post_marker_quiet_seconds": float(
+            cfg.get("MOSH_POST_MARKER_QUIET_SECONDS", "0.10")
+        ),
+        "mosh_screen_verification": (
+            "all concurrent roles reach DONE; apply ANSI cursor updates to one "
+            "shared viewport; wait until quiet; verify deterministic rows from "
+            "the shared screen snapshot"
         ),
         "congestion_logging": {
             "enabled": congestion_enabled,
@@ -213,7 +225,7 @@ def main() -> int:
             "ssh": "lossless byte-stream capture must match byte count and SHA-256",
             "ssh3": "lossless byte-stream capture must match byte count and SHA-256",
             "mosh": (
-                "canonical reconstruction from all unique exact payload lines; "
+                "canonical reconstruction from the stable ANSI terminal screen; "
                 "raw terminal-update bytes are retained only as diagnostics"
             ),
         },

@@ -19,7 +19,10 @@ from constants import PAYLOAD_BYTES, PAYLOAD_LINES, PAYLOAD_SHA256
 from generate_payload import build_payload
 from run_w4 import build_schedule
 from stream_mux import RawStream
-from trial import mosh_spec, roles_for, wait_final_output
+from trial import (
+    _reconstruct_final_output, editor_command, mosh_spec, roles_for,
+    save_editor, wait_final_output,
+)
 from terminal_screen import TerminalScreen
 
 
@@ -110,7 +113,9 @@ class W4Tests(unittest.TestCase):
         payload = b"final-output-from-same-stream"
         marker = (
             "\x1b[32m__W4FINAL__:000001:"
-            + payload.hex()
+            + payload[:16].hex()
+            + "\x1b[0m\r\n\x1b[32m__W4FINAL__:000002:"
+            + payload[16:].hex()
             + "\x1b[0m\r\n"
             + f"__W4FINAL_END__:{len(payload)}\r\n"
         )
@@ -119,6 +124,63 @@ class W4Tests(unittest.TestCase):
         endpoint.terminal_error = ""
         endpoint.recent_text = lambda: marker
         self.assertEqual(wait_final_output(endpoint, .1), payload)
+
+    def test_final_output_uses_complete_recent_chunk_over_partial_screen_marker(self):
+        payload = b"0123456789abcdef" + b"tail"
+        recent = (
+            "__W4FINAL__:000001:" + payload[:16].hex() + "\n"
+            "__W4FINAL__:000002:" + payload[16:].hex() + "\n"
+            f"__W4FINAL_END__:{len(payload)}\n"
+        )
+        screen = (
+            "__W4FINAL__:000001:01\n"
+            "__W4FINAL__:000002:" + payload[16:].hex() + "\n"
+            f"__W4FINAL_END__:{len(payload)}"
+        )
+        self.assertEqual(_reconstruct_final_output((recent, screen)), payload)
+
+    def test_final_output_rejects_missing_chunk_index(self):
+        text = (
+            "__W4FINAL__:000001:" + (b"a" * 16).hex() + "\n"
+            "__W4FINAL__:000003:" + b"b".hex() + "\n"
+            "__W4FINAL_END__:17\n"
+        )
+        self.assertIsNone(_reconstruct_final_output((text,)))
+
+    def test_editor_command_clears_viewport_before_final_markers(self):
+        command = editor_command({}, "vim", "/tmp/probe.c")
+        clear = "printf '\\033[2J\\033[H'"
+        self.assertIn(clear, command)
+        self.assertLess(command.index(clear), command.index("od -An"))
+
+    def test_save_editor_resets_capture_before_sending_exit_keys(self):
+        class Endpoint:
+            def __init__(self):
+                self.events = []
+
+            def clear_recent(self):
+                self.events.append("clear")
+
+            def send(self, data):
+                self.events.append(data)
+
+        endpoint = Endpoint()
+        save_editor("vim", endpoint)
+        self.assertEqual(endpoint.events, ["clear", b"\x1b", b":wq\r"])
+
+    def test_mosh_invalid_command_marker_is_partial_not_exception(self):
+        collector = MoshBackgroundCollector()
+        collector.feed(b"__W4BG_START__:command_0:1:99\n", 10, 100)
+        collector.feed(b"__W4BG_DONE__:command_0:1:99:0\n", 20, 200)
+        trial = {
+            "run_id": "r", "block_id": 1, "trial_order": 1,
+            "trial_id": "t", "trial_tag": "o1_t", "protocol": "mosh",
+            "editor": "vim", "scenario": "W4-CMD", "logical_workload_count": 2,
+        }
+        stream = type("S", (), {"stream_id": "", "conversation_id": ""})()
+        rows = collector.rows(trial, stream)
+        self.assertEqual(rows[0]["status"], "partial")
+        self.assertIn("invalid command marker", rows[0]["note"])
 
     def test_mosh_scenarios_use_isolated_identical_three_pane_layout(self):
         cfg = {"TMUX_BIN": "tmux", "TERMINAL_COLUMNS": "180"}

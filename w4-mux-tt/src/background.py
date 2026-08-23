@@ -371,8 +371,16 @@ class MoshBackgroundCollector:
             role = item["role"]
             kind = "command" if role == "command_0" else "output"
             op_index = item["operation_index"]
-            operation = COMMANDS[op_index - 1] if kind == "command" and op_index else f"cat {PAYLOAD_NAME}"
+            valid_operation = kind != "command" or 1 <= op_index <= len(COMMANDS)
+            if kind == "command" and valid_operation:
+                operation = COMMANDS[op_index - 1]
+            elif kind == "command":
+                operation = f"invalid_command_index_{op_index}"
+            else:
+                operation = f"cat {PAYLOAD_NAME}"
             observed = item["observed_bytes"]
+            exit_ok = item["exit_code"] == 0
+            completed_ok = valid_operation and exit_ok
             output.append({
                 **{key: trial[key] for key in (
                     "run_id", "block_id", "trial_order", "trial_id", "trial_tag",
@@ -393,10 +401,19 @@ class MoshBackgroundCollector:
                 "received_bytes": observed,
                 "expected_sha256": PAYLOAD_SHA256 if kind == "output" else "",
                 "received_sha256": "", "completion_marker_received": 1,
-                "output_complete": 0, "timed_out": 0, "status": "completed",
+                "output_complete": 0, "timed_out": 0,
+                "status": "completed" if completed_ok else "partial",
                 "note": (
                     "Mosh synchronizes screen state, not a lossless byte stream; "
                     "observed_bytes counts shared terminal update characters and is diagnostic only"
+                    + (
+                        f"; invalid command marker operation_index={op_index}"
+                        if not valid_operation else ""
+                    )
+                    + (
+                        f"; exit_code={item['exit_code']}"
+                        if not exit_ok else ""
+                    )
                 ),
             })
         return output

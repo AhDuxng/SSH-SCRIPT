@@ -112,6 +112,12 @@ def summarize_group(rows):
         float(row["throughput_mib_s"])
         for row in completed if row["throughput_mib_s"]
     ]
+    visible_values = [
+        float(row["marker_latency_ms"])
+        for row in attempted
+        if row.get("completion_marker_received") == "1"
+        and row.get("marker_latency_ms")
+    ]
     coverage_values = [
         float(row["content_coverage_pct"])
         for row in rows if row["content_coverage_pct"]
@@ -156,6 +162,7 @@ def summarize_group(rows):
     )
     completion_stats = latency_stats(completion_values)
     first_stats = latency_stats(first_values)
+    visible_stats = latency_stats(visible_values)
     return {
         "expected_transfers": len(rows),
         "attempted_transfers": len(attempted),
@@ -167,6 +174,11 @@ def summarize_group(rows):
             100.0 * sum(row["completion_marker_received"] == "1" for row in rows)
             / len(rows)
         ),
+        "command_visible_n": len(visible_values),
+        "command_visible_mean_ms": visible_stats["mean_ms"],
+        "command_visible_median_ms": visible_stats["median_ms"],
+        "command_visible_p95_ms": visible_stats["p95_ms"],
+        "command_visible_p99_ms": visible_stats["p99_ms"],
         "transfer_completion_rate_pct": fmt(
             100.0 * len(completed) / len(rows)
         ),
@@ -421,6 +433,10 @@ def mosh_output_rows(scenario_rows):
             "planned_transfers": row["expected_transfers"],
             "attempted_transfers": row["attempted_transfers"],
             "fully_verified_transfers": row["fully_verified_outputs"],
+            "command_visible_rate_pct": row["completion_marker_rate_pct"],
+            "command_visible_mean_ms": row["command_visible_mean_ms"],
+            "command_visible_median_ms": row["command_visible_median_ms"],
+            "command_visible_p95_ms": row["command_visible_p95_ms"],
             "fully_verified_output_rate_pct": (
                 row["fully_verified_output_rate_pct"]
             ),
@@ -442,7 +458,8 @@ def main() -> int:
     result_dir = Path(sys.argv[1] if len(sys.argv) > 1 else "artifacts/results")
     transfers = load_csv(result_dir / "transfers.csv", {
         "trial_id", "protocol", "scenario", "stream_role", "status",
-        "completion_latency_ms", "first_byte_latency_ms", "throughput_mib_s",
+        "completion_latency_ms", "first_byte_latency_ms", "marker_latency_ms",
+        "throughput_mib_s",
         "output_complete", "content_coverage_pct", "raw_byte_ratio_pct",
         "verified_bytes", "expected_bytes", "bytes_complete", "lines_complete",
         "hash_complete",

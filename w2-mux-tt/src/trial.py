@@ -183,7 +183,8 @@ def run_stream(
     timeout: float, sample_count: int,
     live_progress: bool, live_every: int,
     continue_after_timeout: bool = False,
-    barrier_timeout=None,
+    barrier_timeout=None, completion_barrier=None,
+    verification_barrier=None, screen_lines_provider=None,
 ):
     remote_path = f"{remote_dir.rstrip('/')}/{payload['name']}"
     started_ns = 0
@@ -209,6 +210,10 @@ def run_stream(
                     timeout,
                 )
                 output = result["stdout"]
+                screen_lines = None
+                if completion_barrier is not None:
+                    completion_barrier.wait(timeout=barrier_timeout or timeout)
+                    screen_lines = tuple(screen_lines_provider())
                 received_bytes = len(output)
                 received_lines = output.count(b"\n")
                 received_hash = hashlib.sha256(output).hexdigest()
@@ -216,7 +221,11 @@ def run_stream(
                 raw_byte_ratio_pct = (
                     100.0 * received_bytes / expected_bytes
                 )
-                observed_lines = output.splitlines(keepends=True)
+                observed_lines = (
+                    list(screen_lines)
+                    if screen_lines is not None
+                    else output.splitlines(keepends=True)
+                )
                 expected_line_list = sample["expected_lines"]
                 # Mosh xuất các bản cập nhật màn hình có thể vẽ lại dòng và
                 # chèn cursor sequence. Tìm chính xác từng dòng deterministic
@@ -377,6 +386,10 @@ def run_stream(
                         f"latency_ms={row['completion_latency_ms'] or 'N/A'}",
                         flush=True,
                     )
+                if verification_barrier is not None:
+                    verification_barrier.wait(
+                        timeout=barrier_timeout or timeout
+                    )
                 if timed_out:
                     failure_note = note
                     if continue_after_timeout:
@@ -391,6 +404,10 @@ def run_stream(
             except Exception as exc:
                 failure_note = repr(exc)
                 sample_barrier.abort()
+                if completion_barrier is not None:
+                    completion_barrier.abort()
+                if verification_barrier is not None:
+                    verification_barrier.abort()
                 rows.append(_failed_transfer(
                     trial, role, index, stream, payload, remote_path,
                     sample_index, "failure", failure_note,
@@ -579,6 +596,14 @@ def run_trial(
         sample_barrier = threading.Barrier(
             len(roles), action=connection.prepare_sample
         )
+        completion_barrier = (
+            threading.Barrier(len(roles), action=connection.finish_sample)
+            if trial["protocol"] == "mosh" else None
+        )
+        verification_barrier = (
+            threading.Barrier(len(roles))
+            if trial["protocol"] == "mosh" else None
+        )
         workload_started = time.perf_counter_ns()
         with ThreadPoolExecutor(max_workers=len(roles)) as pool:
             futures = {
@@ -587,6 +612,8 @@ def run_trial(
                     trial, role, index, streams[role], selected_payloads[index],
                     remote_dir, sample_barrier, timeout, sample_count,
                     live, live_every, continue_after_timeout, barrier_timeout,
+                    completion_barrier, verification_barrier,
+                    connection.visible_sample_lines,
                 ): role
                 for index, role in enumerate(roles)
             }
