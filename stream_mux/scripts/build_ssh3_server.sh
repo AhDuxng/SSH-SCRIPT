@@ -9,7 +9,9 @@ UPSTREAM_COMMIT="${SSH3_UPSTREAM_COMMIT:-5b4b242db02a5cfbb9ebf9dfc5aad2c32e10f24
 OUTPUT_BIN="${SSH3_SERVER_BIN:-bin/ssh3-server-instrumented}"
 PATCH_PATH="$SHARED_DIR/patches/ssh3_mux_stdio.patch"
 CC_SOURCE_PATH="$SHARED_DIR/patches/mux_cc.go"
-PATCH_HASH="$(shasum -a 256 "$PATCH_PATH" "$CC_SOURCE_PATH" | shasum -a 256 | awk '{print $1}')"
+QUIC_PATCH_PATH="$SHARED_DIR/patches/quic_go_cubic.patch"
+QUIC_PREPARE_SCRIPT="$SHARED_DIR/scripts/prepare_quic_cubic.sh"
+PATCH_HASH="$(shasum -a 256 "$PATCH_PATH" "$CC_SOURCE_PATH" "$QUIC_PATCH_PATH" "$QUIC_PREPARE_SCRIPT" | shasum -a 256 | awk '{print $1}')"
 DEFAULT_BUILD_DIR=".build/ssh3-server-${UPSTREAM_COMMIT:0:12}-${PATCH_HASH:0:12}"
 BUILD_DIR="${SSH3_SERVER_BUILD_DIR:-$DEFAULT_BUILD_DIR}"
 
@@ -78,7 +80,12 @@ else
   exit 3
 fi
 cp "$CC_SOURCE_PATH" "$BUILD_PATH/cmd/mux_cc.go"
+bash "$QUIC_PREPARE_SCRIPT" "$BUILD_PATH"
 
 (cd "$BUILD_PATH" && go build -o "$OUTPUT_PATH" cmd/ssh3-server/main.go)
 printf '%s\n' "$PATCH_HASH" > "${OUTPUT_PATH}.patch.sha256"
+printf 'ssh3_commit=%s\nquic_go_version=%s\ncc_algorithm=cubic\npatch_hash=%s\n' \
+  "$UPSTREAM_COMMIT" \
+  "${SSH3_QUIC_VERSION:-v0.40.1-0.20240102075208-1083d1fb8f98}" \
+  "$PATCH_HASH" > "${OUTPUT_PATH}.build-info"
 echo "Built $OUTPUT_PATH with server-side QUIC congestion tracing"

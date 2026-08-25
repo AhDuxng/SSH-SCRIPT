@@ -1,0 +1,11 @@
+diff --git a/internal/ackhandler/sent_packet_handler.go b/internal/ackhandler/sent_packet_handler.go
+--- a/internal/ackhandler/sent_packet_handler.go
++++ b/internal/ackhandler/sent_packet_handler.go
+@@ -122,6 +122,6 @@ func newSentPacketHandler(
+ 		congestion.DefaultClock{},
+ 		rttStats,
+ 		initialMaxDatagramSize,
+-		true, // use Reno
++		false, // use CUBIC
+ 		tracer,
+ 	)

@@ -80,8 +80,8 @@ func newCongestionTracerFactory(
 			"event": "collector_start", "time_ns": time.Now().UnixNano(),
 			"transport": "quic", "source": "quic_go_connection_tracer",
 			"endpoint": endpoint,
-			// quic-go 1083d1fb8f98 khởi tạo NewCubicSender với use Reno=true.
-			"cc_algorithm":  "reno",
+			// Bản build thí nghiệm patch NewCubicSender với use Reno=false.
+			"cc_algorithm":  "cubic",
 			"perspective":   int(perspective),
 			"connection_id": connectionID.String(),
 			"interval_ms":   float64(interval) / float64(time.Millisecond),
