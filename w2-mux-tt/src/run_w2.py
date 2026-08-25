@@ -132,8 +132,6 @@ def main() -> int:
 
     result_dir = Path(cfg.get("RESULT_DIR", "artifacts/results"))
     result_dir.mkdir(parents=True, exist_ok=True)
-    congestion_enabled = bool(cfg.get("CONGESTION_LOG_DIR", "").strip())
-    congestion_dir = result_dir / "congestion"
     write_csv(result_dir / "experiment_order.csv", ORDER_FIELDS, schedule)
     metadata = {
         "run_id": run_id,
@@ -197,18 +195,6 @@ def main() -> int:
             "shared viewport; wait until quiet; verify deterministic rows from "
             "the shared screen snapshot"
         ),
-        "congestion_logging": {
-            "enabled": congestion_enabled,
-            "directory": str(congestion_dir.resolve()),
-            "interval_seconds": float(
-                cfg.get("CONGESTION_SAMPLE_INTERVAL_SECONDS", "0.10")
-            ),
-            "ssh": "Linux ss -tinp TCP_INFO sampled by ControlMaster PID",
-            "ssh3": (
-                "quic-go tracer: RTT, cwnd, bytes in flight, packet loss, "
-                "congestion state and PTO"
-            ),
-        },
         "content_coverage_definition": (
             "unique exact payload lines observed divided by expected payload "
             "lines; duplicate and invalid terminal lines are excluded"

@@ -164,6 +164,5 @@ bash run_w3.sh config.env
 ```
 
 Runner tự ghi `artifacts/full_run.log`; không nối thêm `| tee`.
-
-W3 không bật collector congestion và không tạo thư mục `congestion/`; runner
-chỉ lưu dữ liệu tương tác, audit multiplex và các bảng tổng hợp trong `results/`.
+Runner chỉ lưu dữ liệu tương tác, audit multiplex và các bảng tổng hợp trong
+`results/`.

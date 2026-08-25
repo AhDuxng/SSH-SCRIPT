@@ -14,10 +14,7 @@ def load_env(path: str) -> dict[str, str]:
     for key in tuple(cfg):
         if key in os.environ:
             cfg[key] = os.environ[key]
-    for key in (
-        "RUN_ID", "CONGESTION_LOG_DIR", "SERVER_CONGESTION_LOG_DIR",
-        "REMOTE_CONGESTION_SAMPLER",
-    ):
+    for key in ("RUN_ID",):
         if key in os.environ:
             cfg[key] = os.environ[key]
     return cfg

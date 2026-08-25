@@ -77,7 +77,6 @@ TRIAL_FIELDS = IDENTITY_FIELDS + (
     "mean_verified_byte_ratio_pct", "mean_raw_byte_ratio_pct",
     "byte_verification_rate_pct", "hash_verification_rate_pct",
     "setup_ms", "workload_elapsed_ms",
-    "server_workload_start_ns", "server_workload_end_ns",
     "status", "note",
 )
 

@@ -222,14 +222,6 @@ diff --git a/cmd/ssh3.go b/cmd/ssh3.go
 index 1e638d7..dceec1c 100644
 --- a/cmd/ssh3.go
 +++ b/cmd/ssh3.go
-@@ -100,4 +100,7 @@ func setupQUICConnection(ctx context.Context, skipHostVerification bool, keylog
- 	qconf.EnableDatagrams = true
- 	qconf.KeepAlivePeriod = 1 * time.Second
- 
-+	if tracer := newMuxCongestionTracer(); tracer != nil {
-+		qconf.Tracer = tracer
-+	}
- 	if certs, ok := knownHosts[options.CanonicalHostFormat()]; ok {
 @@ -328,6 +328,19 @@ type FlagValue struct {
  	client_config.CLIOptionParser
  }
@@ -296,17 +288,3 @@ index 1e638d7..dceec1c 100644
  	if localTCPAddr != nil && remoteTCPAddr != nil {
  		_, err := c.ForwardTCP(ctx, localTCPAddr, remoteTCPAddr)
  		if err != nil {
-diff --git a/cmd/ssh3-server.go b/cmd/ssh3-server.go
-index 3c72614..21a245a 100644
---- a/cmd/ssh3-server.go
-+++ b/cmd/ssh3-server.go
-@@ -831,6 +831,9 @@ func ServerMain() int {
- 	quicConf := &quic.Config{
- 		Allow0RTT: true,
- 	}
-+	if tracer := newServerCongestionTracer(); tracer != nil {
-+		quicConf.Tracer = tracer
-+	}
- 
- 	var err error
- 

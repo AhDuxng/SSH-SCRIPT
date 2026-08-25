@@ -114,7 +114,6 @@ requires every background role to contain completed samples. Interactive
 verification additionally requires all 100 keystrokes and the exact saved
 100-byte editor file.
 
-W4 không bật collector congestion và không tạo thư mục `congestion/`; raw
-terminal log cũng không được tạo.
+Runner không tạo terminal log riêng.
 
 See `run.md` for deployment, smoke test, full run, and plotting commands.

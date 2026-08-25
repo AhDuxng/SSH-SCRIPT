@@ -8,10 +8,9 @@ UPSTREAM_URL="${SSH3_UPSTREAM_URL:-https://github.com/francoismichel/ssh3.git}"
 UPSTREAM_COMMIT="${SSH3_UPSTREAM_COMMIT:-5b4b242db02a5cfbb9ebf9dfc5aad2c32e10f245}"
 OUTPUT_BIN="${SSH3_MUX_BIN:-bin/ssh3-mux-stdio}"
 PATCH_PATH="$SHARED_DIR/patches/ssh3_mux_stdio.patch"
-CC_SOURCE_PATH="$SHARED_DIR/patches/mux_cc.go"
 QUIC_PATCH_PATH="$SHARED_DIR/patches/quic_go_cubic.patch"
 QUIC_PREPARE_SCRIPT="$SHARED_DIR/scripts/prepare_quic_cubic.sh"
-PATCH_HASH="$(shasum -a 256 "$PATCH_PATH" "$CC_SOURCE_PATH" "$QUIC_PATCH_PATH" "$QUIC_PREPARE_SCRIPT" | shasum -a 256 | awk '{print $1}')"
+PATCH_HASH="$(shasum -a 256 "$PATCH_PATH" "$QUIC_PATCH_PATH" "$QUIC_PREPARE_SCRIPT" | shasum -a 256 | awk '{print $1}')"
 DEFAULT_BUILD_DIR=".build/ssh3-${UPSTREAM_COMMIT:0:12}-${PATCH_HASH:0:12}"
 BUILD_DIR="${SSH3_BUILD_DIR:-$DEFAULT_BUILD_DIR}"
 
@@ -79,7 +78,6 @@ else
   echo "$PATCH_PATH does not apply cleanly to $UPSTREAM_COMMIT" >&2
   exit 3
 fi
-cp "$CC_SOURCE_PATH" "$BUILD_PATH/cmd/mux_cc.go"
 bash "$QUIC_PREPARE_SCRIPT" "$BUILD_PATH"
 
 GO_BUILD_ARGS=(build -o "$OUTPUT_PATH")

@@ -1,3 +1,0 @@
-[Service]
-Environment=SSH3_SERVER_CC_DIR=/tmp/ssh3-server-congestion
-Environment=SSH3_MUX_CC_INTERVAL_MS=100

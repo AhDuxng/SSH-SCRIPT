@@ -6,12 +6,11 @@ cd "$SHARED_DIR"
 
 UPSTREAM_URL="${SSH3_UPSTREAM_URL:-https://github.com/francoismichel/ssh3.git}"
 UPSTREAM_COMMIT="${SSH3_UPSTREAM_COMMIT:-5b4b242db02a5cfbb9ebf9dfc5aad2c32e10f245}"
-OUTPUT_BIN="${SSH3_SERVER_BIN:-bin/ssh3-server-instrumented}"
+OUTPUT_BIN="${SSH3_SERVER_BIN:-bin/ssh3-server-cubic}"
 PATCH_PATH="$SHARED_DIR/patches/ssh3_mux_stdio.patch"
-CC_SOURCE_PATH="$SHARED_DIR/patches/mux_cc.go"
 QUIC_PATCH_PATH="$SHARED_DIR/patches/quic_go_cubic.patch"
 QUIC_PREPARE_SCRIPT="$SHARED_DIR/scripts/prepare_quic_cubic.sh"
-PATCH_HASH="$(shasum -a 256 "$PATCH_PATH" "$CC_SOURCE_PATH" "$QUIC_PATCH_PATH" "$QUIC_PREPARE_SCRIPT" | shasum -a 256 | awk '{print $1}')"
+PATCH_HASH="$(shasum -a 256 "$PATCH_PATH" "$QUIC_PATCH_PATH" "$QUIC_PREPARE_SCRIPT" | shasum -a 256 | awk '{print $1}')"
 DEFAULT_BUILD_DIR=".build/ssh3-server-${UPSTREAM_COMMIT:0:12}-${PATCH_HASH:0:12}"
 BUILD_DIR="${SSH3_SERVER_BUILD_DIR:-$DEFAULT_BUILD_DIR}"
 
@@ -27,7 +26,7 @@ else
 fi
 
 if ! command -v go >/dev/null 2>&1; then
-  echo "Go >= 1.21 is required to build instrumented ssh3-server" >&2
+  echo "Go >= 1.21 is required to build ssh3-server with CUBIC" >&2
   exit 2
 fi
 
@@ -74,12 +73,11 @@ git -C "$BUILD_PATH" checkout --detach "$UPSTREAM_COMMIT"
 if git -C "$BUILD_PATH" apply --check "$PATCH_PATH" 2>/dev/null; then
   git -C "$BUILD_PATH" apply "$PATCH_PATH"
 elif git -C "$BUILD_PATH" apply --reverse --check "$PATCH_PATH"; then
-  echo "Shared SSH3 instrumentation patch is already applied"
+  echo "Shared SSH3 multiplex patch is already applied"
 else
   echo "$PATCH_PATH does not apply cleanly to $UPSTREAM_COMMIT" >&2
   exit 3
 fi
-cp "$CC_SOURCE_PATH" "$BUILD_PATH/cmd/mux_cc.go"
 bash "$QUIC_PREPARE_SCRIPT" "$BUILD_PATH"
 
 (cd "$BUILD_PATH" && go build -o "$OUTPUT_PATH" cmd/ssh3-server/main.go)
@@ -88,4 +86,4 @@ printf 'ssh3_commit=%s\nquic_go_version=%s\ncc_algorithm=cubic\npatch_hash=%s\n'
   "$UPSTREAM_COMMIT" \
   "${SSH3_QUIC_VERSION:-v0.40.1-0.20240102075208-1083d1fb8f98}" \
   "$PATCH_HASH" > "${OUTPUT_PATH}.build-info"
-echo "Built $OUTPUT_PATH with server-side QUIC congestion tracing"
+echo "Built $OUTPUT_PATH with QUIC CUBIC"

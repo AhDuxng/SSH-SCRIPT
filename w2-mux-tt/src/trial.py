@@ -581,8 +581,6 @@ def run_trial(
     )
     setup_started = time.perf_counter_ns()
     workload_started = 0
-    server_workload_start_ns = None
-    server_workload_end_ns = None
     transfers, stream_rows = [], []
     note = ""
     try:
@@ -590,9 +588,6 @@ def run_trial(
         setup_ms = (time.perf_counter_ns() - setup_started) / 1_000_000.0
         time.sleep(warmup)
         connection.prepare_workload(ready_timeout)
-        server_workload_start_ns = connection.server_time_ns(
-            "workload-start", ready_timeout
-        )
         sample_barrier = threading.Barrier(
             len(roles), action=connection.prepare_sample
         )
@@ -622,9 +617,6 @@ def run_trial(
                 transfers.extend(transfer_rows)
                 stream_rows.append(summary)
         workload_ms = (time.perf_counter_ns() - workload_started) / 1_000_000.0
-        server_workload_end_ns = connection.server_time_ns(
-            "workload-end", ready_timeout
-        )
         if all(row["status"] == "completed" for row in transfers):
             status = "completed"
         elif all(row["completion_marker_received"] for row in transfers):
@@ -728,8 +720,6 @@ def run_trial(
         "workload_elapsed_ms": (
             f"{workload_ms:.3f}" if isinstance(workload_ms, float) else ""
         ),
-        "server_workload_start_ns": server_workload_start_ns or "",
-        "server_workload_end_ns": server_workload_end_ns or "",
         "status": status,
         "note": note or audit.note,
     }

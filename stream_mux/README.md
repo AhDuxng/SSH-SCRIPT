@@ -59,14 +59,12 @@ stream_mux/
 │   ├── ssh3.py       # QUIC multi-stream qua Go bridge
 │   └── mosh.py       # Một terminal session Mosh
 ├── patches/
-│   ├── mux_cc.go
+│   ├── quic_go_cubic.patch
 │   └── ssh3_mux_stdio.patch
 └── scripts/
-    ├── analyze_congestion.py
     ├── build_ssh3_mux.sh
     ├── build_ssh3_server.sh
-    ├── congestion_run.sh
-    └── remote_tcp_sampler.py
+    └── prepare_quic_cubic.sh
 ```
 
 Ví dụ phần chuyên biệt của W1 nằm trong:
@@ -219,36 +217,8 @@ Source build nằm trong cache `.build/` có tên theo commit và checksum patch
 patch thay đổi, script tự dùng cache mới nên không tái sử dụng source đã áp dụng
 patch cũ.
 
-## Congestion dùng chung cho W1-W2
+## Thuật toán congestion control của QUIC
 
-Các runner W1-W2 cùng source `scripts/congestion_run.sh`. SSH được lấy TCP_INFO
-ở ControlMaster phía client và socket sshd phía server. SSH3 dùng quic-go tracer
-ở cả client và server. Kết quả của mỗi workload nằm duy nhất trong:
-
-```text
-artifacts/
-├── full_run.log
-└── results/
-    └── congestion/
-        ├── client/
-        ├── server/
-        └── summary.csv
-```
-
-Mosh không có TCP/QUIC congestion row vì chỉ có terminal UDP. W3 và W4 không
-gọi collector này. SSH3 server phải được build bằng
-`scripts/build_ssh3_server.sh` và chỉ bật drop-in trong lượt congestion W1/W2.
-
-Máy chưa có unit `ssh3-server.service` có thể cài
-`systemd/ssh3-server.service.example` làm unit chính; file
-`systemd/ssh3-server-congestion.conf.example` là drop-in bật tracer congestion.
-Drop-in dùng chu kỳ cố định 100 ms trong mọi môi trường để kết quả không phụ
-thuộc latency quan sát được. Smoke test phải chạy đủ số transfer để tạo một cửa
-sổ quan sát dài hơn chu kỳ này; không tự giảm chu kỳ theo kết quả. Chỉ bật
-drop-in trong lượt chẩn đoán congestion. Lượt latency chính phải gỡ hoặc đổi tên
-drop-in rồi restart server, đồng thời đặt `CONGESTION_LOG_ENABLED=0` ở client.
-
-Trong `summary.csv`, client được lọc theo timestamp mẫu thực đo. W2 còn có
-timestamp server riêng nên lọc được đúng workload ở cả hai đầu; W1/W3/W4 ghi
-server theo toàn bộ vòng đời connection và đánh dấu rõ
-`window_scope=connection_lifetime`, không giả vờ hai đồng hồ đã đồng bộ.
+`patches/quic_go_cubic.patch` chuyển sender của quic-go từ Reno sang CUBIC.
+Script build áp dụng bản vá này cho cả SSH3 client và server. Phần này chỉ chọn
+thuật toán truyền tải; source không còn tracer hay collector ghi congestion log.

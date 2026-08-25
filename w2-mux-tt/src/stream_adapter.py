@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import codecs
-import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -381,21 +380,6 @@ class DirectW2Connection:
             ]
             for future in futures:
                 future.result()
-
-    # Lấy timestamp đồng hồ server để lọc đúng cửa sổ congestion phía gửi.
-    def server_time_ns(self, label: str, timeout: float) -> int | None:
-        if self.protocol not in {"ssh", "ssh3"}:
-            return None
-        if not self.cfg.get("CONGESTION_LOG_DIR", ""):
-            return None
-        result = self.coordinators[0].execute(
-            f"{self.trial_tag}:server-time:{label}",
-            "date +%s%N", b"__W2TT_SERVER_TIME__", timeout,
-        )
-        match = re.search(rb"(?<![0-9])([0-9]{16,20})(?![0-9])", result["stdout"])
-        if result.get("timed_out") or result.get("exit_code") != 0 or not match:
-            raise RuntimeError(f"cannot read server timestamp for {label}")
-        return int(match.group(1))
 
     # Xóa viewport Mosh và chờ marker hậu-xóa trước khi mở batch kế tiếp.
     def prepare_sample(self) -> None:

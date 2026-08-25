@@ -131,11 +131,7 @@ artifacts/results/command_summary.csv
 artifacts/results/scenario_summary.csv
 artifacts/results/stream_summary.csv
 artifacts/results/metadata.json
-artifacts/results/congestion/summary.csv
 ```
-
-Raw congestion nằm trong `artifacts/results/congestion/client|server`; không
-tạo thư mục terminal log riêng.
 
 ## Cấu trúc
 

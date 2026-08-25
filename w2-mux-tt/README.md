@@ -208,10 +208,6 @@ artifacts/results/scenario_summary.csv
 artifacts/results/stream_summary.csv
 artifacts/results/ssh3_vs_ssh.csv
 artifacts/results/metadata.json
-artifacts/results/congestion/client/*.ssh_tcp.jsonl
-artifacts/results/congestion/client/*.ssh3_quic.jsonl
-artifacts/results/congestion/server/*.jsonl
-artifacts/results/congestion/summary.csv
 ```
 
 Bộ hình dùng cùng bố cục, màu, hatch, nhãn số và cách nhóm như W1:
@@ -242,47 +238,6 @@ Mosh. Mosh luôn dùng một terminal vật lý; sau khi mọi tiến trình c�
 `ssh3_vs_ssh.csv` ghi median latency, mean throughput, tỷ số SSH3/SSH và verdict
 cho từng kịch bản. Nếu SSH3 chậm hơn quá 5%, analyzer in `[CHECK]`; đây là cảnh
 báo kiểm tra kết quả thực đo, không tự sửa hay loại mẫu.
-
-## Log congestion control
-
-Khi `CONGESTION_LOG_ENABLED=1`, mỗi trial SSH/SSH3 có log ở cả client và server
-trong `RESULT_DIR/congestion/`:
-
-- `client/*.ssh_tcp.jsonl` và `server/*.ssh_server_tcp.jsonl`: Linux TCP_INFO của hai
-  đầu socket; file server mới là phía gửi output chính của W2;
-- `client/*.ssh3_quic.jsonl` và `server/*.ssh3_server_quic.jsonl`: callback recovery
-  trực tiếp từ quic-go ở hai đầu, gồm latest,
-  smoothed và min RTT, `cwnd_bytes`, bytes/packets in flight, packet loss,
-  congestion state và PTO. Bản quic-go được pin trong dự án dùng Reno
-  (`NewCubicSender(..., useReno=true)`); TCP của SSH ghi thuật toán thực tế do
-  kernel trả về, ví dụ `cubic`.
-- `client|server/network_stack_before|after.txt`: thuật toán TCP, qdisc,
-  UDP buffer, thống kê qdisc và interface ở đầu/cuối lượt chạy.
-
-`../stream_mux/scripts/analyze_congestion.py` tổng hợp event congestion.
-Client dùng timestamp của Pi; server dùng timestamp lấy trực tiếp bằng
-`date +%s%N` trên PC. Vì vậy phép ghép không giả định đồng hồ hai máy đã đồng bộ.
-Với W2 (output server→client), hàng `endpoint=server` là hàng chính để giải thích
-cửa sổ tắc nghẽn của phía gửi.
-Bảng kết quả là `RESULT_DIR/congestion/summary.csv`, mỗi trial có một dòng
-`endpoint=client` và một dòng `endpoint=server`. Mosh không có file này vì phần
-audit này dùng để đối chiếu TCP của SSH với QUIC của SSH3.
-
-SSH3 server phải dùng binary instrumented và có biến môi trường log:
-
-```bash
-cd ~/SSH-SCRIPT
-sudo apt-get update
-sudo apt-get install -y iproute2
-SSH3_SERVER_BIN=/tmp/ssh3-server-instrumented \
-  bash stream_mux/scripts/build_ssh3_server.sh
-sudo install -m 0755 /tmp/ssh3-server-instrumented /usr/local/bin/ssh3-server
-sudo mkdir -p /etc/systemd/system/ssh3-server.service.d
-sudo cp stream_mux/systemd/ssh3-server-congestion.conf.example \
-  /etc/systemd/system/ssh3-server.service.d/congestion.conf
-sudo systemctl daemon-reload
-sudo systemctl restart ssh3-server
-```
 
 ## Cấu trúc
 

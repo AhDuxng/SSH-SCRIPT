@@ -8,7 +8,6 @@ import shlex
 import signal
 import subprocess
 import threading
-from pathlib import Path
 
 from .base import ConnectionAudit, MultiplexConnection, RawStream, StreamSpec
 from .common import (
@@ -17,7 +16,6 @@ from .common import (
     socket_rows,
     ssh_base,
 )
-from .congestion import TCPInfoSampler
 
 
 class SSHConnection(MultiplexConnection):
@@ -33,36 +31,6 @@ class SSHConnection(MultiplexConnection):
         self.readers: list[PipeReader] = []
         self.watchers: list[threading.Thread] = []
         self.master_pid = 0
-        self.tcp_sampler: TCPInfoSampler | None = None
-
-    # Gắn sampler TCP_INFO vào channel đầu mà không mở thêm SSH channel.
-    def _with_server_congestion_sampler(self, remote_command: str) -> str:
-        remote_dir = self.cfg.get("SERVER_CONGESTION_LOG_DIR", "").strip()
-        sampler = self.cfg.get("REMOTE_CONGESTION_SAMPLER", "").strip()
-        if not remote_dir or not sampler:
-            return remote_command
-        run_id = self.cfg.get("RUN_ID", "run").strip() or "run"
-        safe_run = re.sub(r"[^A-Za-z0-9_.-]", "_", run_id)
-        safe_trial = re.sub(r"[^A-Za-z0-9_.-]", "_", self.trial_tag)
-        stem = f"{safe_run}.{safe_trial}.ssh_server_tcp"
-        output = f"{remote_dir.rstrip('/')}/{stem}.jsonl"
-        pid_file = f"{remote_dir.rstrip('/')}/{stem}.pid"
-        interval = float(
-            self.cfg.get("CONGESTION_SAMPLE_INTERVAL_SECONDS", "0.10")
-        )
-        return (
-            f"mkdir -p {shlex.quote(remote_dir)}; "
-            f"python3 {shlex.quote(sampler)} --output {shlex.quote(output)} "
-            f"--pid-file {shlex.quote(pid_file)} --parent-pid $$ "
-            f"--interval {interval} </dev/null >/dev/null 2>&1 & "
-            "__sm_cc_pid=$!; "
-            f"for __sm_i in $(seq 1 100); do test -s {shlex.quote(pid_file)} "
-            "&& break; sleep 0.02; done; "
-            f"test -s {shlex.quote(pid_file)} || exit 97; "
-            f"{{ {remote_command}; }}; __sm_rc=$?; "
-            "kill \"$__sm_cc_pid\" 2>/dev/null || true; "
-            "wait \"$__sm_cc_pid\" 2>/dev/null || true; exit \"$__sm_rc\""
-        )
 
     # Gửi dữ liệu vào một SSH channel.
     def _send(self, role: str, data: bytes):
@@ -127,10 +95,6 @@ class SSHConnection(MultiplexConnection):
                     f"export TERM={shlex.quote(spec.terminal_type)}; "
                     f"exec {spec.remote_command}"
                 )
-            if role == self.roles[0]:
-                remote_command = self._with_server_congestion_sampler(
-                    remote_command
-                )
             command = [
                 *ssh_base(self.cfg), "-tt" if spec.allocate_pty else "-T",
                 "-o", f"ControlPath={self.control_path}",
@@ -184,24 +148,10 @@ class SSHConnection(MultiplexConnection):
         )
         if not valid:
             raise RuntimeError(f"invalid OpenSSH multiplex audit: {self.audit}")
-        congestion_dir = self.cfg.get("CONGESTION_LOG_DIR", "").strip()
-        if congestion_dir:
-            interval = float(
-                self.cfg.get("CONGESTION_SAMPLE_INTERVAL_SECONDS", "0.10")
-            )
-            self.tcp_sampler = TCPInfoSampler(
-                self.master_pid,
-                Path(congestion_dir) / f"{self.trial_tag}.ssh_tcp.jsonl",
-                interval,
-            )
-            self.tcp_sampler.start()
         return self.streams
 
     # Đóng các channel rồi đóng ControlMaster.
     def close(self) -> None:
-        if self.tcp_sampler is not None:
-            self.tcp_sampler.stop()
-            self.tcp_sampler = None
         for stream in self.streams.values():
             try:
                 stream.close_input()

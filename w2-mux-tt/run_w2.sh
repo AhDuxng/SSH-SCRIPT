@@ -37,15 +37,15 @@ RESULT_PATH="${RESULT_DIR:-artifacts/results}"
 mkdir -p "$RESULT_PATH"
 source "$REPO_DIR/stream_mux/scripts/run_logging.sh"
 stream_mux_start_run_log "$RESULT_PATH" "$PROJECT_DIR/run_w2.sh" "$CONFIG"
-source "$REPO_DIR/stream_mux/scripts/congestion_run.sh"
 
 # Tạo lại cùng một bộ payload xác định trước ở ngoài khoảng đo.
 "$PYTHON_COMMAND" tools/generate_payloads.py "$PAYLOAD_PATH"
 
 if [[ ",${PROTOCOLS}," == *,ssh3,* ]]; then
   PATCH_PATH="$REPO_DIR/stream_mux/patches/ssh3_mux_stdio.patch"
-  CC_SOURCE_PATH="$REPO_DIR/stream_mux/patches/mux_cc.go"
-  PATCH_HASH="$(shasum -a 256 "$PATCH_PATH" "$CC_SOURCE_PATH" | shasum -a 256 | awk '{print $1}')"
+  QUIC_PATCH_PATH="$REPO_DIR/stream_mux/patches/quic_go_cubic.patch"
+  QUIC_PREPARE_SCRIPT="$REPO_DIR/stream_mux/scripts/prepare_quic_cubic.sh"
+  PATCH_HASH="$(shasum -a 256 "$PATCH_PATH" "$QUIC_PATCH_PATH" "$QUIC_PREPARE_SCRIPT" | shasum -a 256 | awk '{print $1}')"
   BUILT_HASH="$(test -f "${SSH3_MUX_BIN}.patch.sha256" && sed -n '1p' "${SSH3_MUX_BIN}.patch.sha256" || true)"
   if [[ ! -x "$SSH3_MUX_BIN" || "$PATCH_HASH" != "$BUILT_HASH" ]]; then
     if [[ "${AUTO_BUILD_SSH3_MUX:-1}" != "1" ]]; then
@@ -90,14 +90,11 @@ ssh "${SSH_DEPLOY_ARGS[@]}" \
   "${SERVER_USER}@${SERVER_HOST}" \
   "cd $REMOTE_QUOTED && sha256sum -c SHA256SUMS"
 
-stream_mux_cc_prepare "$RESULT_PATH"
-
 PYTHONPATH="$REPO_DIR${PYTHONPATH:+:$PYTHONPATH}" \
   "$PYTHON_COMMAND" src/run_w2.py "$CONFIG"
 "$PYTHON_COMMAND" tools/analyze_w2.py "$RESULT_PATH"
 if [[ ",${PROTOCOLS}," == *,ssh3,* ]]; then
   "$PYTHON_COMMAND" tools/verify_ssh3_mux.py "$RESULT_PATH"
 fi
-stream_mux_cc_finish "$RESULT_PATH"
 
 echo "Hoàn tất. Xem $RESULT_PATH/scenario_summary.csv"
