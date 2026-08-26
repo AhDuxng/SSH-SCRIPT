@@ -43,9 +43,10 @@ stream_mux_start_run_log "$RESULT_PATH" "$PROJECT_DIR/run_w2.sh" "$CONFIG"
 
 if [[ ",${PROTOCOLS}," == *,ssh3,* ]]; then
   PATCH_PATH="$REPO_DIR/stream_mux/patches/ssh3_mux_stdio.patch"
+  JWT_PATCH_PATH="$REPO_DIR/stream_mux/patches/ssh3_jwt_clock_skew.patch"
   QUIC_PATCH_PATH="$REPO_DIR/stream_mux/patches/quic_go_cubic.patch"
   QUIC_PREPARE_SCRIPT="$REPO_DIR/stream_mux/scripts/prepare_quic_cubic.sh"
-  PATCH_HASH="$(shasum -a 256 "$PATCH_PATH" "$QUIC_PATCH_PATH" "$QUIC_PREPARE_SCRIPT" | shasum -a 256 | awk '{print $1}')"
+  PATCH_HASH="$(shasum -a 256 "$PATCH_PATH" "$JWT_PATCH_PATH" "$QUIC_PATCH_PATH" "$QUIC_PREPARE_SCRIPT" | shasum -a 256 | awk '{print $1}')"
   BUILT_HASH="$(test -f "${SSH3_MUX_BIN}.patch.sha256" && sed -n '1p' "${SSH3_MUX_BIN}.patch.sha256" || true)"
   if [[ ! -x "$SSH3_MUX_BIN" || "$PATCH_HASH" != "$BUILT_HASH" ]]; then
     if [[ "${AUTO_BUILD_SSH3_MUX:-1}" != "1" ]]; then

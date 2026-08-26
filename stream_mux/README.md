@@ -60,6 +60,7 @@ stream_mux/
 │   └── mosh.py       # Một terminal session Mosh
 ├── patches/
 │   ├── quic_go_cubic.patch
+│   ├── ssh3_jwt_clock_skew.patch
 │   └── ssh3_mux_stdio.patch
 └── scripts/
     ├── build_ssh3_mux.sh
@@ -222,3 +223,7 @@ patch cũ.
 `patches/quic_go_cubic.patch` chuyển sender của quic-go từ Reno sang CUBIC.
 Script build áp dụng bản vá này cho cả SSH3 client và server. Phần này chỉ chọn
 thuật toán truyền tải; source không còn tracer hay collector ghi congestion log.
+
+`patches/ssh3_jwt_clock_skew.patch` cho verifier JWT phía server dung sai lệch
+đồng hồ 2 giây, tránh lỗi xác thực ngắt quãng `token used before issued` giữa
+hai máy đã bật NTP nhưng vẫn có sai lệch thời gian nhỏ.

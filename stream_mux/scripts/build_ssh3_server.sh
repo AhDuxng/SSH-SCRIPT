@@ -8,9 +8,10 @@ UPSTREAM_URL="${SSH3_UPSTREAM_URL:-https://github.com/francoismichel/ssh3.git}"
 UPSTREAM_COMMIT="${SSH3_UPSTREAM_COMMIT:-5b4b242db02a5cfbb9ebf9dfc5aad2c32e10f245}"
 OUTPUT_BIN="${SSH3_SERVER_BIN:-bin/ssh3-server-cubic}"
 PATCH_PATH="$SHARED_DIR/patches/ssh3_mux_stdio.patch"
+JWT_PATCH_PATH="$SHARED_DIR/patches/ssh3_jwt_clock_skew.patch"
 QUIC_PATCH_PATH="$SHARED_DIR/patches/quic_go_cubic.patch"
 QUIC_PREPARE_SCRIPT="$SHARED_DIR/scripts/prepare_quic_cubic.sh"
-PATCH_HASH="$(shasum -a 256 "$PATCH_PATH" "$QUIC_PATCH_PATH" "$QUIC_PREPARE_SCRIPT" | shasum -a 256 | awk '{print $1}')"
+PATCH_HASH="$(shasum -a 256 "$PATCH_PATH" "$JWT_PATCH_PATH" "$QUIC_PATCH_PATH" "$QUIC_PREPARE_SCRIPT" | shasum -a 256 | awk '{print $1}')"
 DEFAULT_BUILD_DIR=".build/ssh3-server-${UPSTREAM_COMMIT:0:12}-${PATCH_HASH:0:12}"
 BUILD_DIR="${SSH3_SERVER_BUILD_DIR:-$DEFAULT_BUILD_DIR}"
 
@@ -76,6 +77,14 @@ elif git -C "$BUILD_PATH" apply --reverse --check "$PATCH_PATH"; then
   echo "Shared SSH3 multiplex patch is already applied"
 else
   echo "$PATCH_PATH does not apply cleanly to $UPSTREAM_COMMIT" >&2
+  exit 3
+fi
+if git -C "$BUILD_PATH" apply --check "$JWT_PATCH_PATH" 2>/dev/null; then
+  git -C "$BUILD_PATH" apply "$JWT_PATCH_PATH"
+elif git -C "$BUILD_PATH" apply --reverse --check "$JWT_PATCH_PATH"; then
+  echo "SSH3 JWT clock-skew patch is already applied"
+else
+  echo "$JWT_PATCH_PATH does not apply cleanly to $UPSTREAM_COMMIT" >&2
   exit 3
 fi
 bash "$QUIC_PREPARE_SCRIPT" "$BUILD_PATH"

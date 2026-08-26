@@ -202,12 +202,18 @@ class SSH3Connection(MultiplexConnection):
     def close(self) -> None:
         if self.process is None:
             return
+        process = self.process
         try:
             self._send_bridge_frame({"type": "shutdown"})
-            self.process.wait(timeout=3)
+            process.wait(timeout=3)
         except Exception:
             try:
-                os.killpg(self.process.pid, signal.SIGTERM)
+                os.killpg(process.pid, signal.SIGTERM)
             except ProcessLookupError:
+                pass
+        if process.stdin is not None:
+            try:
+                process.stdin.close()
+            except (BrokenPipeError, OSError):
                 pass
         self.process = None

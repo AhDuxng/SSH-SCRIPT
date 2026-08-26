@@ -1,0 +1,20 @@
+diff --git a/auth/plugins/pubkey_authentication/server/server_plugin.go b/auth/plugins/pubkey_authentication/server/server_plugin.go
+--- a/auth/plugins/pubkey_authentication/server/server_plugin.go
++++ b/auth/plugins/pubkey_authentication/server/server_plugin.go
+@@ -4,6 +4,7 @@ import (
+ 	"crypto"
+ 	"fmt"
+ 	"net/http"
++	"time"
+ 
+ 	"github.com/francoismichel/ssh3/auth"
+ 	"github.com/francoismichel/ssh3/auth/plugins"
+@@ -48,5 +49,7 @@ func (v *PubkeyJWTIdentityVerifier) Verify(request *http.Request, base64Conversa
+ 		jwt.WithIssuedAt(),
+ 		jwt.WithAudience("unused"),
+-		jwt.WithValidMethods([]string{"RS256", "EdDSA", "ES256"}))
++		jwt.WithValidMethods([]string{"RS256", "EdDSA", "ES256"}),
++		jwt.WithLeeway(2*time.Second),
++	)
+ 	if err != nil || !token.Valid {
+ 		log.Error().Msgf("invalid private key token: %s", err)
