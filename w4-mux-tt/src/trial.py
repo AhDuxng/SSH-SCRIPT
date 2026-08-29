@@ -11,7 +11,6 @@ import subprocess
 import threading
 import time
 from dataclasses import dataclass
-from pathlib import Path
 
 from stream_mux import ConnectionAudit, StreamSpec, open_multiplex_connection
 from stream_mux.connection.common import ssh_base
@@ -19,7 +18,7 @@ from stream_mux.connection.common import ssh_base
 from background import (
     BackgroundCoordinator, MoshBackgroundCollector, run_direct_background,
 )
-from config import cfg_bool
+from harness.settings import cfg_bool
 from constants import COMMANDS, PAYLOAD_NAME
 from terminal_io import InteractiveEndpoint
 

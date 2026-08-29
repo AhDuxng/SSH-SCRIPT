@@ -3,6 +3,13 @@
 `stream_mux` chỉ chịu trách nhiệm mở, kiểm chứng và đóng transport. Thư mục này
 không chứa lệnh, marker, framing, parser hoặc phép đo riêng của W1–W4.
 
+Khung chạy thí nghiệm — cấu hình, ma trận, kết quả, thống kê, vẽ hình — nằm ở
+package `harness/`. `harness` dùng `stream_mux`; chiều ngược lại không tồn tại.
+
+`capability.py` ở lại đây vì nó mô tả **thuộc tính của transport**: giao thức
+nào có stream logic. `harness/experiment.py` đọc thuộc tính đó để loại trước
+những tổ hợp không thể đo được, thay vì rải kiểm tra tên giao thức khắp nơi.
+
 Mỗi workload tạo danh sách `StreamSpec` rồi truyền vào
 `open_multiplex_connection`. Kết quả là các `RawStream` hai chiều chỉ làm việc
 với byte và sự kiện `data`, `exit`, `error`.

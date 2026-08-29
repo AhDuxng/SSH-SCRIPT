@@ -3,10 +3,8 @@
 
 from __future__ import annotations
 
-import csv
 import hashlib
 import json
-import random
 import sys
 import time
 from pathlib import Path
@@ -18,40 +16,20 @@ sys.path.insert(0, str(REPO_DIR))
 # W4 deliberately reuses the battle-tested VT100 parser from W3.
 sys.path.append(str(REPO_DIR / "w3-mux-tt" / "src"))
 
-from stream_mux import provenance  # noqa: E402
-from config import load_env, split_csv  # noqa: E402
+from harness import provenance  # noqa: E402
+from harness.experiment import (  # noqa: E402
+    Scenario, build_schedule, render_matrix,
+)
+from harness.results import write_rows  # noqa: E402
+from harness.settings import build_plan, load_settings  # noqa: E402
 from constants import (  # noqa: E402
     AUDIT_FIELDS, BACKGROUND_FIELDS, EDITORS, KEYSTROKE_FIELDS, ORDER_FIELDS,
     PAYLOAD_BYTES, PAYLOAD_LINES, PAYLOAD_NAME, PAYLOAD_SHA256, PROBE_BYTES,
-    PROBE_CHARACTERS, PROBE_LINES, PROBE_SHA256, PROTOCOLS, SCENARIOS,
+    PROBE_CHARACTERS, PROBE_LINES, PROBE_SHA256, SCENARIOS,
     STREAM_FIELDS, TRIAL_FIELDS,
 )
 from probe import ProbeSource  # noqa: E402
 from trial import roles_for, run_trial  # noqa: E402
-
-
-def build_schedule(protocols, editors, scenarios, trial_count, seed, run_id):
-    schedule, order = [], 0
-    for block_id in range(1, trial_count + 1):
-        combinations = [(p, e, s) for p in protocols for e in editors for s in scenarios]
-        random.Random(seed + block_id).shuffle(combinations)
-        for protocol, editor, scenario in combinations:
-            order += 1
-            trial_id = f"{protocol}_{editor}_{scenario.lower()}_r{block_id:02d}"
-            schedule.append({
-                "run_id": run_id, "block_id": block_id, "trial_order": order,
-                "trial_id": trial_id, "trial_tag": f"o{order:04d}_{trial_id}",
-                "protocol": protocol, "editor": editor, "scenario": scenario,
-                "logical_workload_count": len(roles_for(scenario)),
-            })
-    return schedule
-
-
-def write_csv(path, fields, rows):
-    with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fields)
-        writer.writeheader()
-        writer.writerows(rows)
 
 
 def load_payload(payload_dir: Path):
@@ -66,28 +44,31 @@ def load_payload(payload_dir: Path):
 
 
 def main() -> int:
-    cfg_path = sys.argv[1] if len(sys.argv) > 1 else "config.env"
-    cfg = load_env(cfg_path)
-    if not cfg.get("SERVER_HOST") or cfg["SERVER_HOST"] == "CHANGE_ME":
-        raise ValueError("phải đặt SERVER_HOST trong config.env")
-    protocols = split_csv(cfg.get("PROTOCOLS", ",".join(PROTOCOLS)))
-    editors = split_csv(cfg.get("EDITORS", ",".join(EDITORS)))
-    scenarios = split_csv(cfg.get("SCENARIOS", ",".join(SCENARIOS)))
-    unknown = (
-        sorted(set(protocols) - set(PROTOCOLS)), sorted(set(editors) - set(EDITORS)),
-        sorted(set(scenarios) - set(SCENARIOS)),
+    config_path = sys.argv[1] if len(sys.argv) > 1 else "config.env"
+    settings = load_settings(config_path)
+    # Kịch bản của W4 mô tả *loại tải nền*, không phải số stream được
+    # multiplex. Nhiều vai trò ở đây là tình huống cần đo chứ không phải thứ
+    # đang được đánh giá, nên mọi giao thức đều tham gia; giao thức không
+    # multiplex đơn giản chạy chúng trong cùng một terminal.
+    scenarios = {
+        name: Scenario(name, len(roles_for(name)), measures_multiplexing=False)
+        for name in SCENARIOS
+    }
+    run_id = settings.text("RUN_ID") or time.strftime("%Y%m%dT%H%M%S")
+    plan = build_plan(
+        settings, scenarios, default_seed=20260819, run_id=run_id,
+        editors={name: name for name in EDITORS},
     )
-    if any(unknown):
-        raise ValueError(f"ma trận W4 có giá trị lạ: {unknown}")
-    if "mosh" in protocols and cfg.get("MOSH_PREDICT", "always").strip() != "always":
+    cfg = settings.values
+
+    if "mosh" in plan.protocols and settings.text("MOSH_PREDICT", "always") != "always":
         raise ValueError("W4 yêu cầu MOSH_PREDICT=always")
-    trials = int(cfg.get("TRIALS_PER_COMBINATION", "10"))
-    if trials <= 0:
-        raise ValueError("TRIALS_PER_COMBINATION phải dương")
-    if float(cfg.get("STALL_THRESHOLD_SECONDS", "1")) >= float(cfg.get("KEY_TIMEOUT_SECONDS", "2")):
+    stall = settings.number("STALL_THRESHOLD_SECONDS", 1.0, minimum=0.0)
+    key_timeout = settings.number("KEY_TIMEOUT_SECONDS", 2.0, minimum=0.0)
+    if stall >= key_timeout:
         raise ValueError("STALL_THRESHOLD_SECONDS phải nhỏ hơn KEY_TIMEOUT_SECONDS")
-    final_timeout = float(cfg.get("FINAL_OUTPUT_TIMEOUT_SECONDS", "10"))
-    final_hold = float(cfg.get("FINAL_OUTPUT_HOLD_SECONDS", "12"))
+    final_timeout = settings.number("FINAL_OUTPUT_TIMEOUT_SECONDS", 10.0)
+    final_hold = settings.number("FINAL_OUTPUT_HOLD_SECONDS", 12.0)
     if final_timeout <= 0 or final_hold <= final_timeout:
         raise ValueError(
             "FINAL_OUTPUT_HOLD_SECONDS phải lớn hơn FINAL_OUTPUT_TIMEOUT_SECONDS > 0"
@@ -99,29 +80,33 @@ def main() -> int:
         or probe.text.count("\n") != PROBE_LINES or probe.sha256 != PROBE_SHA256
     ):
         raise ValueError("probe W4 phải giống probe W3: 100 byte/ký tự và SHA-256 cố định")
-    payload = load_payload(Path(cfg.get("PAYLOAD_DIR", "payloads")))
-    result_dir = Path(cfg.get("RESULT_DIR", "artifacts/results"))
+    payload = load_payload(settings.path("PAYLOAD_DIR", "payloads"))
+    result_dir = plan.result_dir
     result_dir.mkdir(parents=True, exist_ok=True)
-    run_id = cfg.get("RUN_ID", "").strip() or time.strftime("%Y%m%dT%H%M%S")
-    seed = int(cfg.get("RANDOM_SEED", "20260819"))
-    schedule = build_schedule(protocols, editors, scenarios, trials, seed, run_id)
-    write_csv(result_dir / "experiment_order.csv", ORDER_FIELDS, schedule)
+    schedule = build_schedule(plan.matrix, plan.trials, plan.seed, run_id)
+    write_rows(result_dir / "experiment_order.csv", ORDER_FIELDS, schedule)
     metadata = {
         "run_id": run_id,
         "created_time_ns": time.time_ns(),
         "experiment": "W4 Interactive under Background Workloads",
         "source_specification": "Thiết kế thí nghiệm.pdf, sections 4/5/6/7",
-        "protocols": protocols, "editors": editors, "scenarios": scenarios,
-        "trials_per_combination": trials, "trial_total": len(schedule),
-        "random_seed": seed, "ordering": "randomized_complete_blocks",
+        "protocols": list(plan.protocols),
+        "editors": list(plan.editors),
+        "scenarios": [item.name for item in plan.scenarios],
+        "experiment_matrix": {
+            protocol: sorted(set(plan.matrix.scenarios_for(protocol)))
+            for protocol in plan.matrix.protocols()
+        },
+        "trials_per_configuration": plan.trials, "trial_total": len(schedule),
+        "random_seed": plan.seed, "ordering": "randomized_complete_blocks",
         "probe": {"bytes": len(probe.data), "characters": len(probe.text), "sha256": probe.sha256},
         "payload": payload,
         "commands_per_cycle": 5,
         "background_rule": "repeat continuously until interactive_0 finishes",
-        "warmup_seconds": float(cfg.get("WARMUP_SECONDS", "5")),
+        "warmup_seconds": plan.warmup_seconds,
         "key_interval_seconds": float(cfg.get("KEY_INTERVAL_SECONDS", "0.2")),
-        "key_timeout_seconds": float(cfg.get("KEY_TIMEOUT_SECONDS", "2")),
-        "stall_threshold_seconds": float(cfg.get("STALL_THRESHOLD_SECONDS", "1")),
+        "key_timeout_seconds": key_timeout,
+        "stall_threshold_seconds": stall,
         "final_output_timeout_seconds": final_timeout,
         "final_output_hold_seconds": final_hold,
         "connection_scope": "one new measured connection per trial",
@@ -136,9 +121,10 @@ def main() -> int:
     # Bằng chứng về binary thực sự phục vụ lần chạy này: bộ kết quả tự
     # chứng minh nó được đo bằng thuật toán nào, không phải suy luận sau.
     metadata["transport_provenance"] = provenance.collect(
-        cfg, protocols, PROJECT_DIR
+        cfg, plan.protocols, PROJECT_DIR
     )
     (result_dir / "metadata.json").write_text(json.dumps(metadata, indent=2, ensure_ascii=False) + "\n")
+    print(render_matrix(plan.matrix, plan.scenarios, plan.trials), flush=True)
     print(
         f"[PLAN] trials_per_combination={trials} total_trials={len(schedule)} "
         f"probe_chars={len(probe.text)} payload_bytes={payload['bytes']} "
@@ -157,7 +143,7 @@ def main() -> int:
         handles[name] = path.open("w", newline="", encoding="utf-8")
         writers[name] = csv.DictWriter(handles[name], fieldnames=fields)
         writers[name].writeheader()
-    cooldown = float(cfg.get("INTER_TRIAL_DELAY_SECONDS", "3"))
+    cooldown = plan.inter_trial_delay_seconds
     try:
         for index, trial in enumerate(schedule, start=1):
             print(

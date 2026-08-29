@@ -1,418 +1,269 @@
 #!/usr/bin/env python3
-"""Vẽ các metric chính từ scenario_summary.csv của W2."""
+"""Vẽ hình W2 từ bảng tổng hợp đã xử lý.
+
+Script này chỉ đọc `scenario_summary.csv` và `stream_summary.csv`; nó không
+biết gì về cách chạy thí nghiệm và không chứa giá trị kết quả nào được nhúng
+sẵn. Mọi hình đều tái tạo được từ dữ liệu trong thư mục kết quả.
+"""
 
 from __future__ import annotations
 
 import argparse
 import csv
-import os
-import tempfile
+import sys
 from pathlib import Path
 
+REPO_DIR = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO_DIR))
 
-cache = str(Path(tempfile.gettempdir()) / "w2_mux_tt_matplotlib_cache")
-os.environ.setdefault("MPLCONFIGDIR", cache)
-os.environ.setdefault("XDG_CACHE_HOME", cache)
+import matplotlib.pyplot as plt  # noqa: E402
 
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-import numpy as np
+from harness.plotting import (  # noqa: E402
+    DOUBLE_COLUMN,
+    WIDE,
+    Series,
+    clear_figures,
+    deduplicated_legend,
+    grouped_bars,
+    save_figure,
+    use_paper_style,
+    value_or_none,
+)
+from stream_mux.capability import label as protocol_label  # noqa: E402
 
-
-PROTOCOLS = ("ssh", "ssh3", "mosh")
 SCENARIOS = ("W2-S1", "W2-S2", "W2-S4")
-LABELS = {"ssh": "SSH", "ssh3": "SSH3", "mosh": "Mosh"}
-COLORS = {"ssh": "#1696D2", "ssh3": "#E69F00", "mosh": "#009E73"}
-HATCHES = {"ssh": "///", "ssh3": "--", "mosh": "\\\\\\"}
-STREAM_COUNTS = {"W2-S1": 1, "W2-S2": 2, "W2-S4": 4}
+PROTOCOL_ORDER = ("ssh", "ssh3", "mosh")
+
+# Chỉ công bố độ trễ lossless khi phần lớn phép truyền thực sự hoàn tất; nếu
+# không, con số chỉ phản ánh những mẫu may mắn còn sót lại.
 MIN_COMPLETION_RATE_PCT = 95.0
-SCENARIO_LABELS = {
-    scenario: f"{scenario}\n{count} concurrent workload{'s' if count > 1 else ''}"
-    for scenario, count in STREAM_COUNTS.items()
-}
 
 
-# Đọc bảng tổng hợp W2.
-def load_rows(path: Path):
+def load(path: Path) -> list[dict]:
     with path.open(newline="", encoding="utf-8") as handle:
         return list(csv.DictReader(handle))
 
 
-# Chuyển một trường CSV sang số hoặc None.
-def number(row, field):
-    value = row.get(field, "") if row else ""
-    return float(value) if value else None
+def scenario_index(rows) -> dict:
+    return {(row["protocol"], row["scenario"]): row for row in rows}
 
 
-# Chỉ công bố lossless completion latency khi ít nhất 95% phép truyền đã
-# thử hoàn tất; đây là phép đo chỉ có nghĩa với luồng byte nguyên bản.
-def metric_value(row, field):
-    value = number(row, field)
-    if not field.startswith("completion_"):
+def stream_index(rows) -> dict:
+    return {
+        (row["protocol"], row["scenario"], row["stream_role"]): row
+        for row in rows
+    }
+
+
+def gated_value(lookup, key, column):
+    """Ẩn độ trễ lossless của nhóm có tỷ lệ hoàn tất quá thấp."""
+    value = value_or_none(lookup, key, column)
+    if value is None or not column.startswith("completion_"):
         return value
-    completion_rate = number(row, "attempted_transfer_completion_rate_pct")
-    if completion_rate is None or completion_rate < MIN_COMPLETION_RATE_PCT:
+    rate = value_or_none(lookup, key, "attempted_transfer_completion_rate_pct")
+    if rate is None or rate < MIN_COMPLETION_RATE_PCT:
         return None
     return value
 
 
-# Ghi kèm tỷ lệ mẫu đạt đủ nội dung khi tỷ lệ đó chưa tới ngưỡng công bố.
-def coverage_suffix(row, field):
-    if not field.startswith("content_complete_"):
-        return ""
-    rate = number(row, "content_complete_rate_pct")
-    if rate is None or rate >= MIN_COMPLETION_RATE_PCT:
-        return ""
-    return f"\n({rate:.0f}%)"
-
-
-# Vẽ một metric theo ba giao thức và ba kịch bản.
-def plot_metric(rows, output_dir, field, title, ylabel, stem, network):
-    lookup = {(row["protocol"], row["scenario"]): row for row in rows}
-    x = np.arange(len(SCENARIOS))
-    width = 0.24
-    fig, axis = plt.subplots(figsize=(10, 5.8))
-    series = []
-    all_values = []
-    for protocol in PROTOCOLS:
-        values = [
-            metric_value(lookup.get((protocol, scenario)), field)
-            for scenario in SCENARIOS
-        ]
-        series.append((protocol, values))
-        all_values.extend(value for value in values if value is not None)
-    ceiling = max(all_values or [1.0])
-    plotted = []
-    for protocol_index, (protocol, values) in enumerate(series):
-        heights = [value if value is not None else 0.0 for value in values]
-        bars = axis.bar(
-            x + (protocol_index - 1) * width,
-            heights,
-            width,
-            label=LABELS[protocol],
-            color=COLORS[protocol],
-            edgecolor="black",
-            linewidth=0.6,
-            hatch=HATCHES[protocol],
+def build_series(lookup, column, gated=False):
+    reader = gated_value if gated else value_or_none
+    return [
+        Series(
+            protocol,
+            [reader(lookup, (protocol, scenario), column) for scenario in SCENARIOS],
         )
-        plotted.append((bars, values))
-    for (bars, values), (protocol, _) in zip(plotted, series):
-        for bar, value, scenario in zip(bars, values, SCENARIOS):
-            shown = "N/A" if value is None else f"{value:.1f}"
-            shown += coverage_suffix(lookup.get((protocol, scenario)), field)
-            axis.text(
-                bar.get_x() + bar.get_width() / 2,
-                (value or 0) + max(ceiling * 0.015, 0.1),
-                shown,
-                ha="center",
-                va="bottom",
-                fontsize=7,
-            )
-    axis.set_title(f"{title} — {network.capitalize()}")
+        for protocol in PROTOCOL_ORDER
+    ]
+
+
+def matrix_note(lookup) -> str:
+    """Nêu rõ vì sao một giao thức vắng mặt ở kịch bản nhiều stream."""
+    missing = [
+        protocol
+        for protocol in PROTOCOL_ORDER
+        if any((protocol, scenario) in lookup for scenario in SCENARIOS)
+        and not all((protocol, scenario) in lookup for scenario in SCENARIOS)
+    ]
+    if not missing:
+        return ""
+    names = ", ".join(protocol_label(item) for item in missing)
+    return (
+        f"{names} chỉ được đo với một workload: giao thức này không cung cấp "
+        "stream logic tương đương SSH channel hay QUIC stream."
+    )
+
+
+def plot_scenario_metric(lookup, output_dir, column, title, ylabel, stem, *, gated=False):
+    figure, axis = plt.subplots(figsize=DOUBLE_COLUMN)
+    series = build_series(lookup, column, gated=gated)
+    grouped_bars(axis, SCENARIOS, series)
     axis.set_ylabel(ylabel)
-    axis.set_xticks(x, [SCENARIO_LABELS[item] for item in SCENARIOS])
-    if field.endswith("_pct"):
-        axis.set_ylim(0, 108)
-    else:
-        axis.set_ylim(0, max(1.0, ceiling * 1.24))
-    axis.grid(axis="y", alpha=0.25)
-    axis.legend(ncol=3)
-    footnote = ""
-    if field.startswith("completion_"):
-        footnote = (
-            "N/A: fewer than 95% of attempted transfers completed with full "
-            "verified output."
+    axis.set_title(title)
+    deduplicated_legend(axis, ncol=3, loc="upper left")
+    note = matrix_note(lookup)
+    if gated:
+        note = (note + " " if note else "") + (
+            f"Không hiển thị nhóm có dưới {MIN_COMPLETION_RATE_PCT:.0f}% phép "
+            "truyền hoàn tất."
         )
-    elif field.startswith("content_complete_"):
-        footnote = (
-            "Percentage under a bar: share of samples whose full payload was "
-            "observed, when below 95%."
-        )
-    if footnote:
-        fig.text(0.5, 0.01, footnote, ha="center", fontsize=8)
-        fig.tight_layout(rect=(0, 0.035, 1, 1))
-    else:
-        fig.tight_layout()
-    output_dir.mkdir(parents=True, exist_ok=True)
-    fig.savefig(output_dir / f"{stem}.png", dpi=180, bbox_inches="tight")
-    fig.savefig(output_dir / f"{stem}.pdf", bbox_inches="tight")
-    plt.close(fig)
+    if note:
+        figure.text(0.5, -0.04, note, ha="center", fontsize=6.5, wrap=True)
+    save_figure(figure, output_dir, stem)
 
 
-# Vẽ từng transport stream của SSH/SSH3 và một terminal vật lý của Mosh.
-def plot_stream_metric(
-    rows, scenario_rows, output_dir, field, title, ylabel, stem, network,
-):
-    lookup = {
-        (row["protocol"], row["scenario"], row["stream_role"]): row
-        for row in rows
-    }
-    scenario_lookup = {
-        (row["protocol"], row["scenario"]): row for row in scenario_rows
-    }
-    fig, axes = plt.subplots(1, len(SCENARIOS), figsize=(15, 5.5), sharey=True)
-    global_values = [
-        metric_value(row, field)
-        for row in rows if row["protocol"] != "mosh"
-    ] + [
-        metric_value(scenario_lookup.get(("mosh", scenario)), field)
-        for scenario in SCENARIOS
-    ]
-    ceiling = max(
-        (value for value in global_values if value is not None), default=1.0
+def plot_integrity(lookup, output_dir):
+    """Bốn mức xác thực, từ lỏng tới chặt, cho từng kịch bản.
+
+    Trục x là mức xác thực còn màu vẫn là giao thức, để nhận dạng trực quan của
+    giao thức giữ nguyên trên mọi hình trong bài.
+    """
+    measures = (
+        ("completion_marker_rate_pct", "Marker"),
+        ("content_complete_rate_pct", "Payload"),
+        ("fully_verified_output_rate_pct", "+SHA-256"),
+        ("raw_capture_exact_rate_pct", "Byte thô"),
     )
-    for scenario_index, scenario in enumerate(SCENARIOS):
-        axis = axes[scenario_index]
-        stream_count = STREAM_COUNTS[scenario]
-        items = []
-        for protocol in ("ssh", "ssh3"):
-            for stream_index in range(stream_count):
-                items.append((
-                    protocol,
-                    f"{LABELS[protocol]}\nStream {stream_index}",
-                    metric_value(
-                        lookup.get((protocol, scenario, f"output_{stream_index}")),
-                        field,
-                    ),
-                ))
-        items.append((
-            "mosh", "Mosh\nTerminal",
-            metric_value(scenario_lookup.get(("mosh", scenario)), field),
-        ))
-        x = np.arange(len(items))
-        bars = axis.bar(
-            x,
-            [value if value is not None else 0.0 for _, _, value in items],
-            0.72,
-            color=[COLORS[protocol] for protocol, _, _ in items],
-            edgecolor="black",
-            linewidth=0.6,
-            hatch=[HATCHES[protocol] for protocol, _, _ in items],
-        )
-        for bar, (protocol, _, value) in zip(bars, items):
-            shown = "N/A" if value is None else f"{value:.1f}"
-            source = (
-                scenario_lookup.get((protocol, scenario))
-                if protocol == "mosh" else None
-            )
-            shown += coverage_suffix(source, field) if source else ""
-            axis.text(
-                bar.get_x() + bar.get_width() / 2,
-                (value or 0) + max(ceiling * 0.02, 0.1),
-                shown,
-                ha="center",
-                va="bottom",
-                fontsize=7,
-            )
-        axis.set_title(
-            f"{scenario} — {stream_count} concurrent workload"
-            f"{'s' if stream_count > 1 else ''}"
-        )
-        axis.set_xticks(x, [label for _, label, _ in items], fontsize=7)
-        if field.endswith("_pct"):
-            axis.set_ylim(0, 105)
-        else:
-            axis.set_ylim(0, max(1.0, ceiling * 1.22))
-        axis.grid(axis="y", alpha=0.25)
-    axes[0].set_ylabel(ylabel)
-    fig.suptitle(f"{title} — {network.capitalize()}")
-    footnote = ""
-    if field.startswith("completion_"):
-        footnote = (
-            "N/A: fewer than 95% of attempted transfers completed with full "
-            "verified output."
-        )
-    elif field.startswith("content_complete_"):
-        footnote = (
-            "Percentage under a bar: share of samples whose full payload was "
-            "observed, when below 95%."
-        )
-    if footnote:
-        fig.text(0.5, 0.01, footnote, ha="center", fontsize=8)
-        fig.tight_layout(rect=(0, 0.035, 1, 1))
-    else:
-        fig.tight_layout()
-    output_dir.mkdir(parents=True, exist_ok=True)
-    fig.savefig(output_dir / f"{stem}.png", dpi=180, bbox_inches="tight")
-    fig.savefig(output_dir / f"{stem}.pdf", bbox_inches="tight")
-    plt.close(fig)
-
-
-# Vẽ completion theo kế hoạch, theo mẫu đã gửi và xác thực nội dung.
-def plot_integrity(rows, output_dir, network):
-    lookup = {(row["protocol"], row["scenario"]): row for row in rows}
-    fields = (
-        ("completion_marker_rate_pct", "Command finished"),
-        ("content_complete_rate_pct", "Full payload observed"),
-        ("fully_verified_output_rate_pct", "Full output + SHA-256"),
-        ("verified_output_ratio_pct", "Verified expected content"),
-        ("raw_capture_exact_rate_pct", "Lossless raw capture"),
+    names = [name for _column, name in measures]
+    figure, axes = plt.subplots(
+        1, len(SCENARIOS), figsize=(7.0, 2.6), sharey=True,
     )
-    x = np.arange(len(SCENARIOS) * len(PROTOCOLS))
-    width = 0.16
-    fig, axis = plt.subplots(figsize=(12, 5.8))
-    for field_index, (field, label) in enumerate(fields):
-        values = [
-            number(lookup.get((protocol, scenario)), field)
-            for scenario in SCENARIOS for protocol in PROTOCOLS
+    for axis, scenario in zip(axes, SCENARIOS):
+        series = [
+            Series(
+                protocol,
+                [
+                    value_or_none(lookup, (protocol, scenario), column)
+                    for column, _name in measures
+                ],
+            )
+            for protocol in PROTOCOL_ORDER
+            if (protocol, scenario) in lookup
         ]
-        heights = [value if value is not None else 0.0 for value in values]
-        bars = axis.bar(
-            x + (field_index - (len(fields) - 1) / 2) * width,
-            heights, width,
-            label=label, edgecolor="black", linewidth=0.5,
-        )
-        for bar, value in zip(bars, values):
-            axis.text(
-                bar.get_x() + bar.get_width() / 2,
-                (value if value is not None else 0.0) + 0.25,
-                "N/A" if value is None else f"{value:.1f}",
-                ha="center", va="bottom",
-                fontsize=6, rotation=90,
-            )
-    labels = [
-        f"{scenario}\n{LABELS[protocol]}"
-        for scenario in SCENARIOS for protocol in PROTOCOLS
+        grouped_bars(axis, names, series, annotate=False)
+        axis.set_ylim(0, 108)
+        axis.set_title(scenario)
+        axis.tick_params(axis="x", labelrotation=30)
+        # "Luồng byte nguyên bản" không áp dụng cho giao thức đồng bộ màn hình;
+        # ghi rõ n/a thay vì để trống gây hiểu là phép đo bị thiếu.
+        for item in series:
+            for index, value in enumerate(item.values):
+                if value is None:
+                    axis.text(
+                        index, 3, "n/a", ha="center", va="bottom",
+                        fontsize=5, rotation=90,
+                    )
+    axes[0].set_ylabel("Tỷ lệ (%)")
+    deduplicated_legend(
+        axes[1], ncol=3, loc="lower center", bbox_to_anchor=(0.5, -0.72),
+    )
+    figure.suptitle("W2 — mức độ xác thực output", y=1.06)
+    figure.text(
+        0.5, -0.46,
+        "Marker: lệnh báo kết thúc · Payload: quan sát đủ nội dung · "
+        "+SHA-256: khớp băm · Byte thô: luồng byte nguyên bản (n/a với Mosh)",
+        ha="center", fontsize=6,
+    )
+    save_figure(figure, output_dir, "figure_5_output_integrity")
+
+
+def plot_per_stream(streams, output_dir, column, title, ylabel, stem):
+    """Từng vai trò của các giao thức có multiplexing.
+
+    Mosh không xuất hiện ở đây: nó chỉ có một terminal, nên "vai trò thứ hai"
+    không tồn tại để so sánh.
+    """
+    lookup = stream_index(streams)
+    multi = [
+        protocol for protocol in ("ssh", "ssh3")
+        if any(key[0] == protocol for key in lookup)
     ]
-    axis.set_title(
-        f"W2 verified output integrity — {network.capitalize()}\n"
-        "Mosh values refer to deterministic content observed on its terminal"
-    )
-    axis.set_ylabel("Rate (%)")
-    axis.set_xticks(x, labels)
-    axis.set_ylim(0, 108)
-    axis.grid(axis="y", alpha=0.25)
-    axis.legend(ncol=4, loc="lower center")
-    fig.tight_layout()
-    output_dir.mkdir(parents=True, exist_ok=True)
-    fig.savefig(output_dir / "figure_5_output_integrity.png", dpi=180, bbox_inches="tight")
-    fig.savefig(output_dir / "figure_5_output_integrity.pdf", bbox_inches="tight")
-    plt.close(fig)
-
-
-# Vẽ integrity của từng SSH/SSH3 stream và một terminal Mosh tổng hợp.
-def plot_stream_integrity(rows, scenario_rows, output_dir, network):
-    fields = (
-        ("completion_marker_rate_pct", "Command finished"),
-        ("fully_verified_output_rate_pct", "Full output + SHA-256"),
-        ("verified_output_ratio_pct", "Verified expected content"),
-        ("raw_capture_exact_rate_pct", "Lossless raw capture"),
-    )
-    stream_lookup = {
-        (row["protocol"], row["scenario"], row["stream_role"]): row
-        for row in rows
-    }
-    scenario_lookup = {
-        (row["protocol"], row["scenario"]): row for row in scenario_rows
-    }
-    ordered = []
-    for scenario in SCENARIOS:
-        for protocol in ("ssh", "ssh3"):
-            for stream_index in range(STREAM_COUNTS[scenario]):
-                ordered.append((
-                    scenario,
-                    protocol,
-                    f"S{stream_index}",
-                    stream_lookup.get(
-                        (protocol, scenario, f"output_{stream_index}")
-                    ),
-                ))
-        ordered.append((
-            scenario,
-            "mosh",
-            "Terminal",
-            scenario_lookup.get(("mosh", scenario)),
-        ))
-    x = np.arange(len(ordered))
-    width = 0.19
-    fig, axis = plt.subplots(figsize=(16, 6))
-    for field_index, (field, label) in enumerate(fields):
-        values = [number(row, field) for _, _, _, row in ordered]
-        bars = axis.bar(
-            x + (field_index - (len(fields) - 1) / 2) * width,
-            [value if value is not None else 0.0 for value in values], width,
-            label=label, edgecolor="black", linewidth=0.5,
-        )
-        for bar, value in zip(bars, values):
-            if value is None:
-                axis.text(
-                    bar.get_x() + bar.get_width() / 2, 0.5, "N/A",
-                    ha="center", va="bottom", fontsize=5, rotation=90,
+    figure, axes = plt.subplots(1, len(SCENARIOS), figsize=WIDE, sharey=True)
+    for axis, scenario in zip(axes, SCENARIOS):
+        roles = sorted({
+            key[2] for key in lookup if key[1] == scenario
+        })
+        width = 0.8 / max(len(multi), 1)
+        for protocol_index, protocol in enumerate(multi):
+            for role_index, role in enumerate(roles):
+                value = value_or_none(lookup, (protocol, scenario, role), column)
+                if value is None:
+                    continue
+                offset = (protocol_index - (len(multi) - 1) / 2) * width
+                axis.bar(
+                    role_index + offset, value, width,
+                    color=None, edgecolor="black", linewidth=0.4,
+                    label=protocol_label(protocol) if role_index == 0 else None,
                 )
-    labels = [
-        f"{scenario}\n{LABELS[protocol]}\n{role}"
-        for scenario, protocol, role, _ in ordered
-    ]
-    axis.set_title(
-        f"W2 transport-stream output integrity — {network.capitalize()}\n"
-        "Mosh is one physical terminal per scenario"
+        axis.set_xticks(
+            range(len(roles)), [role.replace("output_", "S") for role in roles],
+        )
+        axis.set_title(scenario)
+    axes[0].set_ylabel(ylabel)
+    deduplicated_legend(axes[0], ncol=2, loc="upper left")
+    figure.suptitle(title)
+    figure.text(
+        0.5, -0.03,
+        "Mosh không xuất hiện: một terminal session không có vai trò song song "
+        "để so sánh theo stream.",
+        ha="center", fontsize=6.5,
     )
-    axis.set_ylabel("Rate (%)")
-    axis.set_xticks(x, labels, fontsize=7)
-    axis.set_ylim(0, 106)
-    axis.grid(axis="y", alpha=0.25)
-    axis.legend(ncol=4, loc="lower center")
-    fig.tight_layout()
-    output_dir.mkdir(parents=True, exist_ok=True)
-    fig.savefig(output_dir / "figure_7_per_stream_integrity.png", dpi=180, bbox_inches="tight")
-    fig.savefig(output_dir / "figure_7_per_stream_integrity.pdf", bbox_inches="tight")
-    plt.close(fig)
+    save_figure(figure, output_dir, stem)
 
 
-# Đọc tham số và vẽ bộ hình chuẩn W2.
 def main() -> int:
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("result_dir", type=Path)
     parser.add_argument("output_dir", type=Path)
     parser.add_argument("--network", default="unspecified")
     args = parser.parse_args()
-    rows = load_rows(args.result_dir / "scenario_summary.csv")
-    stream_rows = load_rows(args.result_dir / "stream_summary.csv")
-    args.output_dir.mkdir(parents=True, exist_ok=True)
-    # Thư mục chỉ chứa hình do plot_w2 tạo; bỏ bộ hình của lần chạy trước.
-    for pattern in ("figure_*.png", "figure_*.pdf"):
-        for path in args.output_dir.glob(pattern):
-            path.unlink()
-    plots = []
+
+    use_paper_style()
+    clear_figures(args.output_dir)
+    scenarios = load(args.result_dir / "scenario_summary.csv")
+    streams = load(args.result_dir / "stream_summary.csv")
+    lookup = scenario_index(scenarios)
+    suffix = f" ({args.network})"
+
     for metric in ("mean", "median", "p95", "p99"):
-        plots.extend((
-            (f"command_visible_{metric}_ms", f"W2 command visible — {metric.upper()}", "Latency (ms)", f"figure_0_command_visible_{metric}"),
-            (f"content_complete_{metric}_ms", f"W2 full payload observed — {metric.upper()}", "Latency (ms)", f"figure_1_content_complete_{metric}"),
-            (f"completion_{metric}_ms", f"W2 lossless byte-stream completion — {metric.upper()}", "Latency (ms)", f"figure_1b_lossless_completion_{metric}"),
-            (f"setup_{metric}_ms", f"W2 connection + streams READY — {metric.upper()}", "Setup time (ms)", f"figure_4_setup_{metric}"),
-        ))
-    plots.extend((
-        ("first_byte_median_ms", "W2 first-byte latency — MEDIAN", "Latency (ms)", "figure_2_first_byte_median"),
-        ("throughput_mean_mib_s", "W2 verified payload throughput — MEAN", "MiB/s", "figure_3_throughput_mean"),
-    ))
-    for field, title, ylabel, stem in plots:
-        plot_metric(rows, args.output_dir, field, title, ylabel, stem, args.network)
-    plot_integrity(rows, args.output_dir, args.network)
-    stream_plots = tuple(
-        (
-            f"content_complete_{metric}_ms",
-            f"W2 per-stream full payload observed — {metric.upper()}",
-            "Latency (ms)",
-            f"figure_6_per_stream_content_complete_{metric}",
+        plot_scenario_metric(
+            lookup, args.output_dir, f"content_complete_{metric}_ms",
+            f"W2 — thời điểm quan sát đủ payload, {metric.upper()}{suffix}",
+            "Độ trễ (ms)", f"figure_1_content_complete_{metric}",
         )
-        for metric in ("mean", "median", "p95", "p99")
-    ) + tuple(
-        (
-            f"completion_{metric}_ms",
-            f"W2 per-stream lossless completion — {metric.upper()}",
-            "Latency (ms)",
-            f"figure_6b_per_stream_completion_{metric}",
+        plot_scenario_metric(
+            lookup, args.output_dir, f"completion_{metric}_ms",
+            f"W2 — byte cuối của luồng, {metric.upper()}{suffix}",
+            "Độ trễ (ms)", f"figure_1b_lossless_completion_{metric}", gated=True,
         )
-        for metric in ("mean", "median", "p95", "p99")
+        plot_scenario_metric(
+            lookup, args.output_dir, f"setup_{metric}_ms",
+            f"W2 — mở connection và sẵn sàng, {metric.upper()}{suffix}",
+            "Thời gian thiết lập (ms)", f"figure_4_setup_{metric}",
+        )
+    plot_scenario_metric(
+        lookup, args.output_dir, "command_visible_median_ms",
+        f"W2 — thời điểm lệnh hiện là đã kết thúc, MEDIAN{suffix}",
+        "Độ trễ (ms)", "figure_0_command_visible_median",
     )
-    for field, title, ylabel, stem in stream_plots:
-        plot_stream_metric(
-            stream_rows, rows, args.output_dir, field, title, ylabel, stem,
-            args.network,
+    plot_scenario_metric(
+        lookup, args.output_dir, "first_byte_median_ms",
+        f"W2 — byte đầu tiên, MEDIAN{suffix}",
+        "Độ trễ (ms)", "figure_2_first_byte_median",
+    )
+    plot_scenario_metric(
+        lookup, args.output_dir, "throughput_mean_mib_s",
+        f"W2 — thông lượng payload đã xác thực, MEAN{suffix}",
+        "Thông lượng (MiB/s)", "figure_3_throughput_mean",
+    )
+    plot_integrity(lookup, args.output_dir)
+    for metric in ("median", "p95"):
+        plot_per_stream(
+            streams, args.output_dir, f"content_complete_{metric}_ms",
+            f"W2 — quan sát đủ payload theo từng stream, {metric.upper()}{suffix}",
+            "Độ trễ (ms)", f"figure_6_per_stream_content_complete_{metric}",
         )
-    plot_stream_integrity(stream_rows, rows, args.output_dir, args.network)
-    print(f"Saved W2 figures to {args.output_dir}")
+    print(f"Đã lưu hình W2 vào {args.output_dir}")
     return 0
 
 

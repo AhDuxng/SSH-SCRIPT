@@ -165,27 +165,18 @@ skipped.
 - SSH3 gọi kết nối một lần và mở một QUIC bidirectional stream thật cho mỗi
   `output_X`. Các StreamID phải khác nhau nhưng cùng ConversationStreamID và UDP
   socket.
-- Mosh chỉ có một terminal session. W2-S2/W2-S4 là các tiến trình `sed` chạy
-  trong các tmux pane khác nhau của cùng terminal đó, không phải nhiều transport
-  stream.
+- Mosh chỉ có một terminal session và **chỉ được đo ở W2-S1**. Nó không cung
+  cấp stream logic tương đương SSH channel hay QUIC stream, nên W2-S2 và W2-S4
+  chỉ áp dụng cho SSH và SSH3, nơi phép so sánh multiplexing mới có nghĩa.
 
-Trong W2-S2/W2-S4, mỗi vai trò chạy trong một tmux pane riêng nên có PTY riêng.
-Đây không phải chi tiết trình bày mà là điều kiện để phép đo đúng: nhiều tiến
-trình cùng ghi vào một PTY sẽ trộn byte của nhau, làm hỏng chính các dòng
-deterministic dùng để xác thực. Kết quả cũ cho thấy rõ điều đó — độ bao phủ nội
-dung tụt theo số vai trò dùng chung shell (S1 100%, S2 24%, S4 8%) trong khi
-SSH/SSH3 giữ 100%.
+Quy tắc này do `stream_mux/capability.py` quyết định và được
+`harness/experiment.py` áp dụng khi sinh ma trận, nên không tổ hợp Mosh × S2/S4
+nào được tạo ra ngay từ đầu. Ma trận được in ra trước khi chạy.
 
-Client chỉ gõ vào pane điều khiển; pane này chuyển tiếp từng dòng lệnh vào FIFO
-riêng của pane workload tương ứng, nên không bao giờ phải chuyển pane giữa lúc
-đang đo. Mỗi dòng payload mang token riêng của `trial/role/sample`, vì vậy việc
-đối chiếu nội dung không cần biết hình học pane.
-
-Terminal Mosh dùng `4096 cột × 144 dòng`: chiều rộng giữ một dòng payload 4 095
-ký tự không bị wrap, chiều cao đủ chia đều cho pane điều khiển cộng bốn pane
-payload của W2-S4. Cấu hình bằng `W2_MOSH_COLUMNS` và `W2_MOSH_ROWS`; chương
-trình từ chối chạy nếu viewport nhỏ hơn batch của kịch bản. Đặt
-`W2_MOSH_LAYOUT=single` để quay lại mô hình một shell dùng chung của bản trước.
+Terminal Mosh dùng `4096 cột × 128 dòng`: chiều rộng giữ một dòng payload 4 095
+ký tự không bị wrap, chiều cao dư sức chứa 25 dòng payload cùng hai dấu mốc.
+Cấu hình bằng `W2_MOSH_COLUMNS` và `W2_MOSH_ROWS`; chương trình từ chối chạy nếu
+viewport nhỏ hơn batch của kịch bản.
 
 Mosh truyền trạng thái màn hình thay vì luồng byte lossless. Vì vậy raw terminal
 bytes không được so trực tiếp với file. Mỗi lệnh tự xóa vùng hiển thị của pane

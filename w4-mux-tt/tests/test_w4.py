@@ -17,7 +17,9 @@ sys.path.append(str(REPO_DIR / "w3-mux-tt" / "src"))
 from background import BackgroundCoordinator, MoshBackgroundCollector
 from constants import PAYLOAD_BYTES, PAYLOAD_LINES, PAYLOAD_SHA256
 from generate_payload import build_payload
-from run_w4 import build_schedule
+from harness.experiment import (
+    DEFAULT_TRIALS_PER_CONFIGURATION, Scenario, build_matrix, build_schedule,
+)
 from stream_mux import RawStream
 from trial import (
     _reconstruct_final_output, editor_command, mosh_spec, roles_for,
@@ -38,14 +40,42 @@ class W4Tests(unittest.TestCase):
         self.assertEqual(roles_for("W4-OUTPUT"), ["interactive_0", "output_0"])
         self.assertEqual(roles_for("W4-MIX"), ["interactive_0", "command_0", "output_0"])
 
-    def test_complete_block_schedule(self):
-        rows = build_schedule(
-            ["ssh", "ssh3", "mosh"], ["vim", "nano"],
-            ["W4-CMD", "W4-OUTPUT", "W4-MIX"], 2, 7, "run",
+    def test_experiment_matrix_keeps_every_protocol(self):
+        """Kịch bản của W4 đo can nhiễu, không đo multiplexing.
+
+        Vì vậy giao thức không multiplex vẫn tham gia; điều nó thiếu được ghi
+        lại bằng stream_count = 1 chứ không bằng cách loại khỏi ma trận.
+        """
+        scenarios = [
+            Scenario(name, len(roles_for(name)), measures_multiplexing=False)
+            for name in ("W4-CMD", "W4-OUTPUT", "W4-MIX")
+        ]
+        matrix = build_matrix(
+            ["ssh", "ssh3", "mosh"], scenarios, editors=("vim", "nano"),
         )
-        self.assertEqual(len(rows), 36)
-        self.assertEqual({row["block_id"] for row in rows}, {1, 2})
-        self.assertEqual(len({row["trial_id"] for row in rows}), 36)
+        self.assertEqual(matrix.skipped, ())
+        self.assertEqual(len(matrix), 3 * 3 * 2)
+        by_protocol = {
+            item.protocol: item.stream_count
+            for item in matrix.configurations
+            if item.scenario.name == "W4-MIX"
+        }
+        self.assertEqual(by_protocol["mosh"], 1)
+        self.assertEqual(by_protocol["ssh"], 3)
+
+    def test_every_configuration_gets_the_global_trial_count(self):
+        scenarios = [
+            Scenario(name, len(roles_for(name)), measures_multiplexing=False)
+            for name in ("W4-CMD", "W4-OUTPUT", "W4-MIX")
+        ]
+        matrix = build_matrix(
+            ["ssh", "ssh3", "mosh"], scenarios, editors=("vim", "nano"),
+        )
+        schedule = build_schedule(
+            matrix, DEFAULT_TRIALS_PER_CONFIGURATION, 7, "run",
+        )
+        self.assertEqual(len(schedule), len(matrix) * DEFAULT_TRIALS_PER_CONFIGURATION)
+        self.assertEqual(len({row["trial_id"] for row in schedule}), len(schedule))
 
     def test_direct_framing_measures_real_output(self):
         holder = {}

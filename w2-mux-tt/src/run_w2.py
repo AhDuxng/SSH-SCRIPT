@@ -3,10 +3,8 @@
 
 from __future__ import annotations
 
-import csv
 import hashlib
 import json
-import random
 import sys
 import time
 from pathlib import Path
@@ -16,49 +14,17 @@ PROJECT_DIR = Path(__file__).resolve().parents[1]
 REPO_DIR = PROJECT_DIR.parent
 sys.path.insert(0, str(REPO_DIR))
 
-from stream_mux import provenance
-from config import load_env, split_csv
+from harness import provenance
+from harness.experiment import Scenario, build_schedule, render_matrix
+from harness.results import write_rows
+from harness.settings import build_plan, load_settings
 from constants import (
     AUDIT_FIELDS, ORDER_FIELDS, PAYLOAD_BYTES, PAYLOAD_LINE_BYTES,
     PAYLOAD_LINES, PAYLOAD_NAMES, PAYLOAD_PREFIXES, PAYLOAD_SHA256,
-    PROTOCOLS, SCENARIOS, STREAM_FIELDS, TRANSFER_FIELDS, TRIAL_FIELDS,
+    SCENARIOS, STREAM_FIELDS, TRANSFER_FIELDS, TRIAL_FIELDS,
 )
 from stream_adapter import open_direct_w2_connection
 from trial import run_trial
-
-
-# Tạo lịch trial theo khối hoàn chỉnh ngẫu nhiên.
-def build_schedule(protocols, scenarios, trial_count, seed, run_id):
-    schedule = []
-    order = 0
-    for block_id in range(1, trial_count + 1):
-        combinations = [
-            (protocol, scenario)
-            for protocol in protocols for scenario in scenarios
-        ]
-        random.Random(seed + block_id).shuffle(combinations)
-        for protocol, scenario in combinations:
-            order += 1
-            trial_id = f"{protocol}_{scenario.lower()}_r{block_id:02d}"
-            schedule.append({
-                "run_id": run_id,
-                "block_id": block_id,
-                "trial_order": order,
-                "trial_id": trial_id,
-                "trial_tag": f"o{order:03d}_{trial_id}",
-                "protocol": protocol,
-                "scenario": scenario,
-                "stream_count": SCENARIOS[scenario],
-            })
-    return schedule
-
-
-# Ghi các dòng dữ liệu theo schema CSV cố định.
-def write_csv(path: Path, fields, rows) -> None:
-    with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fields)
-        writer.writeheader()
-        writer.writerows(rows)
 
 
 # Đọc và kiểm tra manifest payload đã tạo.
@@ -98,52 +64,58 @@ def load_payloads(payload_dir: Path) -> list[dict]:
 
 # Đọc cấu hình, chạy trial và ghi toàn bộ kết quả.
 def main() -> int:
-    cfg_path = sys.argv[1] if len(sys.argv) > 1 else "config.env"
-    cfg = load_env(cfg_path)
-    if not cfg.get("SERVER_HOST") or cfg["SERVER_HOST"] == "CHANGE_ME":
-        raise ValueError("phải đặt SERVER_HOST trong config.env")
-    protocols = split_csv(cfg.get("PROTOCOLS", ",".join(PROTOCOLS)))
-    scenarios = split_csv(cfg.get("SCENARIOS", ",".join(SCENARIOS)))
-    unknown_protocols = sorted(set(protocols) - set(PROTOCOLS))
-    unknown_scenarios = sorted(set(scenarios) - set(SCENARIOS))
-    if unknown_protocols or unknown_scenarios:
-        raise ValueError(
-            f"giao thức lạ={unknown_protocols}, kịch bản lạ={unknown_scenarios}"
-        )
-    trials = int(cfg.get("TRIALS_PER_COMBINATION", "10"))
-    samples_per_stream = int(cfg.get("SAMPLES_PER_STREAM_PER_TRIAL", "100"))
-    cooldown = float(cfg.get("INTER_TRIAL_DELAY_SECONDS", "3"))
-    if trials <= 0 or samples_per_stream <= 0 or cooldown < 0:
-        raise ValueError(
-            "số trial và mẫu phải dương, thời gian nghỉ không được âm"
-        )
+    config_path = sys.argv[1] if len(sys.argv) > 1 else "config.env"
+    settings = load_settings(config_path)
+    scenarios = {
+        name: Scenario(name, stream_count)
+        for name, stream_count in SCENARIOS.items()
+    }
+    run_id = settings.text("RUN_ID") or time.strftime("%Y%m%dT%H%M%S")
+    plan = build_plan(
+        settings, scenarios, default_seed=20260814, run_id=run_id,
+    )
+    cfg = settings.values
 
-    payload_dir = Path(cfg.get("PAYLOAD_DIR", "payloads"))
-    payloads = load_payloads(payload_dir)
-    run_id = cfg.get("RUN_ID", "").strip() or time.strftime("%Y%m%dT%H%M%S")
-    seed = int(cfg.get("RANDOM_SEED", "20260814"))
-    schedule = build_schedule(protocols, scenarios, trials, seed, run_id)
+    samples_per_stream = settings.integer(
+        "SAMPLES_PER_STREAM_PER_TRIAL", 100, minimum=1
+    )
+    payloads = load_payloads(settings.path("PAYLOAD_DIR", "payloads"))
+    schedule = build_schedule(plan.matrix, plan.trials, plan.seed, run_id)
+
+    print(render_matrix(plan.matrix, plan.scenarios, plan.trials), flush=True)
     print(
-        f"[PLAN] trials_per_combination={trials} "
+        f"[PLAN] trials_per_configuration={plan.trials} "
         f"samples_per_stream_per_trial={samples_per_stream} "
         f"payload_bytes={PAYLOAD_BYTES} payload_lines={PAYLOAD_LINES} "
         f"total_trials={len(schedule)}",
         flush=True,
     )
 
-    result_dir = Path(cfg.get("RESULT_DIR", "artifacts/results"))
+    result_dir = plan.result_dir
     result_dir.mkdir(parents=True, exist_ok=True)
-    write_csv(result_dir / "experiment_order.csv", ORDER_FIELDS, schedule)
+    write_rows(result_dir / "experiment_order.csv", ORDER_FIELDS, schedule)
     metadata = {
         "run_id": run_id,
         "created_time_ns": time.time_ns(),
-        "config_path": str(Path(cfg_path).resolve()),
-        "protocols": protocols,
-        "scenarios": {name: SCENARIOS[name] for name in scenarios},
-        "trials_per_combination": trials,
+        "config_path": str(settings.source),
+        "protocols": list(plan.protocols),
+        "scenarios": {item.name: item.stream_count for item in plan.scenarios},
+        "experiment_matrix": {
+            protocol: list(plan.matrix.scenarios_for(protocol))
+            for protocol in plan.matrix.protocols()
+        },
+        "skipped_configurations": [
+            {
+                "protocol": item.protocol,
+                "scenario": item.scenario.name,
+                "reason": item.reason,
+            }
+            for item in plan.matrix.skipped
+        ],
+        "trials_per_configuration": plan.trials,
         "samples_per_stream_per_trial": samples_per_stream,
         "payloads": payloads,
-        "random_seed": seed,
+        "random_seed": plan.seed,
         "ordering": "randomized_complete_blocks",
         "connection_scope": "one new connection per trial",
         "stream_open_rule": "all roles opened and READY before warm-up and barrier",
@@ -164,7 +136,7 @@ def main() -> int:
             "from immediately before connection open until transport audit "
             "and all physical shells respond to the readiness probe"
         ),
-        "warmup_seconds": float(cfg.get("WARMUP_SECONDS", "5")),
+        "warmup_seconds": plan.warmup_seconds,
         "execution_mode": (
             "direct per-sample sed output command in persistent Bash; "
             "no remote agent"
@@ -228,7 +200,7 @@ def main() -> int:
     # Bằng chứng về binary thực sự phục vụ lần chạy này: bộ kết quả tự
     # chứng minh nó được đo bằng thuật toán nào, không phải suy luận sau.
     metadata["transport_provenance"] = provenance.collect(
-        cfg, protocols, PROJECT_DIR
+        cfg, plan.protocols, PROJECT_DIR
     )
     (result_dir / "metadata.json").write_text(
         json.dumps(metadata, indent=2, ensure_ascii=False) + "\n",
@@ -269,12 +241,12 @@ def main() -> int:
                 "transport_semantics": semantics,
                 "note": audit["note"],
             })
-        write_csv(result_dir / "transfers.csv", TRANSFER_FIELDS, all_transfers)
-        write_csv(result_dir / "streams.csv", STREAM_FIELDS, all_streams)
-        write_csv(result_dir / "trials.csv", TRIAL_FIELDS, all_trials)
-        write_csv(result_dir / "stream_audit.csv", AUDIT_FIELDS, audits)
-        if cooldown and trial_index + 1 < len(schedule):
-            time.sleep(cooldown)
+        write_rows(result_dir / "transfers.csv", TRANSFER_FIELDS, all_transfers)
+        write_rows(result_dir / "streams.csv", STREAM_FIELDS, all_streams)
+        write_rows(result_dir / "trials.csv", TRIAL_FIELDS, all_trials)
+        write_rows(result_dir / "stream_audit.csv", AUDIT_FIELDS, audits)
+        if plan.inter_trial_delay_seconds and trial_index + 1 < len(schedule):
+            time.sleep(plan.inter_trial_delay_seconds)
 
     print(f"Saved {len(schedule)} W2 trials to {result_dir}")
     return 0

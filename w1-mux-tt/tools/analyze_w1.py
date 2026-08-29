@@ -2,52 +2,17 @@
 from __future__ import annotations
 
 import csv
-import math
-import statistics
 import sys
 from collections import defaultdict
 from pathlib import Path
 
+REPO_DIR = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO_DIR))
 
-# Tính percentile bằng nội suy tuyến tính.
-def percentile(values, probability):
-    ordered = sorted(values)
-    if not ordered:
-        return ""
-    position = (len(ordered) - 1) * probability
-    lower, upper = math.floor(position), math.ceil(position)
-    if lower == upper:
-        return ordered[lower]
-    return ordered[lower] + (ordered[upper] - ordered[lower]) * (position - lower)
-
-
-# Định dạng số thực ổn định cho CSV.
-def fmt(value):
-    return "" if value == "" else f"{value:.3f}"
-
-
-# Đọc CSV và kiểm tra các cột bắt buộc.
-def load_csv(path, required):
-    with path.open(newline="", encoding="utf-8") as handle:
-        reader = csv.DictReader(handle)
-        missing = set(required) - set(reader.fieldnames or [])
-        if missing:
-            raise ValueError(f"{path} missing columns: {sorted(missing)}")
-        rows = list(reader)
-    if not rows:
-        raise ValueError(f"no rows in {path}")
-    return rows
-
-
-# Tính Mean, Median, P95 và P99.
-def latency_stats(values):
-    return {
-        "mean_ms": fmt(statistics.mean(values) if values else ""),
-        "median_ms": fmt(statistics.median(values) if values else ""),
-        "p95_ms": fmt(percentile(values, 0.95)),
-        "p99_ms": fmt(percentile(values, 0.99)),
-    }
-
+from harness.results import read_rows, write_summary  # noqa: E402
+from harness.statistics import (  # noqa: E402
+    fmt, latency_stats, percentile, rate_pct, summarize_latency,
+)
 
 # Tách kết quả trên toàn bộ kế hoạch và trên các lệnh thực sự đã thử gửi.
 def completion_stats(rows):
@@ -270,37 +235,28 @@ def summarize_streams(samples, streams, trials):
     return output
 
 
-# Ghi một bảng tổng hợp ra CSV.
-def write_csv(path, rows):
-    if not rows:
-        raise ValueError(f"no summary rows for {path}")
-    with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
-        writer.writeheader()
-        writer.writerows(rows)
-
 
 # Tạo toàn bộ bảng thống kê W1.
 def main():
     result_dir = Path(sys.argv[1] if len(sys.argv) > 1 else "artifacts/results")
-    samples = load_csv(result_dir / "samples.csv", {
+    samples = read_rows(result_dir / "samples.csv", {
         "trial_id", "protocol", "scenario", "stream_role", "sample_index",
         "cycle_index", "command_index", "command", "status", "latency_ms",
         "output_complete", "output_verifiable",
     })
-    streams = load_csv(result_dir / "streams.csv", {
+    streams = read_rows(result_dir / "streams.csv", {
         "protocol", "scenario", "stream_completed",
     })
-    trials = load_csv(result_dir / "trials.csv", {
+    trials = read_rows(result_dir / "trials.csv", {
         "protocol", "scenario", "connection_valid", "setup_ms",
         "ready_streams", "stream_count", "expected_commands",
     })
     validate_sample_counts(samples, trials)
     command_rows = summarize_commands(samples, per_stream=False)
     command_rows += summarize_commands(samples, per_stream=True)
-    write_csv(result_dir / "command_summary.csv", command_rows)
-    write_csv(result_dir / "scenario_summary.csv", summarize_scenarios(samples, streams, trials))
-    write_csv(
+    write_summary(result_dir / "command_summary.csv", command_rows)
+    write_summary(result_dir / "scenario_summary.csv", summarize_scenarios(samples, streams, trials))
+    write_summary(
         result_dir / "stream_summary.csv",
         summarize_streams(samples, streams, trials),
     )

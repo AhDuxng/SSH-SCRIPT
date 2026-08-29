@@ -4,11 +4,17 @@
 from __future__ import annotations
 
 import csv
-import math
-import statistics
 import sys
 from collections import defaultdict
 from pathlib import Path
+
+REPO_DIR = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO_DIR))
+
+from harness.results import read_rows, write_summary  # noqa: E402
+from harness.statistics import (  # noqa: E402
+    fmt, latency_stats, percentile, rate_pct, summarize_latency,
+)
 
 
 SCENARIO_FIELDS = [
@@ -36,40 +42,9 @@ COMPARE_FIELDS = [
 ]
 
 
-def read_csv(path: Path):
-    with path.open(newline="", encoding="utf-8") as handle:
-        return list(csv.DictReader(handle))
 
 
-def write_csv(path: Path, fields, rows):
-    with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fields)
-        writer.writeheader()
-        writer.writerows(rows)
 
-
-def pct(numerator, denominator):
-    return "" if not denominator else f"{100.0 * numerator / denominator:.3f}"
-
-
-def percentile(values, probability):
-    if not values:
-        return ""
-    ordered = sorted(values)
-    position = (len(ordered) - 1) * probability
-    lower, upper = math.floor(position), math.ceil(position)
-    if lower == upper:
-        return ordered[lower]
-    return ordered[lower] + (ordered[upper] - ordered[lower]) * (position - lower)
-
-
-def stats(values):
-    return {
-        "mean": f"{statistics.mean(values):.3f}" if values else "",
-        "median": f"{statistics.median(values):.3f}" if values else "",
-        "p95": f"{percentile(values, 0.95):.3f}" if values else "",
-        "p99": f"{percentile(values, 0.99):.3f}" if values else "",
-    }
 
 
 def validate(order_rows, key_rows, stream_rows, trial_rows, probe_chars):
@@ -108,9 +83,9 @@ def validate(order_rows, key_rows, stream_rows, trial_rows, probe_chars):
 def summarize_group(keys, streams, trials):
     completed = [row for row in keys if row["completed"] == "1"]
     values = [float(row["latency_ms"]) for row in completed if row["latency_ms"]]
-    latency = stats(values)
+    latency = latency_stats(values)
     setups = [float(row["setup_ms"]) for row in trials if row["setup_ms"]]
-    setup = stats(setups)
+    setup = latency_stats(setups)
     stalls = sum(row["stall"] == "1" for row in keys)
     timeouts = sum(row["timeout"] == "1" for row in keys)
     complete_streams = sum(row["stream_complete"] == "1" for row in streams)
@@ -120,25 +95,25 @@ def summarize_group(keys, streams, trials):
         "scenario": keys[0]["scenario"],
         "trials": len(trials),
         "measurement_mode": keys[0]["measurement_mode"],
-        "connection_valid_rate_pct": pct(sum(row["connection_valid"] == "1" for row in trials), len(trials)),
+        "connection_valid_rate_pct": rate_pct(sum(row["connection_valid"] == "1" for row in trials), len(trials)),
         "expected_keystrokes": len(keys),
         "completed_keystrokes": len(completed),
-        "keystroke_completion_rate_pct": pct(len(completed), len(keys)),
+        "keystroke_completion_rate_pct": rate_pct(len(completed), len(keys)),
         "stall_count": stalls,
-        "stall_rate_pct": pct(stalls, len(keys)),
+        "stall_rate_pct": rate_pct(stalls, len(keys)),
         "timeout_count": timeouts,
-        "timeout_rate_pct": pct(timeouts, len(keys)),
-        "mean_ms": latency["mean"],
-        "median_ms": latency["median"],
-        "p95_ms": latency["p95"],
-        "p99_ms": latency["p99"],
+        "timeout_rate_pct": rate_pct(timeouts, len(keys)),
+        "mean_ms": latency["mean_ms"],
+        "median_ms": latency["median_ms"],
+        "p95_ms": latency["p95_ms"],
+        "p99_ms": latency["p99_ms"],
         "expected_streams": len(streams),
         "completed_streams": complete_streams,
-        "stream_completion_rate_pct": pct(complete_streams, len(streams)),
-        "setup_mean_ms": setup["mean"],
-        "setup_median_ms": setup["median"],
-        "setup_p95_ms": setup["p95"],
-        "setup_p99_ms": setup["p99"],
+        "stream_completion_rate_pct": rate_pct(complete_streams, len(streams)),
+        "setup_mean_ms": setup["mean_ms"],
+        "setup_median_ms": setup["median_ms"],
+        "setup_p95_ms": setup["p95_ms"],
+        "setup_p99_ms": setup["p99_ms"],
     }
 
 
@@ -168,7 +143,7 @@ def summarize_streams(key_rows, stream_rows):
         results = result_groups[key]
         completed = [row for row in keys if row["completed"] == "1"]
         values = [float(row["latency_ms"]) for row in completed if row["latency_ms"]]
-        latency = stats(values)
+        latency = latency_stats(values)
         stalls = sum(row["stall"] == "1" for row in keys)
         timeouts = sum(row["timeout"] == "1" for row in keys)
         complete_streams = sum(row["stream_complete"] == "1" for row in results)
@@ -176,13 +151,13 @@ def summarize_streams(key_rows, stream_rows):
             "protocol": key[0], "editor": key[1], "scenario": key[2], "stream_role": key[3],
             "trials": len(results), "measurement_mode": keys[0]["measurement_mode"],
             "expected_keystrokes": len(keys), "completed_keystrokes": len(completed),
-            "keystroke_completion_rate_pct": pct(len(completed), len(keys)),
-            "stall_count": stalls, "stall_rate_pct": pct(stalls, len(keys)),
-            "timeout_count": timeouts, "timeout_rate_pct": pct(timeouts, len(keys)),
-            "mean_ms": latency["mean"], "median_ms": latency["median"],
-            "p95_ms": latency["p95"], "p99_ms": latency["p99"],
+            "keystroke_completion_rate_pct": rate_pct(len(completed), len(keys)),
+            "stall_count": stalls, "stall_rate_pct": rate_pct(stalls, len(keys)),
+            "timeout_count": timeouts, "timeout_rate_pct": rate_pct(timeouts, len(keys)),
+            "mean_ms": latency["mean_ms"], "median_ms": latency["median_ms"],
+            "p95_ms": latency["p95_ms"], "p99_ms": latency["p99_ms"],
             "completed_streams": complete_streams,
-            "stream_completion_rate_pct": pct(complete_streams, len(results)),
+            "stream_completion_rate_pct": rate_pct(complete_streams, len(results)),
         })
     return output
 
@@ -211,10 +186,10 @@ def compare_ssh(summary):
 
 def main() -> int:
     result_dir = Path(sys.argv[1] if len(sys.argv) > 1 else "artifacts/results")
-    order_rows = read_csv(result_dir / "experiment_order.csv")
-    key_rows = read_csv(result_dir / "keystrokes.csv")
-    stream_rows = read_csv(result_dir / "streams.csv")
-    trial_rows = read_csv(result_dir / "trials.csv")
+    order_rows = read_rows(result_dir / "experiment_order.csv")
+    key_rows = read_rows(result_dir / "keystrokes.csv")
+    stream_rows = read_rows(result_dir / "streams.csv")
+    trial_rows = read_rows(result_dir / "trials.csv")
     if not key_rows:
         raise ValueError("keystrokes.csv không có dữ liệu")
     probe_chars = int(key_rows[0]["char_total"])
@@ -222,9 +197,9 @@ def main() -> int:
     scenario_summary = summarize_scenarios(key_rows, stream_rows, trial_rows)
     stream_summary = summarize_streams(key_rows, stream_rows)
     comparison = compare_ssh(scenario_summary)
-    write_csv(result_dir / "scenario_summary.csv", SCENARIO_FIELDS, scenario_summary)
-    write_csv(result_dir / "stream_summary.csv", STREAM_SUMMARY_FIELDS, stream_summary)
-    write_csv(result_dir / "ssh3_vs_ssh.csv", COMPARE_FIELDS, comparison)
+    write_summary(result_dir / "scenario_summary.csv", scenario_summary)
+    write_summary(result_dir / "stream_summary.csv", stream_summary)
+    write_summary(result_dir / "ssh3_vs_ssh.csv", comparison)
     for row in comparison:
         if row["verdict"] != "OK":
             print(

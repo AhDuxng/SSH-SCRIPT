@@ -156,58 +156,39 @@ class ContentCompletionTests(unittest.TestCase):
         self.assertEqual(transfer.exit_code, 0)
 
 
-class MoshPaneLayoutTests(unittest.TestCase):
-    def _connection(self, roles, rows="144", layout="tmux"):
+class MoshSessionTests(unittest.TestCase):
+    """Mosh luôn là một terminal session duy nhất.
+
+    Nó chỉ được đánh giá ở kịch bản một workload, nên không có cấu hình nào
+    khiến workload phải dựng nhiều pane để giả lập stream song song.
+    """
+
+    def _connection(self, roles, rows="128"):
         return DirectW2Connection(
-            {
-                "W2_MOSH_COLUMNS": "4096", "W2_MOSH_ROWS": rows,
-                "W2_MOSH_LAYOUT": layout, "TMUX_BIN": "tmux",
-            },
+            {"W2_MOSH_COLUMNS": "4096", "W2_MOSH_ROWS": rows},
             "mosh", roles, "o001_trial",
         )
 
-    def test_every_role_gets_its_own_pane_and_fifo(self):
-        connection = self._connection(["output_0", "output_1"])
-        specs = connection._stream_specs()
+    def test_single_terminal_spec_without_pane_splitting(self):
+        specs = self._connection(["output_0"])._stream_specs()
         command = specs[0].remote_command
         self.assertEqual(len(specs), 1)
         self.assertEqual(specs[0].role, "terminal")
-        # Một pane điều khiển cộng một pane cho mỗi vai trò.
-        self.assertEqual(command.count(" split-window "), 2)
-        self.assertEqual(command.count("mkfifo "), 2)
-        self.assertIn("even-vertical", command)
-        self.assertIn("synchronize-panes off", command)
-        self.assertIn("-f /dev/null", command)
-        self.assertEqual(len(connection.fifo_paths), 2)
-
-    def test_single_role_keeps_the_plain_shell(self):
-        connection = self._connection(["output_0"])
-        command = connection._stream_specs()[0].remote_command
+        self.assertNotIn("tmux", command)
         self.assertNotIn("split-window", command)
         self.assertIn("stty -echo", command)
 
-    def test_layout_override_restores_shared_shell(self):
-        connection = self._connection(["output_0", "output_1"], layout="single")
-        command = connection._stream_specs()[0].remote_command
-        self.assertNotIn("split-window", command)
+    def test_viewport_must_hold_the_payload_and_its_markers(self):
+        with self.assertRaisesRegex(ValueError, "viewport Mosh"):
+            self._connection(["output_0"], rows="10")._stream_specs()
 
-    def test_viewport_too_small_is_rejected_before_measuring(self):
-        connection = self._connection(
-            ["output_0", "output_1", "output_2", "output_3"], rows="96",
+    def test_narrow_viewport_is_rejected_so_lines_never_wrap(self):
+        connection = DirectW2Connection(
+            {"W2_MOSH_COLUMNS": "80", "W2_MOSH_ROWS": "128"},
+            "mosh", ["output_0"], "o001_trial",
         )
         with self.assertRaisesRegex(ValueError, "viewport Mosh"):
             connection._stream_specs()
-
-    def test_command_is_forwarded_to_the_pane_fifo(self):
-        connection = self._connection(["output_0", "output_1"])
-        connection._stream_specs()
-        wrapped = connection._fifo_wrapper("output_1")(b"printf hello\n")
-        text = wrapped.decode()
-        self.assertIn(connection.fifo_paths["output_1"], text)
-        self.assertIn("printf hello", text)
-        # Pane tự xóa vùng hiển thị của mình ngay trước dấu mốc bắt đầu.
-        self.assertIn("2J", text)
-        self.assertTrue(text.endswith("\n"))
 
 
 class AnalyzerTests(unittest.TestCase):

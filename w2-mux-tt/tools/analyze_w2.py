@@ -4,53 +4,22 @@
 from __future__ import annotations
 
 import csv
-import math
 import statistics
 import sys
 from collections import defaultdict
 from pathlib import Path
 
+REPO_DIR = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO_DIR))
 
-# Tính percentile bằng nội suy tuyến tính.
-def percentile(values, probability):
-    ordered = sorted(values)
-    if not ordered:
-        return ""
-    position = (len(ordered) - 1) * probability
-    lower, upper = math.floor(position), math.ceil(position)
-    if lower == upper:
-        return ordered[lower]
-    return ordered[lower] + (
-        ordered[upper] - ordered[lower]
-    ) * (position - lower)
+from harness.results import read_rows, write_summary  # noqa: E402
+from harness.statistics import (  # noqa: E402
+    fmt, latency_stats, percentile, rate_pct, summarize_latency,
+)
 
 
-# Định dạng số thực ổn định cho CSV.
-def fmt(value):
-    return "" if value == "" else f"{value:.3f}"
 
 
-# Đọc CSV và kiểm tra các cột bắt buộc.
-def load_csv(path: Path, required: set[str]):
-    with path.open(newline="", encoding="utf-8") as handle:
-        reader = csv.DictReader(handle)
-        missing = required - set(reader.fieldnames or [])
-        if missing:
-            raise ValueError(f"{path} thiếu cột: {sorted(missing)}")
-        rows = list(reader)
-    if not rows:
-        raise ValueError(f"không có dữ liệu trong {path}")
-    return rows
-
-
-# Tính Mean, Median, P95 và P99.
-def latency_stats(values):
-    return {
-        "mean_ms": fmt(statistics.mean(values) if values else ""),
-        "median_ms": fmt(statistics.median(values) if values else ""),
-        "p95_ms": fmt(percentile(values, 0.95)),
-        "p99_ms": fmt(percentile(values, 0.99)),
-    }
 
 
 # Kiểm tra đủ mẫu và không trùng chỉ số trong từng output stream.
@@ -434,15 +403,6 @@ def compare_ssh3_to_ssh(scenario_rows):
     return output
 
 
-# Ghi bảng tổng hợp ra CSV.
-def write_csv(path: Path, rows) -> None:
-    if not rows:
-        raise ValueError(f"không có dòng tổng hợp cho {path}")
-    with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
-        writer.writeheader()
-        writer.writerows(rows)
-
 
 # Tạo bảng riêng diễn giải đúng độ đầy đủ output quan sát qua terminal Mosh.
 def mosh_output_rows(scenario_rows):
@@ -478,7 +438,7 @@ def mosh_output_rows(scenario_rows):
 # Tạo các bảng tổng hợp W2.
 def main() -> int:
     result_dir = Path(sys.argv[1] if len(sys.argv) > 1 else "artifacts/results")
-    transfers = load_csv(result_dir / "transfers.csv", {
+    transfers = read_rows(result_dir / "transfers.csv", {
         "trial_id", "protocol", "scenario", "stream_role", "status",
         "completion_latency_ms", "first_byte_latency_ms", "marker_latency_ms",
         "throughput_mib_s",
@@ -488,26 +448,26 @@ def main() -> int:
         "completion_marker_received",
         "sample_index",
     })
-    streams = load_csv(result_dir / "streams.csv", {
+    streams = read_rows(result_dir / "streams.csv", {
         "protocol", "scenario", "stream_role", "stream_completed",
     })
-    trials = load_csv(result_dir / "trials.csv", {
+    trials = read_rows(result_dir / "trials.csv", {
         "trial_id", "protocol", "scenario", "stream_count",
         "connection_valid", "ready_streams", "setup_ms", "expected_transfers",
     })
     validate_transfers(transfers, trials)
     scenario_rows = summarize_scenarios(transfers, streams, trials)
-    write_csv(result_dir / "scenario_summary.csv", scenario_rows)
-    write_csv(
+    write_summary(result_dir / "scenario_summary.csv", scenario_rows)
+    write_summary(
         result_dir / "stream_summary.csv",
         summarize_streams(transfers, streams),
     )
     mosh_rows = mosh_output_rows(scenario_rows)
     if mosh_rows:
-        write_csv(result_dir / "mosh_output_completeness.csv", mosh_rows)
+        write_summary(result_dir / "mosh_output_completeness.csv", mosh_rows)
     comparisons = compare_ssh3_to_ssh(scenario_rows)
     if comparisons:
-        write_csv(result_dir / "ssh3_vs_ssh.csv", comparisons)
+        write_summary(result_dir / "ssh3_vs_ssh.csv", comparisons)
         for row in comparisons:
             if row["verdict"] == "ssh3_slower":
                 print(

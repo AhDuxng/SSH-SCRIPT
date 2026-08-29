@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import codecs
-import shlex
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -188,9 +187,10 @@ class DirectCoordinator:
     def _scan_screen(self, wall_ns: int, mono_ns: int) -> None:
         """Với Mosh, terminal update là nguồn sự thật thay cho byte thô.
 
-        tmux chèn cursor sequence giữa các pane nên luồng byte thô không còn
-        giữ nguyên ranh giới dòng. Viewport đã dựng lại thì có, và mỗi dòng
-        mang token riêng của trial/role/sample nên không thể lẫn giữa các mẫu.
+        Mosh đồng bộ trạng thái màn hình chứ không truyền một luồng byte
+        lossless, nên byte thô nhận được không giữ nguyên ranh giới dòng của
+        payload. Viewport đã dựng lại thì có, và mỗi dòng mang token riêng của
+        trial/role/sample nên không thể lẫn giữa các mẫu.
         """
         if self.screen is None:
             return
@@ -375,18 +375,7 @@ class DirectW2Connection:
         self.coordinators: list[DirectCoordinator] = []
         self.pumps: list[threading.Thread] = []
         self.closing = False
-        self.tmux_session = ""
-        self.tmux_socket = ""
-        self.fifo_paths: dict[str, str] = {}
         self.audit = ConnectionAudit(protocol, False, 0, 0, 0, {}, [], {}, "chưa mở")
-
-    # Cho biết Mosh có chạy mỗi vai trò trong một tmux pane riêng hay không.
-    def _mosh_uses_panes(self) -> bool:
-        if self.protocol != "mosh":
-            return False
-        if self.cfg.get("W2_MOSH_LAYOUT", "tmux").strip().lower() != "tmux":
-            return False
-        return len(self.roles) > 1
 
     # Kiểm tra viewport đủ chỗ cho toàn bộ batch của kịch bản.
     def _check_viewport(self, columns: int, rows: int, minimum_rows: int) -> None:
@@ -397,56 +386,6 @@ class DirectW2Connection:
                 f"nhận columns={columns}, rows={rows}"
             )
 
-    # Tạo lệnh dựng tmux với một pane điều khiển và một pane cho mỗi vai trò.
-    def _tmux_remote_command(self, shell: str, columns: int, rows: int) -> str:
-        session = f"w2_{self.trial_tag}"
-        session = "".join(
-            character if character.isalnum() else "_" for character in session
-        )[:80]
-        socket = f"{session[:40]}_socket"
-        self.tmux_socket = socket
-        tmux = (
-            f"{shlex.quote(self.cfg.get('TMUX_BIN', 'tmux'))} "
-            f"-L {shlex.quote(socket)} -f /dev/null"
-        )
-        self.tmux_session = session
-
-        control = "stty -echo 2>/dev/null; while IFS= read -r __w2cmd; do eval \"$__w2cmd\"; done"
-        commands = [
-            f"{tmux} kill-server 2>/dev/null || true",
-            (
-                f"{tmux} new-session -d -x {columns} -y {rows} "
-                f"-s {shlex.quote(session)} {shlex.quote(control)}"
-            ),
-            f"{tmux} set-option -t {shlex.quote(session)} status off",
-            f"{tmux} set-option -t {shlex.quote(session)} base-index 0",
-            f"{tmux} set-window-option -t {shlex.quote(session)} pane-base-index 0",
-            f"{tmux} set-window-option -t {shlex.quote(session)} synchronize-panes off",
-        ]
-        for index, role in enumerate(self.roles):
-            fifo = f"/tmp/w2f_{session}_{index}"
-            self.fifo_paths[role] = fifo
-            # Mở FIFO ở chế độ đọc-ghi để shell của pane không bao giờ thấy EOF
-            # và không cần một tiến trình ghi thường trực.
-            worker = (
-                f"stty -echo 2>/dev/null; "
-                f"exec {shell} <> {shlex.quote(fifo)}"
-            )
-            commands.append(f"rm -f {shlex.quote(fifo)}; mkfifo {shlex.quote(fifo)}")
-            commands.append(
-                f"{tmux} split-window -d -t {shlex.quote(session)} "
-                f"{shlex.quote('/bin/bash -lc ' + shlex.quote(worker))}"
-            )
-        commands += [
-            # Chia đều theo chiều dọc: mọi pane giữ nguyên chiều rộng terminal
-            # nên một dòng payload 4095 ký tự không bao giờ bị xuống dòng, và
-            # chiều cao mỗi pane tiên đoán được thay vì phụ thuộc resize.
-            f"{tmux} select-layout -t {shlex.quote(session)} even-vertical",
-            f"{tmux} select-pane -t {shlex.quote(session + ':0.0')}",
-            f"exec {tmux} attach-session -t {shlex.quote(session)}",
-        ]
-        return "; ".join(commands)
-
     # Tạo Bash thường trực cho từng mô hình transport.
     def _stream_specs(self) -> list[StreamSpec]:
         shell = self.cfg.get(
@@ -456,23 +395,7 @@ class DirectW2Connection:
             return [StreamSpec(role, f"exec {shell}") for role in self.roles]
 
         columns = int(self.cfg.get("W2_MOSH_COLUMNS", "4096"))
-        rows = int(self.cfg.get("W2_MOSH_ROWS", "144"))
-        if self._mosh_uses_panes():
-            # even-vertical chia đều cho pane điều khiển và các pane payload;
-            # mỗi pane cần chỗ cho payload, hai dấu mốc và một dòng dự phòng,
-            # cộng một dòng viền cho mỗi lần tách.
-            per_pane = PAYLOAD_LINES + 3
-            self._check_viewport(
-                columns, rows, per_pane * (len(self.roles) + 1) + len(self.roles)
-            )
-            return [StreamSpec(
-                "terminal",
-                self._tmux_remote_command(shell, columns, rows),
-                allocate_pty=True,
-                columns=columns,
-                rows=rows,
-            )]
-
+        rows = int(self.cfg.get("W2_MOSH_ROWS", "128"))
         self._check_viewport(columns, rows, len(self.roles) * (PAYLOAD_LINES + 2))
         return [StreamSpec(
             "terminal",
@@ -505,22 +428,6 @@ class DirectW2Connection:
                     coordinator.fail_all(message)
                 return
 
-    # Bọc một dòng lệnh để pane điều khiển chuyển tiếp vào FIFO của vai trò.
-    def _fifo_wrapper(self, role: str):
-        fifo = self.fifo_paths[role]
-
-        def wrap(line: bytes) -> bytes:
-            body = line.decode("utf-8").rstrip("\n")
-            # Xóa pane ngay trước dấu mốc bắt đầu để nội dung của mẫu trước
-            # không còn nằm trên viewport khi mẫu mới được xác thực.
-            payload = "printf '\\033[2J\\033[H'; " + body
-            forward = (
-                f"printf '%s\\n' {shlex.quote(payload)} > {shlex.quote(fifo)}"
-            )
-            return (forward + "\n").encode("utf-8")
-
-        return wrap
-
     # Mở transport, Bash và kiểm tra sẵn sàng song song.
     def open(self, timeout: float) -> dict[str, DirectOutputStream]:
         self.transport = open_multiplex_connection(
@@ -538,20 +445,16 @@ class DirectW2Connection:
             )
         if self.protocol == "mosh":
             screen = TerminalScreen(
-                int(self.cfg.get("W2_MOSH_ROWS", "144")),
+                int(self.cfg.get("W2_MOSH_ROWS", "128")),
                 int(self.cfg.get("W2_MOSH_COLUMNS", "4096")),
             )
-            uses_panes = self._mosh_uses_panes()
             coordinator = DirectCoordinator(
-                raw_streams["terminal"], not uses_panes, max_capture, screen,
+                raw_streams["terminal"], True, max_capture, screen,
                 float(self.cfg.get("MOSH_CONTENT_SETTLE_SECONDS", "0.5")),
             )
             self.coordinators.append(coordinator)
             for role in self.roles:
-                self.streams[role] = DirectOutputStream(
-                    role, coordinator,
-                    self._fifo_wrapper(role) if uses_panes else None,
-                )
+                self.streams[role] = DirectOutputStream(role, coordinator)
         else:
             for role in self.roles:
                 coordinator = DirectCoordinator(raw_streams[role], False, max_capture)
@@ -597,28 +500,6 @@ class DirectW2Connection:
             for future in futures:
                 future.result()
 
-    # Dọn tmux server và FIFO của trial qua chính pane điều khiển.
-    def _teardown_tmux(self, stream) -> None:
-        """Không mở connection phụ: mọi thứ đi qua terminal đang đo.
-
-        tmux server chạy detached nên nó sống sót khi Mosh đóng; nếu không dọn,
-        mỗi trial để lại một server cùng các FIFO trên máy đích.
-        """
-        if not self.tmux_session:
-            return
-        tmux = (
-            f"{shlex.quote(self.cfg.get('TMUX_BIN', 'tmux'))} "
-            f"-L {shlex.quote(self.tmux_socket)}"
-        )
-        fifos = " ".join(
-            shlex.quote(path) for path in self.fifo_paths.values()
-        )
-        command = f"rm -f {fifos}; {tmux} kill-server 2>/dev/null || true\n"
-        try:
-            stream.send(command.encode("utf-8"))
-        except Exception:
-            pass
-
     # Đóng Bash và connection sau trial.
     def close(self) -> None:
         self.closing = True
@@ -628,7 +509,6 @@ class DirectW2Connection:
             if identity in sent:
                 continue
             sent.add(identity)
-            self._teardown_tmux(stream.raw_stream)
             try:
                 stream.raw_stream.send(b"exit\n")
             except Exception:

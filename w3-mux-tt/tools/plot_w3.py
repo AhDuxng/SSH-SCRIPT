@@ -1,219 +1,185 @@
 #!/usr/bin/env python3
-"""Vẽ W3 theo bố cục, màu và hatch nhất quán với W1."""
+"""Vẽ hình W3 từ bảng tổng hợp đã xử lý.
+
+W3 có thêm chiều editor, nên mỗi hình là một hàng panel theo editor. Giao thức
+giữ nguyên màu và hatch như ở W1/W2/W4.
+"""
 
 from __future__ import annotations
 
 import argparse
 import csv
-import os
-import tempfile
+import sys
 from pathlib import Path
 
-cache = str(Path(tempfile.gettempdir()) / "w3_mux_tt_matplotlib_cache")
-os.environ.setdefault("MPLCONFIGDIR", cache)
-os.environ.setdefault("XDG_CACHE_HOME", cache)
+REPO_DIR = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO_DIR))
 
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-import numpy as np
+import matplotlib.pyplot as plt  # noqa: E402
 
+from harness.plotting import (  # noqa: E402
+    WIDE,
+    Series,
+    clear_figures,
+    deduplicated_legend,
+    grouped_bars,
+    save_figure,
+    use_paper_style,
+    value_or_none,
+)
+from stream_mux.capability import label as protocol_label  # noqa: E402
 
-PROTOCOLS = ("ssh", "ssh3", "mosh")
-EDITORS = ("vim", "nano")
 SCENARIOS = ("W3-I1", "W3-I2", "W3-I4")
-STREAMS = {"W3-I1": 1, "W3-I2": 2, "W3-I4": 4}
-LABELS = {"ssh": "SSH", "ssh3": "SSH3", "mosh": "Mosh"}
-COLORS = {"ssh": "#1696D2", "ssh3": "#E69F00", "mosh": "#009E73"}
-HATCHES = {"ssh": "///", "ssh3": "--", "mosh": "\\\\\\"}
+EDITORS = ("vim", "nano")
+PROTOCOL_ORDER = ("ssh", "ssh3", "mosh")
 
 
-def load(path):
+def load(path: Path) -> list[dict]:
     with path.open(newline="", encoding="utf-8") as handle:
         return list(csv.DictReader(handle))
 
 
-def number(row, field):
-    value = row.get(field, "") if row else ""
-    return float(value) if value else None
-
-
-def label_bars(axis, bars, values, ceiling):
-    for bar, value in zip(bars, values):
-        axis.text(
-            bar.get_x() + bar.get_width() / 2,
-            (value or 0) + max(ceiling * 0.015, 0.08),
-            "N/A" if value is None else f"{value:.1f}",
-            ha="center", va="bottom", fontsize=7,
+def matrix_note(lookup) -> str:
+    partial = [
+        protocol for protocol in PROTOCOL_ORDER
+        if any((editor, protocol, s) in lookup for editor in EDITORS for s in SCENARIOS)
+        and not all(
+            (editor, protocol, s) in lookup for editor in EDITORS for s in SCENARIOS
         )
-
-
-def plot_per_stream(rows, _scenario_rows, output_dir, field, metric, network):
-    stream_lookup = {
-        (row["editor"], row["protocol"], row["scenario"], row["stream_role"]): row
-        for row in rows
-    }
-    values_all = [number(row, field) for row in rows]
-    ceiling = max((value for value in values_all if value is not None), default=1.0)
-    fig, axes = plt.subplots(2, 3, figsize=(18, 10), sharey=True, squeeze=False)
-    width = 0.24
-    for editor_index, editor in enumerate(EDITORS):
-        for scenario_index, scenario in enumerate(SCENARIOS):
-            axis = axes[editor_index][scenario_index]
-            count = STREAMS[scenario]
-            x = np.arange(count, dtype=float)
-            for protocol_index, protocol in enumerate(PROTOCOLS):
-                values = [
-                    number(
-                        stream_lookup.get(
-                            (editor, protocol, scenario, f"interactive_{index}")
-                        ),
-                        field,
-                    )
-                    for index in range(count)
-                ]
-                bars = axis.bar(
-                    x + (protocol_index - 1) * width,
-                    [value or 0 for value in values], width,
-                    label=LABELS[protocol], color=COLORS[protocol],
-                    edgecolor="black", linewidth=0.6, hatch=HATCHES[protocol],
-                )
-                label_bars(axis, bars, values, ceiling)
-            axis.set_title(
-                f"{editor.capitalize()} — {scenario}\n"
-                f"SSH/SSH3: {count} stream{'s' if count > 1 else ''}; "
-                f"Mosh: {count} pane{'s' if count > 1 else ''} / 1 terminal",
-                fontsize=10,
-            )
-            axis.set_xticks(
-                x,
-                [f"Role {index}\nSSH/SSH3 stream\nMosh pane" for index in range(count)],
-                fontsize=7,
-            )
-            axis.set_xlim(-0.55, count - 0.45)
-            axis.set_ylim(0, max(1, ceiling * 1.24))
-            axis.grid(axis="y", alpha=0.25)
-        axes[editor_index][0].set_ylabel("Latency (ms)")
-    axes[0][0].legend(ncol=3, loc="upper left")
-    fig.suptitle(
-        f"W3 transport-aware keystroke latency — {network} — {metric.upper()}"
-    )
-    fig.tight_layout(rect=(0, 0, 1, 0.97))
-    stem = f"figure_1_per_stream_latency_{metric}"
-    fig.savefig(output_dir / f"{stem}.png", dpi=180, bbox_inches="tight")
-    fig.savefig(output_dir / f"{stem}.pdf", bbox_inches="tight")
-    plt.close(fig)
-
-
-def plot_scenario_metric(rows, output_dir, field, title, ylabel, stem, network, percent=False):
-    lookup = {
-        (row["editor"], row["protocol"], row["scenario"]): row
-        for row in rows
-    }
-    x = np.arange(3)
-    width = 0.24
-    all_values = [
-        number(lookup.get((editor, protocol, scenario)), field)
-        for editor in EDITORS for scenario in SCENARIOS for protocol in PROTOCOLS
     ]
-    ceiling = max((value for value in all_values if value is not None), default=1.0)
-    fig, axes = plt.subplots(1, 2, figsize=(16, 5.8), sharey=True)
-    for axis, editor in zip(axes, EDITORS):
-        for protocol_index, protocol in enumerate(PROTOCOLS):
-            values = [
-                number(lookup.get((editor, protocol, scenario)), field)
-                for scenario in SCENARIOS
-            ]
-            bars = axis.bar(
-                x + (protocol_index - 1) * width,
-                [value or 0 for value in values], width,
-                label=LABELS[protocol], color=COLORS[protocol],
-                edgecolor="black", linewidth=0.6, hatch=HATCHES[protocol],
-            )
-            label_bars(axis, bars, values, 100 if percent else ceiling)
-        axis.set_title(editor.capitalize())
-        axis.set_xticks(x, [
-            f"{scenario}\n{STREAMS[scenario]} interactive role"
-            f"{'s' if STREAMS[scenario] > 1 else ''}"
-            for scenario in SCENARIOS
-        ])
-        axis.set_ylim(0, 108 if percent else max(1, ceiling * 1.24))
-        axis.grid(axis="y", alpha=0.25)
-    axes[0].set_ylabel(ylabel)
-    axes[0].legend(ncol=3)
-    fig.suptitle(f"W3 {title} — {network}")
-    fig.tight_layout(rect=(0, 0, 1, 0.95))
-    fig.savefig(output_dir / f"{stem}.png", dpi=180, bbox_inches="tight")
-    fig.savefig(output_dir / f"{stem}.pdf", bbox_inches="tight")
-    plt.close(fig)
-
-
-def plot_reliability(rows, output_dir, network):
-    fields = (
-        ("keystroke_completion_rate_pct", "Completed", "#4C78A8"),
-        ("stall_rate_pct", "Stall > 1 s", "#F2CF5B"),
-        ("timeout_rate_pct", "Timeout ≥ 2 s", "#E45756"),
+    if not partial:
+        return ""
+    names = ", ".join(protocol_label(item) for item in partial)
+    return (
+        f"{names} chỉ được đo với một phiên tương tác: giao thức này không cung "
+        "cấp stream logic tương đương SSH channel hay QUIC stream."
     )
-    fig, axes = plt.subplots(2, 1, figsize=(15, 9), sharey=True)
+
+
+def plot_by_editor(lookup, output_dir, column, title, ylabel, stem, *, percent=False):
+    figure, axes = plt.subplots(1, len(EDITORS), figsize=WIDE, sharey=True)
     for axis, editor in zip(axes, EDITORS):
-        ordered = [
-            next((row for row in rows if row["editor"] == editor and row["scenario"] == scenario and row["protocol"] == protocol), None)
-            for scenario in SCENARIOS for protocol in PROTOCOLS
+        series = [
+            Series(
+                protocol,
+                [
+                    value_or_none(lookup, (editor, protocol, s), column)
+                    for s in SCENARIOS
+                ],
+            )
+            for protocol in PROTOCOL_ORDER
         ]
-        x = np.arange(len(ordered))
-        width = 0.24
-        for field_index, (field, label, color) in enumerate(fields):
-            values = [number(row, field) or 0 for row in ordered]
-            bars = axis.bar(x + (field_index - 1) * width, values, width, label=label, color=color, edgecolor="black", linewidth=0.5)
-            for bar, value in zip(bars, values):
-                if value > 0:
-                    axis.text(
-                        bar.get_x() + bar.get_width() / 2, value + 0.5,
-                        f"{value:.1f}", ha="center", va="bottom", fontsize=7,
-                    )
+        grouped_bars(axis, SCENARIOS, series, annotate=not percent)
+        if percent:
+            axis.set_ylim(0, 108)
         axis.set_title(editor.capitalize())
-        axis.set_xticks(x, [f"{scenario}\n{LABELS[protocol]}" for scenario in SCENARIOS for protocol in PROTOCOLS], fontsize=8)
-        axis.set_ylim(0, 110)
-        axis.grid(axis="y", alpha=0.25)
-        axis.set_ylabel("Rate (%)")
-    axes[0].legend(ncol=1, loc="upper left", bbox_to_anchor=(1.005, 1.0))
-    fig.suptitle(f"W3 keystroke reliability — {network}")
-    fig.tight_layout()
-    fig.savefig(output_dir / "figure_3_reliability.png", dpi=180, bbox_inches="tight")
-    fig.savefig(output_dir / "figure_3_reliability.pdf", bbox_inches="tight")
-    plt.close(fig)
+    axes[0].set_ylabel(ylabel)
+    deduplicated_legend(axes[0], ncol=3, loc="upper left")
+    figure.suptitle(title, y=1.02)
+    note = matrix_note(lookup)
+    if note:
+        figure.text(0.5, -0.05, note, ha="center", fontsize=6.5)
+    save_figure(figure, output_dir, stem)
+
+
+def plot_per_stream(streams, output_dir, column, title, ylabel, stem):
+    """Chỉ SSH và SSH3 có nhiều vai trò tương tác để tách riêng."""
+    lookup = {
+        (row["editor"], row["protocol"], row["scenario"], row["stream_role"]): row
+        for row in streams
+    }
+    multi = [p for p in ("ssh", "ssh3") if any(k[1] == p for k in lookup)]
+    figure, axes = plt.subplots(
+        len(EDITORS), len(SCENARIOS), figsize=(7.0, 4.2), sharey=True, squeeze=False,
+    )
+    for row_index, editor in enumerate(EDITORS):
+        for column_index, scenario in enumerate(SCENARIOS):
+            axis = axes[row_index][column_index]
+            roles = sorted({
+                key[3] for key in lookup
+                if key[0] == editor and key[2] == scenario
+            })
+            width = 0.8 / max(len(multi), 1)
+            for protocol_index, protocol in enumerate(multi):
+                for role_index, role in enumerate(roles):
+                    value = value_or_none(
+                        lookup, (editor, protocol, scenario, role), column,
+                    )
+                    if value is None:
+                        continue
+                    offset = (protocol_index - (len(multi) - 1) / 2) * width
+                    axis.bar(
+                        role_index + offset, value, width, edgecolor="black",
+                        linewidth=0.4,
+                        label=(
+                            protocol_label(protocol)
+                            if role_index == 0 and row_index == 0
+                            else None
+                        ),
+                    )
+            axis.set_xticks(
+                range(len(roles)),
+                [role.replace("interactive_", "R") for role in roles],
+            )
+            if row_index == 0:
+                axis.set_title(scenario)
+            if column_index == 0:
+                axis.set_ylabel(f"{editor.capitalize()}\n{ylabel}")
+    deduplicated_legend(axes[0][0], ncol=2, loc="upper left")
+    figure.suptitle(title, y=1.0)
+    figure.text(
+        0.5, -0.02,
+        "Mosh không xuất hiện: một terminal session không có vai trò song song "
+        "để so sánh theo stream.",
+        ha="center", fontsize=6.5,
+    )
+    save_figure(figure, output_dir, stem)
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("result_dir", type=Path)
     parser.add_argument("output_dir", type=Path)
     parser.add_argument("--network", default="unspecified")
     args = parser.parse_args()
-    args.output_dir.mkdir(parents=True, exist_ok=True)
-    # Thư mục này chỉ chứa hình do plot_w3 tạo; xóa bộ hình tách editor cũ.
-    for pattern in ("figure_*.png", "figure_*.pdf"):
-        for path in args.output_dir.glob(pattern):
-            path.unlink()
+
+    use_paper_style()
+    clear_figures(args.output_dir)
     scenarios = load(args.result_dir / "scenario_summary.csv")
     streams = load(args.result_dir / "stream_summary.csv")
+    lookup = {
+        (row["editor"], row["protocol"], row["scenario"]): row for row in scenarios
+    }
+    suffix = f" ({args.network})"
+
     for metric in ("mean", "median", "p95", "p99"):
-        plot_per_stream(
-            streams, scenarios, args.output_dir,
-            f"{metric}_ms", metric, args.network,
+        plot_by_editor(
+            lookup, args.output_dir, f"{metric}_ms",
+            f"W3 — độ trễ từng phím, {metric.upper()}{suffix}",
+            "Độ trễ (ms)", f"figure_2_scenario_latency_{metric}",
         )
-        plot_scenario_metric(
-            scenarios, args.output_dir, f"{metric}_ms",
-            f"keystroke latency — {metric.upper()}", "Latency (ms)",
-            f"figure_2_scenario_latency_{metric}", args.network,
-        )
-    plot_scenario_metric(
-        scenarios, args.output_dir, "setup_median_ms",
-        "connection + editors READY — MEDIAN", "Setup time (ms)",
-        "figure_4_setup_median", args.network,
+    plot_by_editor(
+        lookup, args.output_dir, "setup_median_ms",
+        f"W3 — mở connection và editor sẵn sàng, MEDIAN{suffix}",
+        "Thời gian thiết lập (ms)", "figure_4_setup_median",
     )
-    plot_reliability(scenarios, args.output_dir, args.network)
-    print(f"[OK] figures saved to {args.output_dir}")
+    plot_by_editor(
+        lookup, args.output_dir, "keystroke_completion_rate_pct",
+        f"W3 — tỷ lệ phím render kịp{suffix}",
+        "Tỷ lệ (%)", "figure_3_completion_rate", percent=True,
+    )
+    plot_by_editor(
+        lookup, args.output_dir, "timeout_rate_pct",
+        f"W3 — tỷ lệ phím quá hạn{suffix}",
+        "Tỷ lệ (%)", "figure_3b_timeout_rate", percent=True,
+    )
+    for metric in ("median", "p95"):
+        plot_per_stream(
+            streams, args.output_dir, f"{metric}_ms",
+            f"W3 — độ trễ theo từng stream, {metric.upper()}{suffix}",
+            "Độ trễ (ms)", f"figure_1_per_stream_latency_{metric}",
+        )
+    print(f"Đã lưu hình W3 vào {args.output_dir}")
     return 0
 
 
