@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """Vẽ hình W4 từ bảng tổng hợp đã xử lý.
 
-Kịch bản của W4 mô tả loại tải nền chứ không phải số stream được multiplex, nên
-cả ba giao thức đều có mặt ở mọi kịch bản. Với giao thức không multiplex, các
-workload nền chạy trong cùng một terminal — điều đó được ghi trong `stream_count`
-của kết quả chứ không thể hiện bằng cách bỏ cột.
+W4 chỉ đánh giá SSH và SSH3: kịch bản tải nền cần workload chạy song song với
+editor, mà một terminal session không làm được điều đó khi vẫn phải đo độ trễ
+phím. Mosh được đánh giá ở W1/W2/W3 với kịch bản một workload.
 """
 
 from __future__ import annotations
@@ -29,11 +28,11 @@ from harness.plotting import (  # noqa: E402
     use_paper_style,
     value_or_none,
 )
-from stream_mux.capability import capability  # noqa: E402
 
 SCENARIOS = ("W4-CMD", "W4-OUTPUT", "W4-MIX")
 EDITORS = ("vim", "nano")
-PROTOCOL_ORDER = ("ssh", "ssh3", "mosh")
+# W4 không đánh giá Mosh: xem constants.PROTOCOLS.
+PROTOCOL_ORDER = ("ssh", "ssh3")
 
 
 def load(path: Path) -> list[dict]:
@@ -61,12 +60,6 @@ def plot_by_editor(lookup, output_dir, column, title, ylabel, stem, *, percent=F
     axes[0].set_ylabel(ylabel)
     deduplicated_legend(axes[0], ncol=3, loc="upper left")
     figure.suptitle(title, y=1.02)
-    figure.text(
-        0.5, -0.05,
-        "Với giao thức không multiplex, các workload nền chạy trong cùng một "
-        "terminal session thay vì trên stream riêng.",
-        ha="center", fontsize=6.5,
-    )
     save_figure(figure, output_dir, stem)
 
 
@@ -97,11 +90,7 @@ def plot_background(rows, output_dir, network):
                 completeness.append(None)
                 continue
             completion.append(100.0 * done / total)
-            # Mosh không cho phép khẳng định output nguyên vẹn từ screen state.
-            completeness.append(
-                None if not capability(protocol).supports_multi_stream
-                else 100.0 * complete / total
-            )
+            completeness.append(100.0 * complete / total)
         grouped_bars(
             axis, ["Hoàn thành", "Output đủ"],
             [
@@ -112,18 +101,9 @@ def plot_background(rows, output_dir, network):
         )
         axis.set_ylim(0, 108)
         axis.set_title(role)
-        for index, protocol in enumerate(PROTOCOL_ORDER):
-            if completeness[index] is None and completion[index] is not None:
-                axis.text(1, 3, "n/a", ha="center", fontsize=5, rotation=90)
     axes[0][0].set_ylabel("Tỷ lệ (%)")
     deduplicated_legend(axes[0][0], ncol=3, loc="lower left", fontsize=6)
     figure.suptitle(f"W4 — tải nền ({network})", y=1.02)
-    figure.text(
-        0.5, -0.05,
-        "Output đủ chỉ xác thực được trên luồng byte nguyên bản; với giao thức "
-        "đồng bộ màn hình, cột này là n/a.",
-        ha="center", fontsize=6.5,
-    )
     save_figure(figure, output_dir, "figure_3_background_reliability")
 
 

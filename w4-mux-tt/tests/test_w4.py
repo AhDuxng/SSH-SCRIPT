@@ -14,15 +14,15 @@ sys.path.insert(0, str(PROJECT_DIR / "tools"))
 sys.path.insert(0, str(REPO_DIR))
 sys.path.append(str(REPO_DIR / "w3-mux-tt" / "src"))
 
-from background import BackgroundCoordinator, MoshBackgroundCollector
-from constants import PAYLOAD_BYTES, PAYLOAD_LINES, PAYLOAD_SHA256
+from background import BackgroundCoordinator
+from constants import PAYLOAD_BYTES, PAYLOAD_LINES, PAYLOAD_SHA256, PROTOCOLS
 from generate_payload import build_payload
 from harness.experiment import (
     DEFAULT_TRIALS_PER_CONFIGURATION, Scenario, build_matrix, build_schedule,
 )
 from stream_mux import RawStream
 from trial import (
-    _reconstruct_final_output, editor_command, mosh_spec, roles_for,
+    _reconstruct_final_output, editor_command, roles_for,
     save_editor, wait_final_output,
 )
 from terminal_screen import TerminalScreen
@@ -40,33 +40,30 @@ class W4Tests(unittest.TestCase):
         self.assertEqual(roles_for("W4-OUTPUT"), ["interactive_0", "output_0"])
         self.assertEqual(roles_for("W4-MIX"), ["interactive_0", "command_0", "output_0"])
 
-    def test_experiment_matrix_keeps_every_protocol(self):
-        """W4 đo can nhiễu nên giữ mọi giao thức; Mosh có stream_count = 1."""
+    def test_matrix_covers_only_multiplexing_protocols(self):
+        """W4 cần workload nền chạy song song nên chỉ đánh giá SSH và SSH3."""
         scenarios = [
             Scenario(name, len(roles_for(name)), measures_multiplexing=False)
             for name in ("W4-CMD", "W4-OUTPUT", "W4-MIX")
         ]
-        matrix = build_matrix(
-            ["ssh", "ssh3", "mosh"], scenarios, editors=("vim", "nano"),
-        )
+        matrix = build_matrix(list(PROTOCOLS), scenarios, editors=("vim", "nano"))
         self.assertEqual(matrix.skipped, ())
-        self.assertEqual(len(matrix), 3 * 3 * 2)
+        self.assertEqual(len(matrix), 2 * 3 * 2)
+        self.assertNotIn("mosh", matrix.protocols())
         by_protocol = {
             item.protocol: item.stream_count
             for item in matrix.configurations
             if item.scenario.name == "W4-MIX"
         }
-        self.assertEqual(by_protocol["mosh"], 1)
         self.assertEqual(by_protocol["ssh"], 3)
+        self.assertEqual(by_protocol["ssh3"], 3)
 
     def test_every_configuration_gets_the_global_trial_count(self):
         scenarios = [
             Scenario(name, len(roles_for(name)), measures_multiplexing=False)
             for name in ("W4-CMD", "W4-OUTPUT", "W4-MIX")
         ]
-        matrix = build_matrix(
-            ["ssh", "ssh3", "mosh"], scenarios, editors=("vim", "nano"),
-        )
+        matrix = build_matrix(list(PROTOCOLS), scenarios, editors=("vim", "nano"))
         schedule = build_schedule(
             matrix, DEFAULT_TRIALS_PER_CONFIGURATION, 7, "run",
         )
@@ -105,7 +102,7 @@ class W4Tests(unittest.TestCase):
             result["expected_sha256"], hashlib.sha256(result["stdout"]).hexdigest()
         )
 
-    def test_mosh_collector_does_not_claim_lossless_output(self):
+    def _removed_mosh_collector(self):
         collector = MoshBackgroundCollector()
         collector.feed(b"\x1b[2J__W4BG_START__:output_0:1:1\n", 10, 100)
         collector.feed(b"visible fragment\n__W4BG_DONE__:output_0:1:1:0\n", 20, 200)
@@ -194,7 +191,7 @@ class W4Tests(unittest.TestCase):
         save_editor("vim", endpoint)
         self.assertEqual(endpoint.events, ["clear", b"\x1b", b":wq\r"])
 
-    def test_mosh_invalid_command_marker_is_partial_not_exception(self):
+    def _removed_mosh_marker(self):
         collector = MoshBackgroundCollector()
         collector.feed(b"__W4BG_START__:command_0:1:99\n", 10, 100)
         collector.feed(b"__W4BG_DONE__:command_0:1:99:0\n", 20, 200)
@@ -207,27 +204,6 @@ class W4Tests(unittest.TestCase):
         rows = collector.rows(trial, stream)
         self.assertEqual(rows[0]["status"], "partial")
         self.assertIn("invalid command marker", rows[0]["note"])
-
-    def test_mosh_scenarios_use_isolated_identical_three_pane_layout(self):
-        cfg = {"TMUX_BIN": "tmux", "TERMINAL_COLUMNS": "180"}
-        commands = {}
-        for scenario in ("W4-CMD", "W4-OUTPUT", "W4-MIX"):
-            trial = {
-                "trial_tag": f"trial-{scenario}", "editor": "nano",
-                "scenario": scenario,
-            }
-            specs, _session, _socket, _start, _stop = mosh_spec(
-                cfg, trial, roles_for(scenario), "/tmp/probe.c"
-            )
-            commands[scenario] = specs[0].remote_command
-        for command in commands.values():
-            self.assertIn("-f /dev/null", command)
-            self.assertIn("main-pane-width 90", command)
-            self.assertEqual(command.count(" split-window "), 2)
-        self.assertIn("cat ", commands["W4-OUTPUT"])
-        self.assertIn("case ", commands["W4-CMD"])
-        self.assertIn("cat ", commands["W4-MIX"])
-        self.assertIn("case ", commands["W4-MIX"])
 
 
 if __name__ == "__main__":

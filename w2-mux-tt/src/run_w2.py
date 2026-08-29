@@ -21,7 +21,7 @@ from harness.settings import build_plan, load_settings
 from constants import (
     AUDIT_FIELDS, ORDER_FIELDS, PAYLOAD_BYTES, PAYLOAD_LINE_BYTES,
     PAYLOAD_LINES, PAYLOAD_NAMES, PAYLOAD_PREFIXES, PAYLOAD_SHA256,
-    SCENARIOS, STREAM_FIELDS, TRANSFER_FIELDS, TRIAL_FIELDS,
+    SCENARIOS, STREAM_FIELDS, TRANSFER_FIELDS, TRIAL_FIELDS, PROTOCOLS,
 )
 from stream_adapter import open_direct_w2_connection
 from trial import run_trial
@@ -73,6 +73,7 @@ def main() -> int:
     run_id = settings.text("RUN_ID") or time.strftime("%Y%m%dT%H%M%S")
     plan = build_plan(
         settings, scenarios, default_seed=20260814, run_id=run_id,
+        supported_protocols=PROTOCOLS,
     )
     cfg = settings.values
 
@@ -123,7 +124,6 @@ def main() -> int:
             "all roles synchronize on a barrier before every sample; each "
             "command clears its own terminal area before emitting the start marker"
         ),
-        "mosh_layout": cfg.get("W2_MOSH_LAYOUT", "tmux"),
         "mosh_terminal": {
             "columns": int(cfg.get("W2_MOSH_COLUMNS", "4096")),
             "rows": int(cfg.get("W2_MOSH_ROWS", "144")),
@@ -163,9 +163,9 @@ def main() -> int:
             cfg.get("MOSH_BARRIER_GRACE_SECONDS", "5")
         ),
         "mosh_screen_verification": (
-            "each role runs in its own tmux pane with its own PTY, so "
-            "concurrent output is never byte-interleaved; deterministic payload "
-            "rows are matched on the reconstructed viewport as they appear"
+            "Mosh is evaluated only in the single-workload scenario; "
+            "deterministic payload rows are matched on the reconstructed "
+            "viewport as they appear"
         ),
         "content_complete_definition": (
             "client observation time of the moment every expected payload line "

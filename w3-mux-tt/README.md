@@ -20,26 +20,17 @@ SSH3: 1 QUIC connection + 1 conversation
  └─ interactive_3 → QUIC bidirectional PTY stream
 
 Mosh: 1 UDP terminal session
- ├─ I1: interactive_0 → editor process trực tiếp
- └─ I2/I4: tmux panes được chọn độc lập theo round-robin
-     ├─ interactive_0 → editor process
-     ├─ interactive_1 → editor process
-     ├─ interactive_2 → editor process
-     └─ interactive_3 → editor process
+ └─ interactive_0 → editor process trực tiếp
 ```
 
-Mosh không được mô tả như có channel/stream transport. I1 mở editor trực tiếp
-giống baseline `w3_minimal`; I2/I4 là nhiều editor
-process thật cùng cạnh tranh trong một terminal session; `transport_semantics`
-ghi `tmux_pane_in_terminal`. `synchronize-panes` bị tắt. Runner lần lượt chọn
-từng pane qua chính terminal Mosh, chờ pane được chọn và repaint ổn định, rồi
-mới bắt đầu đồng hồ và gửi phím cho riêng pane đó. Hình học pane được phát thành
-marker ngay trong terminal Mosh trước warm-up; runner không mở SSH phụ khi
-workload đang chạy. Trial dùng một tmux server/socket riêng và các phím chọn
-pane F5–F8 chỉ được bind trong server riêng đó, không sửa tmux của người dùng.
-Nếu một phím chọn pane chưa làm cursor chuyển sang vùng pane đích, runner gửi
-lại có giới hạn (`MOSH_PANE_SELECT_RETRIES`, mặc định 3). Mỗi lần retry được in
-thành `[PANE-RETRY]`; toàn bộ việc chọn/xác nhận pane vẫn nằm trước `send_ns`.
+Mosh chỉ được đánh giá ở `W3-I1`. Nó không cung cấp stream logic tương đương
+SSH channel hay QUIC stream, nên `W3-I2` và `W3-I4` — vốn tồn tại để so sánh
+khả năng multiplexing — chỉ áp dụng cho SSH và SSH3. Quy tắc này do
+`stream_mux/capability.py` quyết định và `harness/experiment.py` áp dụng khi
+sinh ma trận, nên không tổ hợp Mosh × I2/I4 nào được tạo ra.
+
+`transport_semantics` của Mosh luôn là `editor_process_in_terminal` và
+`measurement_mode` luôn là `local_prediction`.
 
 ## Workload
 

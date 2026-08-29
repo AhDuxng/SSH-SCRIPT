@@ -16,7 +16,7 @@ from harness.results import write_rows
 from harness.settings import build_plan, load_settings
 from constants import (
     AUDIT_FIELDS, COMMANDS, ORDER_FIELDS, SAMPLE_FIELDS, SCENARIOS,
-    STREAM_FIELDS, TRIAL_FIELDS,
+    STREAM_FIELDS, TRIAL_FIELDS, PROTOCOLS,
 )
 from stream_adapter import open_direct_w1_connection
 from trial import run_trial
@@ -33,6 +33,7 @@ def main() -> int:
     run_id = settings.text("RUN_ID") or time.strftime("%Y%m%dT%H%M%S")
     plan = build_plan(
         settings, scenarios, default_seed=20260811, run_id=run_id,
+        supported_protocols=PROTOCOLS,
     )
     cfg = settings.values
 

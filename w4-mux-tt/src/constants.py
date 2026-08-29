@@ -1,6 +1,10 @@
 """Workload definitions and stable CSV schemas for W4."""
 
-PROTOCOLS = ("ssh", "ssh3", "mosh")
+# Mosh không được đánh giá ở W4: kịch bản tải nền cần chạy workload song
+# song với editor, mà một terminal session không có cách nào làm điều đó
+# mà vẫn đo được độ trễ phím. Mosh được đo ở W1/W2/W3 với kịch bản một
+# workload.
+PROTOCOLS = ("ssh", "ssh3")
 EDITORS = ("vim", "nano")
 SCENARIOS = ("W4-CMD", "W4-OUTPUT", "W4-MIX")
 

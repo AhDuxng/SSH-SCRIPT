@@ -21,7 +21,7 @@ from harness.settings import build_plan, load_settings  # noqa: E402
 from constants import (
     AUDIT_FIELDS, EDITORS, KEYSTROKE_FIELDS, ORDER_FIELDS,
     PROBE_BYTES, PROBE_CHARACTERS, PROBE_LINES, PROBE_SHA256,
-    SCENARIO_STREAMS, STREAM_FIELDS, TRIAL_FIELDS,
+    SCENARIO_STREAMS, STREAM_FIELDS, TRIAL_FIELDS, PROTOCOLS,
 )
 from probe import ProbeSource
 from trial import run_trial
@@ -42,6 +42,7 @@ def main() -> int:
     run_id = settings.text("RUN_ID") or time.strftime("%Y%m%dT%H%M%S")
     plan = build_plan(
         settings, scenarios, default_seed=20260817, run_id=run_id,
+        supported_protocols=PROTOCOLS,
         editors={name: name for name in EDITORS},
     )
     cfg = settings.values
@@ -137,17 +138,8 @@ def main() -> int:
         "live_progress_every": live_progress_every,
         "terminal": {"columns": columns, "rows": rows, "type": cfg.get("TERMINAL_TYPE")},
         "mosh_semantics": (
-            "one terminal session; logical editors are independently selected "
-            "tmux panes measured round-robin"
-        ),
-        "mosh_pane_switch_timing": "pane selection and repaint complete before send_ns",
-        "mosh_pane_order": "rotating_round_robin_per_character",
-        "mosh_pane_select_timeout_seconds": float(
-            cfg.get("MOSH_PANE_SELECT_TIMEOUT_SECONDS", "2.0")
-        ),
-        "mosh_pane_select_retries": int(cfg.get("MOSH_PANE_SELECT_RETRIES", "3")),
-        "mosh_pane_select_retry_delay_seconds": float(
-            cfg.get("MOSH_PANE_SELECT_RETRY_DELAY_SECONDS", "0.05")
+            "one terminal session with a single editor process; Mosh is only "
+            "evaluated in the single-editor scenario"
         ),
         "mosh_prediction": mosh_predict,
     }

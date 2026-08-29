@@ -103,10 +103,9 @@ def main() -> int:
             if int(trial["opened_transport_streams"]) != count:
                 errors.append(f"{trial['trial_id']}: SSH3 stream count mismatch")
         else:
-            if int(trial["opened_transport_streams"]) != 1:
-                errors.append(f"{trial['trial_id']}: Mosh must expose one terminal")
-            if {row["transport_semantics"] for row in rows} != {"tmux_pane_in_terminal"}:
-                errors.append(f"{trial['trial_id']}: Mosh pane semantics mismatch")
+            errors.append(
+                f"{trial['trial_id']}: giao thức {protocol} không được W4 đánh giá"
+            )
     if errors:
         print("[FAIL] W4 multiplex audit", file=sys.stderr)
         for error in errors[:50]:

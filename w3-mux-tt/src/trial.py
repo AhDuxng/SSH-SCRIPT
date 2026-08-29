@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 import math
-import re
 import shlex
 import statistics
 import subprocess
 import threading
 import time
-from dataclasses import dataclass
 
 from stream_mux import ConnectionAudit, StreamSpec, open_multiplex_connection
 from stream_mux.connection.common import ssh_base
@@ -28,17 +26,6 @@ PANE_SELECT_KEYS = (
 )
 
 
-@dataclass(frozen=True)
-class Pane:
-    role: str
-    index: int
-    left: int
-    top: int
-    width: int
-    height: int
-    active: bool
-
-
 def fmt(value) -> str:
     return "" if value == "" or value is None else f"{float(value):.3f}"
 
@@ -55,20 +42,12 @@ def percentile(values: list[float], probability: float):
 
 
 def measurement_mode(protocol: str, stream_count: int = 1) -> str:
-    if protocol == "mosh":
-        return (
-            "local_prediction_selected_pane"
-            if stream_count > 1 else "local_prediction"
-        )
-    return "remote_terminal_render"
+    return "local_prediction" if protocol == "mosh" else "remote_terminal_render"
 
 
 def transport_semantics(trial: dict) -> str:
     if trial["protocol"] == "mosh":
-        return (
-            "editor_process_in_terminal"
-            if trial["stream_count"] == 1 else "tmux_pane_in_terminal"
-        )
+        return "editor_process_in_terminal"
     return (
         "quic_bidirectional_stream"
         if trial["protocol"] == "ssh3" else "ssh_session_channel"
@@ -117,78 +96,6 @@ def direct_specs(cfg: dict, trial: dict, roles: list[str]):
     return specs, markers, files
 
 
-def tmux_session_name(trial_tag: str) -> str:
-    safe = "".join(ch if ch.isalnum() else "_" for ch in trial_tag)
-    return f"w3_{safe}"[:80]
-
-
-# Tạo tên socket tmux riêng để không thay đổi key binding của phiên người dùng.
-def tmux_socket_name(session: str) -> str:
-    return f"{session[:40]}_socket"
-
-
-def mosh_spec(cfg: dict, trial: dict, roles: list[str]):
-    session = tmux_session_name(trial["trial_tag"])
-    socket = tmux_socket_name(session)
-    tmux = (
-        f"{shlex.quote(cfg.get('TMUX_BIN', 'tmux'))} "
-        f"-L {shlex.quote(socket)} -f /dev/null"
-    )
-    columns = int(cfg.get("TERMINAL_COLUMNS", "160"))
-    rows = int(cfg.get("TERMINAL_ROWS", "48"))
-    files = {
-        role: remote_file(trial["trial_tag"], role, trial["editor"])
-        for role in roles
-    }
-    commands = [
-        f"{tmux} kill-server 2>/dev/null || true",
-        (
-            f"{tmux} new-session -d -x {columns} -y {rows} "
-            f"-s {shlex.quote(session)} "
-            f"{shlex.quote(editor_command(cfg, trial['editor'], files[roles[0]]))}"
-        ),
-        f"{tmux} set-option -t {shlex.quote(session)} status off",
-        f"{tmux} set-option -t {shlex.quote(session)} base-index 0",
-        f"{tmux} set-window-option -t {shlex.quote(session)} pane-base-index 0",
-    ]
-    for role in roles[1:]:
-        commands.append(
-            f"{tmux} split-window -d -t {shlex.quote(session)} "
-            f"{shlex.quote(editor_command(cfg, trial['editor'], files[role]))}"
-        )
-    for index, (key_name, _) in enumerate(PANE_SELECT_KEYS[:len(roles)]):
-        target = shlex.quote(f"{session}:0.{index}")
-        commands.append(
-            f"{tmux} bind-key -n {key_name} select-pane -t {target}"
-        )
-    layout = "even-horizontal" if len(roles) == 2 else "tiled"
-    layout_marker = f"__W3_LAYOUT_{session}__"
-    layout_template = "#{pane_index}|#{pane_left}|#{pane_top}|#{pane_width}|#{pane_height}|#{pane_active}|#{pane_dead}|#{pane_current_command}"
-    commands += [
-        f"{tmux} select-layout -t {shlex.quote(session)} {layout}",
-        f"{tmux} select-pane -t {shlex.quote(session + ':0.0')}",
-        f"{tmux} set-window-option -t {shlex.quote(session)} synchronize-panes off",
-        f"printf '%s\\n' {shlex.quote(layout_marker)}",
-        (
-            f"{tmux} list-panes -t {shlex.quote(session)} "
-            f"-F {shlex.quote(layout_template)}"
-        ),
-        f"printf '%s\\n' {shlex.quote(layout_marker + '_END')}",
-        "sleep 1",
-        f"exec {tmux} attach-session -t {shlex.quote(session)}",
-    ]
-    remote_command = "; ".join(commands)
-    spec = StreamSpec(
-        role="terminal",
-        remote_command=remote_command,
-        allocate_pty=True,
-        terminal_type=cfg.get("TERMINAL_TYPE", "xterm-256color"),
-        columns=columns,
-        rows=rows,
-    )
-    return [spec], files, session
-
-
 def remote_check(cfg: dict, command: str, timeout: float = 10.0):
     target = f"{cfg['SERVER_USER']}@{cfg['SERVER_HOST']}"
     return subprocess.run(
@@ -201,138 +108,8 @@ def remote_check(cfg: dict, command: str, timeout: float = 10.0):
     )
 
 
-def wait_tmux_layout(endpoint, cfg: dict, session: str, roles: list[str]) -> list[Pane]:
-    timeout = float(cfg.get("MOSH_LAYOUT_QUERY_TIMEOUT_SECONDS", "10"))
-    deadline = time.monotonic() + timeout
-    last = ""
-    while time.monotonic() < deadline:
-        last = endpoint.recent_text()
-        panes = []
-        clean = re.sub(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))", "", last)
-        for line in clean.splitlines():
-            parts = line.strip().split("|")
-            if len(parts) != 8 or not all(part.isdigit() for part in parts[:7]):
-                continue
-            index, left, top, width, height, active, dead = map(int, parts[:7])
-            if not dead:
-                panes.append((index, left, top, width, height, bool(active)))
-        panes.sort()
-        if len(panes) == len(roles):
-            return [
-                Pane(role, index, left, top, width, height, active)
-                for role, (index, left, top, width, height, active)
-                in zip(roles, panes)
-            ]
-        time.sleep(0.1)
-    raise TimeoutError(f"tmux panes not ready in Mosh terminal: session={session} output={last[-1000:]!r}")
-
-
-# Kiểm tra cursor đang thuộc vùng nội dung của pane được chọn.
-def pane_contains_cursor(pane: Pane, snapshot) -> bool:
-    return (
-        pane.left <= snapshot.column < pane.left + pane.width
-        and pane.top <= snapshot.row < pane.top + pane.height
-    )
-
-
-# Chọn một pane qua chính terminal Mosh trước khi bắt đầu đồng hồ đo.
-def select_mosh_pane(endpoint, cfg: dict, session: str, pane: Pane):
-    timeout = float(cfg.get("MOSH_PANE_SELECT_TIMEOUT_SECONDS", "2.0"))
-    retries = int(cfg.get("MOSH_PANE_SELECT_RETRIES", "3"))
-    retry_delay = float(cfg.get("MOSH_PANE_SELECT_RETRY_DELAY_SECONDS", "0.05"))
-    if timeout <= 0:
-        raise ValueError("MOSH_PANE_SELECT_TIMEOUT_SECONDS must be > 0")
-    if retries < 0:
-        raise ValueError("MOSH_PANE_SELECT_RETRIES must be >= 0")
-    if retry_delay < 0:
-        raise ValueError("MOSH_PANE_SELECT_RETRY_DELAY_SECONDS must be >= 0")
-
-    quiet_timeout = min(timeout, 0.5)
-    endpoint.wait_quiet(quiet_seconds=0.02, timeout=quiet_timeout)
-    target = f"{session}:0.{pane.index}"
-    try:
-        _, select_key = PANE_SELECT_KEYS[pane.index]
-    except IndexError as exc:
-        raise ValueError(f"unsupported tmux pane index: {pane.index}") from exc
-
-    snapshot = endpoint.snapshot()
-    attempts = retries + 1
-    last_snapshot = snapshot
-    for attempt in range(1, attempts + 1):
-        endpoint.send(select_key)
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            snapshot = endpoint.snapshot()
-            last_snapshot = snapshot
-            if pane_contains_cursor(pane, snapshot):
-                endpoint.wait_quiet(quiet_seconds=0.02, timeout=quiet_timeout)
-                confirmed = endpoint.snapshot()
-                last_snapshot = confirmed
-                if pane_contains_cursor(pane, confirmed):
-                    return confirmed
-            if endpoint.terminal_error:
-                raise RuntimeError(endpoint.terminal_error)
-            if endpoint.exited.is_set():
-                raise EOFError("Mosh terminal exited while selecting tmux pane")
-            time.sleep(0.002)
-
-        # Phím F5-F8 đi qua chính Mosh input path nên có thể hiếm khi không được
-        # tmux nhận dưới impairment. Gửi lại cùng phím là thao tác idempotent và
-        # vẫn diễn ra hoàn toàn trước send_ns của ký tự workload.
-        if attempt < attempts:
-            with LIVE_PRINT_LOCK:
-                print(
-                    f"[PANE-RETRY] target={target} retry={attempt}/{retries} "
-                    f"cursor=({last_snapshot.row},{last_snapshot.column})",
-                    flush=True,
-                )
-            if retry_delay:
-                time.sleep(retry_delay)
-
-            # Có thể repaint đã tới trong khoảng nghỉ; xác nhận lại trước khi
-            # phát một phím chọn pane nữa.
-            snapshot = endpoint.snapshot()
-            last_snapshot = snapshot
-            if pane_contains_cursor(pane, snapshot):
-                endpoint.wait_quiet(quiet_seconds=0.02, timeout=quiet_timeout)
-                confirmed = endpoint.snapshot()
-                last_snapshot = confirmed
-                if pane_contains_cursor(pane, confirmed):
-                    return confirmed
-
-    raise TimeoutError(
-        f"tmux pane selection not visible after {attempts} attempts: "
-        f"target={target} cursor=({last_snapshot.row},{last_snapshot.column})"
-    )
-
-
-# Đưa riêng từng Vim pane vào insert mode qua terminal Mosh.
-def initialize_mosh_panes(cfg, trial, endpoint, panes, session):
-    for pane in panes:
-        select_mosh_pane(endpoint, cfg, session, pane)
-        if trial["editor"] == "vim":
-            endpoint.send(b"i")
-            endpoint.wait_quiet(quiet_seconds=0.02, timeout=0.5)
-    select_mosh_pane(endpoint, cfg, session, panes[0])
-
-
-# Repaint độc lập từng editor pane ngoài khoảng thời gian đo.
-def refresh_mosh_panes(cfg, trial, endpoint, panes, session):
-    for pane in panes:
-        select_mosh_pane(endpoint, cfg, session, pane)
-        refresh_editors(trial["editor"], [endpoint])
-        endpoint.wait_quiet()
-    select_mosh_pane(endpoint, cfg, session, panes[0])
-
-
-def cleanup_remote(cfg: dict, files: dict[str, str], session: str = ""):
+def cleanup_remote(cfg: dict, files: dict[str, str]):
     commands = []
-    if session:
-        socket = tmux_socket_name(session)
-        commands.append(
-            f"{shlex.quote(cfg.get('TMUX_BIN', 'tmux'))} "
-            f"-L {shlex.quote(socket)} kill-server 2>/dev/null || true"
-        )
     if files:
         commands.append("rm -f " + " ".join(shlex.quote(path) for path in files.values()))
     if commands:
@@ -482,54 +259,6 @@ def measure_direct(cfg, trial, roles, endpoints, probe):
     for thread in threads:
         thread.join()
     return [row for role in roles for row in by_role[role]]
-
-
-# Đo round-robin từng pane đã chọn, mỗi pane có send/render timestamp riêng.
-def measure_mosh(cfg, trial, endpoint, panes, session, probe):
-    timeout = float(cfg.get("KEY_TIMEOUT_SECONDS", "2.0"))
-    stall_s = float(cfg.get("STALL_THRESHOLD_SECONDS", "1.0"))
-    interval = float(cfg.get("KEY_INTERVAL_SECONDS", "0.20"))
-    output = []
-    for item in probe.items():
-        # Xoay pane bắt đầu theo từng ký tự để pane 0 không luôn được hưởng
-        # khoảng nghỉ còn pane cuối luôn phải theo sau các repaint khác.
-        offset = (item.index - 1) % len(panes)
-        pane_order = panes[offset:] + panes[:offset]
-        for pane in pane_order:
-            before = None
-            sent_ns = 0
-            render_ns = 0
-            status, note = "error", ""
-            try:
-                # Chuyển pane và chờ repaint hoàn tất trước t_send, nên chi phí
-                # điều hướng tmux không bị tính vào keystroke latency.
-                select_mosh_pane(endpoint, cfg, session, pane)
-                endpoint.screen.clear_history()
-                before = endpoint.snapshot()
-                sent_ns = time.perf_counter_ns()
-                endpoint.send(
-                    b"\r" if item.character == "\n"
-                    else item.character.encode("utf-8")
-                )
-                render_ns = endpoint.wait_render(
-                    before, item.character, sent_ns, timeout
-                )
-                latency_s = (render_ns - sent_ns) / 1_000_000_000
-                status = "stall" if latency_s > stall_s else "completed"
-            except TimeoutError as exc:
-                status, note = "timeout", str(exc)
-            except EOFError as exc:
-                status, note = "eof", str(exc)
-            except Exception as exc:
-                status, note = "error", repr(exc)
-            result = key_row(
-                trial, pane.role, endpoint.raw_stream, item, sent_ns, render_ns,
-                status, note, before, "tmux_selected_pane_vt100_cursor_cell",
-            )
-            output.append(result)
-            print_live_key(cfg, result)
-        time.sleep(interval)
-    return output
 
 
 def refresh_editors(editor: str, endpoints: list[InteractiveEndpoint], shared=False):
@@ -693,22 +422,15 @@ def run_trial(cfg: dict, trial: dict, probe: ProbeSource):
     endpoints = {}
     streams = {}
     files = {}
-    session = ""
-    panes = []
     key_rows = []
     setup_ms = 0.0
     workload_ms = 0.0
     note = ""
     audit = ConnectionAudit(trial["protocol"], False, 0, 0, 0, {}, [], {}, "not opened")
     ready_streams = 0
-    mosh_panes = trial["protocol"] == "mosh" and len(roles) > 1
 
     try:
-        if mosh_panes:
-            specs, files, session = mosh_spec(cfg, trial, roles)
-            markers = {}
-        else:
-            specs, markers, files = direct_specs(cfg, trial, roles)
+        specs, markers, files = direct_specs(cfg, trial, roles)
         setup_start = time.perf_counter_ns()
         connection = open_multiplex_connection(
             cfg, trial["protocol"], specs, trial["trial_tag"]
@@ -722,74 +444,42 @@ def run_trial(cfg: dict, trial: dict, probe: ProbeSource):
                 int(cfg.get("TERMINAL_COLUMNS", "160")),
             )
 
-        if mosh_panes:
-            endpoint = endpoints["terminal"]
-            panes = wait_tmux_layout(endpoint, cfg, session, roles)
-            time.sleep(float(cfg.get("EDITOR_START_SETTLE_SECONDS", "1.0")))
-            ready_streams = len(panes)
-            initialize_mosh_panes(cfg, trial, endpoint, panes, session)
-            if trial["editor"] == "vim":
-                time.sleep(0.3)
-        else:
-            if trial["protocol"] != "mosh":
-                for role in roles:
-                    endpoints[role].wait_marker(
-                        markers[role], float(cfg.get("STREAM_READY_TIMEOUT_SECONDS", "15"))
-                    )
-            time.sleep(float(cfg.get("EDITOR_START_SETTLE_SECONDS", "1.0")))
-            ready_streams = len(roles)
+        if trial["protocol"] != "mosh":
             for role in roles:
-                endpoint = endpoints[role]
-                if endpoint.terminal_error:
-                    raise RuntimeError(f"{role}: {endpoint.terminal_error}")
-                if endpoint.exited.is_set():
-                    raise EOFError(f"{role}: editor exited before READY")
-            if trial["editor"] == "vim":
-                for role in roles:
-                    endpoints[role].send(b"i")
-                time.sleep(0.3)
+                endpoints[role].wait_marker(
+                    markers[role],
+                    float(cfg.get("STREAM_READY_TIMEOUT_SECONDS", "15")),
+                )
+        time.sleep(float(cfg.get("EDITOR_START_SETTLE_SECONDS", "1.0")))
+        ready_streams = len(roles)
+        for role in roles:
+            endpoint = endpoints[role]
+            if endpoint.terminal_error:
+                raise RuntimeError(f"{role}: {endpoint.terminal_error}")
+            if endpoint.exited.is_set():
+                raise EOFError(f"{role}: editor exited before READY")
+        if trial["editor"] == "vim":
+            for role in roles:
+                endpoints[role].send(b"i")
+            time.sleep(0.3)
         for endpoint in endpoints.values():
             endpoint.wait_quiet()
         setup_ms = (time.perf_counter_ns() - setup_start) / 1_000_000
 
         time.sleep(float(cfg.get("WARMUP_SECONDS", "5.0")))
-        refresh_targets = [endpoints["terminal"]] if mosh_panes else [endpoints[role] for role in roles]
-        if mosh_panes:
-            refresh_mosh_panes(
-                cfg, trial, endpoints["terminal"], panes, session,
-            )
-            # Preserve Mosh's existing post-selection quiet period. Direct
-            # streams use the stricter origin-and-screen stability check below.
-            endpoints["terminal"].wait_quiet()
-        else:
-            synchronize_direct_editors(
-                cfg, trial["editor"], roles, endpoints,
-            )
+        refresh_targets = [endpoints[role] for role in roles]
+        synchronize_direct_editors(cfg, trial["editor"], roles, endpoints)
         for endpoint in refresh_targets:
             endpoint.screen.clear_history()
 
         workload_start = time.perf_counter_ns()
-        if mosh_panes:
-            key_rows = measure_mosh(
-                cfg, trial, endpoints["terminal"], panes, session, probe,
-            )
-        else:
-            key_rows = measure_direct(cfg, trial, roles, endpoints, probe)
+        key_rows = measure_direct(cfg, trial, roles, endpoints, probe)
         workload_ms = (time.perf_counter_ns() - workload_start) / 1_000_000
-        if mosh_panes:
-            discard_editors(trial["editor"], [endpoints["terminal"]], shared=True)
-        else:
-            discard_editors(
-                trial["editor"], [endpoints[role] for role in roles]
-            )
+        discard_editors(trial["editor"], [endpoints[role] for role in roles])
     except Exception as exc:
         note = repr(exc)
         if not key_rows:
-            logical_streams = (
-                {role: streams.get("terminal") for role in roles}
-                if mosh_panes else streams
-            )
-            key_rows = unavailable_rows(cfg, trial, roles, logical_streams, probe, note)
+            key_rows = unavailable_rows(cfg, trial, roles, streams, probe, note)
     finally:
         if connection is not None:
             try:
@@ -799,10 +489,7 @@ def run_trial(cfg: dict, trial: dict, probe: ProbeSource):
         for endpoint in endpoints.values():
             endpoint.thread.join(timeout=1.0)
 
-    logical_streams = (
-        {role: streams.get("terminal") for role in roles}
-        if mosh_panes else streams
-    )
+    logical_streams = streams
     stream_rows = []
     for role in roles:
         role_rows = [row for row in key_rows if row["stream_role"] == role]
@@ -867,5 +554,5 @@ def run_trial(cfg: dict, trial: dict, probe: ProbeSource):
         "note": "; ".join(item for item in (audit.note, note) if item),
     }
     if cfg_bool(cfg, "CLEANUP_REMOTE_FILES", "1"):
-        cleanup_remote(cfg, files, session)
+        cleanup_remote(cfg, files)
     return key_rows, stream_rows, trial_row, audit_rows

@@ -26,7 +26,7 @@ from constants import (  # noqa: E402
     AUDIT_FIELDS, BACKGROUND_FIELDS, EDITORS, KEYSTROKE_FIELDS, ORDER_FIELDS,
     PAYLOAD_BYTES, PAYLOAD_LINES, PAYLOAD_NAME, PAYLOAD_SHA256, PROBE_BYTES,
     PROBE_CHARACTERS, PROBE_LINES, PROBE_SHA256, SCENARIOS,
-    STREAM_FIELDS, TRIAL_FIELDS,
+    STREAM_FIELDS, TRIAL_FIELDS, PROTOCOLS,
 )
 from probe import ProbeSource  # noqa: E402
 from trial import roles_for, run_trial  # noqa: E402
@@ -57,12 +57,11 @@ def main() -> int:
     run_id = settings.text("RUN_ID") or time.strftime("%Y%m%dT%H%M%S")
     plan = build_plan(
         settings, scenarios, default_seed=20260819, run_id=run_id,
+        supported_protocols=PROTOCOLS,
         editors={name: name for name in EDITORS},
     )
     cfg = settings.values
 
-    if "mosh" in plan.protocols and settings.text("MOSH_PREDICT", "always") != "always":
-        raise ValueError("W4 yêu cầu MOSH_PREDICT=always")
     stall = settings.number("STALL_THRESHOLD_SECONDS", 1.0, minimum=0.0)
     key_timeout = settings.number("KEY_TIMEOUT_SECONDS", 2.0, minimum=0.0)
     if stall >= key_timeout:
@@ -112,11 +111,12 @@ def main() -> int:
         "connection_scope": "one new measured connection per trial",
         "ssh_semantics": "one TCP ControlMaster; one SSH session channel per logical workload",
         "ssh3_semantics": "one QUIC connection/conversation; one bidirectional stream per logical workload",
-        "mosh_semantics": "one UDP terminal session; workloads run in distinct visible tmux panes",
-        "mosh_background_output_limitation": (
-            "Mosh synchronizes screen state and may skip intermediate 1 MiB output; "
-            "completion marker and visible update bytes are recorded separately from output completeness"
-        ),
+        "excluded_protocols": {
+            "mosh": (
+                "a single terminal session cannot run background workloads "
+                "alongside the editor while keystroke latency stays measurable"
+            ),
+        },
     }
     # Bằng chứng về binary thực sự phục vụ lần chạy này: bộ kết quả tự
     # chứng minh nó được đo bằng thuật toán nào, không phải suy luận sau.
@@ -126,9 +126,10 @@ def main() -> int:
     (result_dir / "metadata.json").write_text(json.dumps(metadata, indent=2, ensure_ascii=False) + "\n")
     print(render_matrix(plan.matrix, plan.scenarios, plan.trials), flush=True)
     print(
-        f"[PLAN] trials_per_combination={trials} total_trials={len(schedule)} "
-        f"probe_chars={len(probe.text)} payload_bytes={payload['bytes']} "
-        f"mosh_predict={cfg.get('MOSH_PREDICT', 'always')}", flush=True,
+        f"[PLAN] trials_per_configuration={plan.trials} "
+        f"total_trials={len(schedule)} probe_chars={len(probe.text)} "
+        f"payload_bytes={payload['bytes']}",
+        flush=True,
     )
 
     paths = {

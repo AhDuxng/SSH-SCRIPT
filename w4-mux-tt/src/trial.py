@@ -15,23 +15,10 @@ from dataclasses import dataclass
 from stream_mux import ConnectionAudit, StreamSpec, open_multiplex_connection
 from stream_mux.connection.common import ssh_base
 
-from background import (
-    BackgroundCoordinator, MoshBackgroundCollector, run_direct_background,
-)
+from background import BackgroundCoordinator, run_direct_background
 from harness.settings import cfg_bool
 from constants import COMMANDS, PAYLOAD_NAME
 from terminal_io import InteractiveEndpoint
-
-
-@dataclass(frozen=True)
-class Pane:
-    role: str
-    index: int
-    left: int
-    top: int
-    width: int
-    height: int
-    active: bool
 
 
 def fmt(value):
@@ -112,144 +99,11 @@ def direct_specs(cfg, trial, roles, path):
     return specs, marker.encode()
 
 
-def mosh_session_name(trial):
-    return ("w4_" + re.sub(r"[^A-Za-z0-9]", "_", trial["trial_tag"]))[:80]
-
-
-def mosh_socket_name(session: str) -> str:
-    """Return an isolated tmux socket name for one W4 trial."""
-    return f"{session[:40]}_socket"
-
-
-def tmux_command(cfg, socket: str) -> str:
-    """Build a tmux command that ignores machine-specific user config."""
-    return (
-        f"{shlex.quote(cfg.get('TMUX_BIN', 'tmux'))} "
-        f"-L {shlex.quote(socket)} -f /dev/null"
-    )
-
-
-def _idle_loop(stop_file: str) -> str:
-    """Keep an unused pane alive so every Mosh scenario has identical geometry."""
-    return (
-        f"while [ ! -e {shlex.quote(stop_file)} ]; do sleep 0.10; done; "
-        "sleep 1"
-    )
-
-
-def _command_loop(start_file, stop_file, settle):
-    cases = " ".join(
-        f"{index}) {command} ;;" for index, command in enumerate(COMMANDS, start=1)
-    )
-    return (
-        f"while [ ! -e {shlex.quote(start_file)} ]; do sleep 0.02; done; "
-        "n=0; op=0; "
-        f"while [ ! -e {shlex.quote(stop_file)} ]; do "
-        "n=$((n+1)); op=$((op%5+1)); "
-        "printf '__W4BG_START__:command_0:%s:%s\\n' \"$n\" \"$op\"; "
-        f"sleep {settle}; case \"$op\" in {cases} esac; rc=$?; "
-        "printf '__W4BG_DONE__:command_0:%s:%s:%s\\n' \"$n\" \"$op\" \"$rc\"; "
-        f"sleep {settle}; "
-        "done; printf '__W4BG_EXIT__:command_0:%s\\n' \"$n\"; sleep 1"
-    )
-
-
-def _output_loop(cfg, start_file, stop_file, settle):
-    payload = f"{cfg.get('W4_REMOTE_PAYLOAD_DIR', '/tmp/w4_mux_tt_payloads').rstrip('/')}/{PAYLOAD_NAME}"
-    return (
-        f"while [ ! -e {shlex.quote(start_file)} ]; do sleep 0.02; done; n=0; "
-        f"while [ ! -e {shlex.quote(stop_file)} ]; do n=$((n+1)); "
-        "printf '__W4BG_START__:output_0:%s:1\\n' \"$n\"; "
-        f"sleep {settle}; cat {shlex.quote(payload)}; rc=$?; "
-        "printf '__W4BG_DONE__:output_0:%s:1:%s\\n' \"$n\" \"$rc\"; "
-        f"sleep {settle}; "
-        "done; printf '__W4BG_EXIT__:output_0:%s\\n' \"$n\"; sleep 1"
-    )
-
-
-def mosh_spec(cfg, trial, roles, path):
-    session = mosh_session_name(trial)
-    socket = mosh_socket_name(session)
-    tmux = tmux_command(cfg, socket)
-    columns = int(cfg.get("TERMINAL_COLUMNS", "180"))
-    rows = int(cfg.get("TERMINAL_ROWS", "48"))
-    start_file = f"/tmp/{session}.start"
-    stop_file = f"/tmp/{session}.stop"
-    settle = float(cfg.get("MOSH_BACKGROUND_MARKER_SETTLE_SECONDS", "0.05"))
-    commands = [
-        f"{tmux} kill-server 2>/dev/null || true",
-        f"rm -f {shlex.quote(start_file)} {shlex.quote(stop_file)}",
-        (
-            f"{tmux} new-session -d -x {columns} -y {rows} -s {shlex.quote(session)} "
-            f"{shlex.quote(editor_command(cfg, trial['editor'], path))}"
-        ),
-        f"{tmux} set-option -t {shlex.quote(session)} status off",
-        f"{tmux} set-option -t {shlex.quote(session)} base-index 0",
-        f"{tmux} set-window-option -t {shlex.quote(session)} pane-base-index 0",
-    ]
-    # Always create the same three panes in the same order.  An absent logical
-    # workload gets an idle pane, so OUTPUT is not given twice the visible area
-    # in W4-OUTPUT compared with W4-MIX.
-    for role in ("command_0", "output_0"):
-        if role not in roles:
-            loop = _idle_loop(stop_file)
-        elif role == "command_0":
-            loop = _command_loop(start_file, stop_file, settle)
-        else:
-            loop = _output_loop(cfg, start_file, stop_file, settle)
-        commands.append(
-            f"{tmux} split-window -d -t {shlex.quote(session)} "
-            f"{shlex.quote('/bin/bash -lc ' + shlex.quote(loop))}"
-        )
-    commands += [
-        f"{tmux} set-window-option -t {shlex.quote(session)} main-pane-width {max(1, columns // 2)}",
-        f"{tmux} select-layout -t {shlex.quote(session)} main-vertical",
-        f"{tmux} select-pane -t {shlex.quote(session)}.0",
-        f"{tmux} bind-key -n F12 run-shell {shlex.quote('touch ' + start_file)}",
-        f"{tmux} bind-key -n F11 run-shell {shlex.quote('touch ' + stop_file)}",
-    ]
-    layout_marker = f"__W4_LAYOUT_{session}__"
-    template = "#{pane_index}|#{pane_left}|#{pane_top}|#{pane_width}|#{pane_height}|#{pane_active}|#{pane_dead}|#{pane_current_command}"
-    commands += [
-        f"printf '%s\\n' {shlex.quote(layout_marker)}",
-        f"{tmux} list-panes -t {shlex.quote(session)} -F {shlex.quote(template)}",
-        f"printf '%s\\n' {shlex.quote(layout_marker + '_END')}",
-        "sleep 1",
-        f"exec {tmux} attach-session -t {shlex.quote(session)}",
-    ]
-    spec = StreamSpec(
-        "terminal", "; ".join(commands), allocate_pty=True,
-        terminal_type=cfg.get("TERMINAL_TYPE", "xterm-256color"),
-        columns=columns, rows=rows,
-    )
-    return [spec], session, socket, start_file, stop_file
-
-
-def wait_tmux_layout(endpoint, cfg, expected_panes=3):
-    deadline = time.monotonic() + float(cfg.get("MOSH_LAYOUT_QUERY_TIMEOUT_SECONDS", "10"))
-    last = ""
-    while time.monotonic() < deadline:
-        last = endpoint.recent_text()
-        panes = []
-        clean = re.sub(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))", "", last)
-        for line in clean.splitlines():
-            parts = line.strip().split("|")
-            if len(parts) == 8 and all(item.isdigit() for item in parts[:7]):
-                index, left, top, width, height, active, dead = map(int, parts[:7])
-                if not dead:
-                    panes.append((index, left, top, width, height, bool(active)))
-        panes.sort()
-        if len(panes) == expected_panes:
-            pane_roles = ("interactive_0", "command_0", "output_0")
-            return [Pane(role, *values) for role, values in zip(pane_roles, panes)]
-        time.sleep(0.1)
-    raise TimeoutError(f"tmux panes not ready: {last[-1000:]!r}")
-
-
 def key_row(trial, stream, item, sent_ns, render_ns, status, note, cursor):
     completed = status in {"completed", "stall"}
-    semantics = "tmux_pane_in_terminal" if trial["protocol"] == "mosh" else (
-        "quic_bidirectional_stream" if trial["protocol"] == "ssh3" else "ssh_session_channel"
+    semantics = (
+        "quic_bidirectional_stream" if trial["protocol"] == "ssh3"
+        else "ssh_session_channel"
     )
     return {
         **{key: trial[key] for key in (
@@ -260,7 +114,7 @@ def key_row(trial, stream, item, sent_ns, render_ns, status, note, cursor):
         "transport_stream_id": getattr(stream, "stream_id", ""),
         "conversation_stream_id": getattr(stream, "conversation_id", ""),
         "transport_semantics": semantics,
-        "measurement_mode": "local_prediction" if trial["protocol"] == "mosh" else "remote_terminal_render",
+        "measurement_mode": "remote_terminal_render",
         "char_index": item.index, "char_total": item.total,
         "source_line": item.line, "source_column": item.column, "token": item.token,
         "send_ns": sent_ns or "", "render_ns": render_ns or "",
@@ -269,7 +123,7 @@ def key_row(trial, stream, item, sent_ns, render_ns, status, note, cursor):
         "timeout": int(status == "timeout"),
         "cursor_row": cursor.row if cursor else "",
         "cursor_column": cursor.column if cursor else "",
-        "render_verification": "vt100_cursor_cell_in_active_tmux_pane" if trial["protocol"] == "mosh" else "vt100_cursor_cell",
+        "render_verification": "vt100_cursor_cell",
         "note": note,
     }
 
@@ -379,11 +233,8 @@ def wait_final_output(endpoint, timeout=10.0):
     return None
 
 
-def remote_cleanup(cfg, paths, session="", socket=""):
+def remote_cleanup(cfg, paths):
     commands = []
-    if session:
-        tmux = tmux_command(cfg, socket) if socket else shlex.quote(cfg.get("TMUX_BIN", "tmux"))
-        commands.append(f"{tmux} kill-server 2>/dev/null || true")
     existing = [path for path in paths if path]
     if existing:
         commands.append("rm -f " + " ".join(shlex.quote(path) for path in existing))
@@ -411,7 +262,7 @@ def summarize_interactive(trial, stream, rows, file_bytes, probe, note=""):
         "transport_stream_id": getattr(stream, "stream_id", ""),
         "conversation_stream_id": getattr(stream, "conversation_id", ""),
         "transport_semantics": rows[0]["transport_semantics"] if rows else "",
-        "measurement_mode": "local_prediction" if trial["protocol"] == "mosh" else "remote_terminal_render",
+        "measurement_mode": "remote_terminal_render",
         "expected_units": len(rows), "attempted_units": len(rows),
         "completed_units": len(completed),
         "completion_rate_pct": fmt(100 * len(completed) / len(rows) if rows else 0),
@@ -442,7 +293,7 @@ def summarize_background(trial, stream, role, rows, note=""):
         "stream_role": role, "workload_type": workload_type(role),
         "transport_stream_id": getattr(stream, "stream_id", ""),
         "conversation_stream_id": getattr(stream, "conversation_id", ""),
-        "transport_semantics": "tmux_pane_in_terminal" if trial["protocol"] == "mosh" else "transport_stream",
+        "transport_semantics": "transport_stream",
         "measurement_mode": rows[0]["measurement_origin"] if rows else "",
         "expected_units": len(rows), "attempted_units": len(rows), "completed_units": len(completed),
         "completion_rate_pct": fmt(100 * len(completed) / len(rows) if rows else 0),
@@ -462,10 +313,8 @@ def run_trial(cfg, trial, probe):
     roles = roles_for(trial["scenario"])
     background_roles = roles[1:]
     path = remote_file(trial)
-    session = socket = start_file = stop_file = ""
     connection = None
     endpoint = None
-    collector = MoshBackgroundCollector() if trial["protocol"] == "mosh" else None
     streams, coordinators = {}, {}
     key_rows, background_rows, stream_rows = [], [], []
     setup_ms = workload_ms = 0.0
@@ -476,31 +325,25 @@ def run_trial(cfg, trial, probe):
     stop_event = threading.Event()
     file_bytes = None
     try:
-        if trial["protocol"] == "mosh":
-            specs, session, socket, start_file, stop_file = mosh_spec(
-                cfg, trial, roles, path
-            )
-            ready_marker = b""
-        else:
-            specs, ready_marker = direct_specs(cfg, trial, roles, path)
+        specs, ready_marker = direct_specs(cfg, trial, roles, path)
         started = time.perf_counter_ns()
         connection = open_multiplex_connection(cfg, trial["protocol"], specs, trial["trial_tag"])
         streams = connection.open(float(cfg.get("STREAM_READY_TIMEOUT_SECONDS", "15")))
         audit = connection.audit
-        physical = streams["terminal"] if trial["protocol"] == "mosh" else streams["interactive_0"]
         endpoint = InteractiveEndpoint(
-            physical, int(cfg.get("TERMINAL_ROWS", "48")), int(cfg.get("TERMINAL_COLUMNS", "180")),
-            observers=(collector.feed,) if collector else (),
+            streams["interactive_0"],
+            int(cfg.get("TERMINAL_ROWS", "48")),
+            int(cfg.get("TERMINAL_COLUMNS", "180")),
         )
-        if trial["protocol"] == "mosh":
-            wait_tmux_layout(endpoint, cfg)
-            ready = len(roles)
-        else:
-            endpoint.wait_marker(ready_marker, float(cfg.get("STREAM_READY_TIMEOUT_SECONDS", "15")))
-            for role in background_roles:
-                coordinators[role] = BackgroundCoordinator(streams[role])
-                coordinators[role].probe(float(cfg.get("STREAM_READY_TIMEOUT_SECONDS", "15")))
-            ready = len(roles)
+        endpoint.wait_marker(
+            ready_marker, float(cfg.get("STREAM_READY_TIMEOUT_SECONDS", "15")),
+        )
+        for role in background_roles:
+            coordinators[role] = BackgroundCoordinator(streams[role])
+            coordinators[role].probe(
+                float(cfg.get("STREAM_READY_TIMEOUT_SECONDS", "15")),
+            )
+        ready = len(roles)
         time.sleep(float(cfg.get("EDITOR_START_SETTLE_SECONDS", "1")))
         if trial["editor"] == "vim":
             endpoint.send(b"i")
@@ -514,31 +357,31 @@ def run_trial(cfg, trial, probe):
         endpoint.screen.clear_history()
 
         workload_start = time.perf_counter_ns()
-        if trial["protocol"] == "mosh":
-            endpoint.send(b"\x1b[24~")  # F12: release background panes.
-            time.sleep(float(cfg.get("BACKGROUND_START_SETTLE_SECONDS", "0.2")))
-        else:
-            barrier = threading.Barrier(len(background_roles) + 1)
-            def launch(role):
-                bg_results[role] = run_direct_background(
-                    cfg, trial, role, streams[role], coordinators[role], stop_event, barrier
-                )
-            for role in background_roles:
-                thread = threading.Thread(target=launch, args=(role,), name=f"w4-{role}", daemon=True)
-                thread.start()
-                bg_threads.append(thread)
-            barrier.wait(timeout=float(cfg.get("STREAM_READY_TIMEOUT_SECONDS", "15")))
+        barrier = threading.Barrier(len(background_roles) + 1)
+
+        def launch(role):
+            bg_results[role] = run_direct_background(
+                cfg, trial, role, streams[role], coordinators[role],
+                stop_event, barrier,
+            )
+
+        for role in background_roles:
+            thread = threading.Thread(
+                target=launch, args=(role,), name=f"w4-{role}", daemon=True,
+            )
+            thread.start()
+            bg_threads.append(thread)
+        barrier.wait(timeout=float(cfg.get("STREAM_READY_TIMEOUT_SECONDS", "15")))
 
         key_rows = measure_interactive(cfg, trial, endpoint, probe)
-        if trial["protocol"] == "mosh":
-            endpoint.send(b"\x1b[23~")  # F11: request background stop.
-            collector.wait_exit(background_roles, float(cfg.get("BACKGROUND_STOP_TIMEOUT_SECONDS", "15")))
-            background_rows = collector.rows(trial, streams["terminal"])
-        else:
-            stop_event.set()
-            for thread in bg_threads:
-                thread.join(timeout=float(cfg.get("BACKGROUND_STOP_TIMEOUT_SECONDS", "15")))
-            background_rows = [row for role in background_roles for row in bg_results.get(role, [])]
+        stop_event.set()
+        for thread in bg_threads:
+            thread.join(
+                timeout=float(cfg.get("BACKGROUND_STOP_TIMEOUT_SECONDS", "15")),
+            )
+        background_rows = [
+            row for role in background_roles for row in bg_results.get(role, [])
+        ]
         workload_ms = (time.perf_counter_ns() - workload_start) / 1e6
         save_editor(trial["editor"], endpoint)
         file_bytes = wait_final_output(
@@ -573,10 +416,7 @@ def run_trial(cfg, trial, probe):
             f"sha256={hashlib.sha256(file_bytes).hexdigest()}",
         )))
     final_output_complete = file_bytes == probe.data
-    logical_streams = {
-        role: streams.get("terminal") if trial["protocol"] == "mosh" else streams.get(role)
-        for role in roles
-    }
+    logical_streams = {role: streams.get(role) for role in roles}
     if not key_rows:
         for item in probe.items():
             key_rows.append(key_row(trial, logical_streams.get("interactive_0"), item, 0, 0, "trial_unavailable", note, None))
@@ -590,8 +430,9 @@ def run_trial(cfg, trial, probe):
     audit_rows = []
     for role in roles:
         stream = logical_streams.get(role)
-        semantics = "tmux_pane_in_terminal" if trial["protocol"] == "mosh" else (
-            "quic_bidirectional_stream" if trial["protocol"] == "ssh3" else "ssh_session_channel"
+        semantics = (
+            "quic_bidirectional_stream" if trial["protocol"] == "ssh3"
+            else "ssh_session_channel"
         )
         audit_rows.append({
             **{key: trial[key] for key in (
@@ -639,5 +480,5 @@ def run_trial(cfg, trial, probe):
         "note": "; ".join(filter(None, (audit.note, note))),
     }
     if cfg_bool(cfg, "CLEANUP_REMOTE_FILES", "1"):
-        remote_cleanup(cfg, [path, start_file, stop_file], session, socket)
+        remote_cleanup(cfg, [path])
     return key_rows, background_rows, stream_rows, trial_row, audit_rows

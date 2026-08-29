@@ -142,12 +142,17 @@ def build_plan(
     default_seed: int,
     editors: dict[str, str] | None = None,
     run_id: str = "",
+    supported_protocols=KNOWN_PROTOCOLS,
 ) -> ExperimentPlan:
-    protocols = settings.csv_list("PROTOCOLS", KNOWN_PROTOCOLS)
-    unknown = sorted(set(protocols) - set(KNOWN_PROTOCOLS))
+    # `supported_protocols` là danh sách của workload, có thể hẹp hơn tập giao
+    # thức mà transport hỗ trợ: W4 không đánh giá Mosh vì kịch bản tải nền cần
+    # workload chạy song song với editor.
+    protocols = settings.csv_list("PROTOCOLS", supported_protocols)
+    unknown = sorted(set(protocols) - set(supported_protocols))
     if unknown:
         raise ConfigurationError(
-            f"{settings.source}: PROTOCOLS chứa giá trị lạ: {unknown}"
+            f"{settings.source}: PROTOCOLS chứa giá trị workload không đánh giá: "
+            f"{unknown} (hợp lệ: {', '.join(supported_protocols)})"
         )
     if len(protocols) != len(set(protocols)):
         raise ConfigurationError(f"{settings.source}: PROTOCOLS có giá trị lặp")

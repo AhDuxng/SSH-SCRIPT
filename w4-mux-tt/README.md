@@ -34,32 +34,11 @@ channel for each logical role. SSH3 calls `Dial` once, creates one conversation,
 and opens one real QUIC bidirectional stream for each role. The audit records
 every SSH3 StreamID and the shared conversation StreamID.
 
-Mosh has no channel/stream multiplexing API. It therefore opens exactly one UDP
-terminal session. Every scenario uses the same isolated three-pane tmux layout;
-an absent logical workload gets an idle placeholder so pane geometry and visible
-output area do not change between CMD, OUTPUT, and MIX:
-
-```text
-one Mosh terminal
- ├─ pane 0: interactive editor (active pane)
- ├─ pane 1: command background or idle placeholder
- └─ pane 2: output background or idle placeholder
-```
-
-The trial uses a private tmux socket and `-f /dev/null`, so the user's existing
-tmux server and `~/.tmux.conf` cannot change the experimental layout.
-
-The panes are not synchronized: input characters go only to the active editor.
-F12 releases a server-side barrier for background panes immediately before the
-interactive measurement; F11 requests background termination after character
-100. Both control keys are handled by tmux and are outside per-key latency.
-
-Mosh synchronizes terminal screen state rather than a lossless stdout byte
-stream. It may skip most intermediate cells while a 1 MiB `cat` scrolls. For
-that reason `background.csv` keeps command/transfer markers and client-observed
-screen-update bytes, but does not claim exact output completeness for Mosh.
-SSH/SSH3 require exact byte count and SHA-256 for every output transfer. This is
-an expected protocol-semantic difference, not reconstructed server-side data.
+**Mosh is not evaluated in W4.** Its background scenarios require a workload to
+run concurrently with the editor, and a single terminal session cannot do that
+while keystroke latency stays measurable: both processes write to the same PTY,
+which interleaves their bytes and breaks the cursor parser. Mosh is evaluated in
+W1, W2 and W3 with the single-workload scenario, where the comparison is sound.
 
 ## Timing
 

@@ -65,7 +65,6 @@ if [[ "${SSH_BATCH_MODE:-1}" == "1" ]]; then SSH_PREFLIGHT+=(-o BatchMode=yes); 
 REMOTE_BINS=()
 [[ ",${EDITORS}," == *,vim,* ]] && REMOTE_BINS+=("${VIM_BIN:-vim}")
 [[ ",${EDITORS}," == *,nano,* ]] && REMOTE_BINS+=("${NANO_BIN:-nano}")
-[[ ",${PROTOCOLS}," == *,mosh,* ]] && REMOTE_BINS+=("${TMUX_BIN:-tmux}")
 CHECK_COMMAND=""
 for binary in "${REMOTE_BINS[@]}"; do
   CHECK_COMMAND+="command -v $(printf '%q' "$binary") >/dev/null || exit 44; "
