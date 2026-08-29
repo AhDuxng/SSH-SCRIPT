@@ -7,9 +7,11 @@ kê không lặng lẽ làm sai lệch phân bố độ trễ.
 
 from __future__ import annotations
 
+import os
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 REPO_DIR = Path(__file__).resolve().parents[1]
@@ -226,3 +228,40 @@ class ConfigurationValidationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EnvironmentOverrideTests(unittest.TestCase):
+    def _config(self, body: str) -> str:
+        handle = tempfile.NamedTemporaryFile(
+            "w", suffix=".env", delete=False, encoding="utf-8"
+        )
+        handle.write(body)
+        handle.close()
+        self.addCleanup(os.unlink, handle.name)
+        return handle.name
+
+    # Khoá vắng mặt trong config.env vẫn phải ghi đè được từ môi trường.
+    def test_absent_key_overridable_from_environment(self):
+        path = self._config("PROTOCOLS=ssh,ssh3\n")
+        with mock.patch.dict(os.environ, {"TRIALS_PER_COMBINATION": "1"}):
+            settings = load_settings(path)
+        self.assertEqual(settings.integer("TRIALS_PER_COMBINATION", 5), 1)
+
+    # Khoá có trong tệp thì môi trường vẫn thắng.
+    def test_present_key_overridden_by_environment(self):
+        path = self._config("TRIALS_PER_COMBINATION=9\n")
+        with mock.patch.dict(os.environ, {"TRIALS_PER_COMBINATION": "2"}):
+            settings = load_settings(path)
+        self.assertEqual(settings.integer("TRIALS_PER_COMBINATION", 5), 2)
+
+    # Không có biến môi trường thì mặc định TRIALS=5 vẫn được dùng.
+    def test_default_trials_when_unset(self):
+        path = self._config("PROTOCOLS=ssh\n")
+        with mock.patch.dict(os.environ, {}, clear=True):
+            settings = load_settings(path)
+        self.assertEqual(
+            settings.integer(
+                "TRIALS_PER_COMBINATION", DEFAULT_TRIALS_PER_CONFIGURATION
+            ),
+            DEFAULT_TRIALS_PER_CONFIGURATION,
+        )

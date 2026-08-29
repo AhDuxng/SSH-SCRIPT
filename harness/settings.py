@@ -109,6 +109,19 @@ def cfg_bool(values: dict, key: str, default: str = "0") -> bool:
     return values.get(key, default).strip().lower() in {"1", "true", "yes", "on"}
 
 
+# Khoá điều khiển lần chạy: môi trường ghi đè được kể cả khi config.env không
+# khai báo, để smoke-test và ablation không phải sửa tệp cấu hình.
+ENVIRONMENT_ONLY_KEYS = (
+    "RUN_ID",
+    "RESULT_DIR",
+    "TRIALS_PER_COMBINATION",
+    "PROTOCOLS",
+    "SCENARIOS",
+    "EDITORS",
+    "RANDOM_SEED",
+)
+
+
 # Đọc tệp KEY=VALUE; biến môi trường cùng tên được ưu tiên.
 def load_settings(path) -> Settings:
     source = Path(path)
@@ -124,11 +137,7 @@ def load_settings(path) -> Settings:
         if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
             value = value[1:-1]
         values[key.strip()] = value
-    for key in tuple(values):
-        if key in os.environ:
-            values[key] = os.environ[key]
-    # RUN_ID có thể được truyền từ môi trường ngay cả khi tệp không khai báo.
-    for key in ("RUN_ID",):
+    for key in tuple(values) + ENVIRONMENT_ONLY_KEYS:
         if key in os.environ:
             values[key] = os.environ[key]
     return Settings(values, source.resolve())

@@ -80,8 +80,8 @@ def main() -> int:
 
     columns = int(cfg.get("TERMINAL_COLUMNS", "160"))
     rows = int(cfg.get("TERMINAL_ROWS", "48"))
-    if "mosh" in protocols and (columns < 120 or rows < 40):
-        raise ValueError("Mosh I4 cần terminal tối thiểu 120x40 để hiển thị bốn pane")
+    if columns <= 0 or rows <= 0:
+        raise ValueError("TERMINAL_COLUMNS và TERMINAL_ROWS phải dương")
 
     probe = ProbeSource(cfg.get("PROBE_TEXT_FILE", "payloads/probe_text.c"))
     if (
