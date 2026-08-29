@@ -45,7 +45,8 @@ def number(row, field):
     return float(value) if value else None
 
 
-# Chỉ công bố completion latency khi ít nhất 95% phép truyền đã thử hoàn tất.
+# Chỉ công bố lossless completion latency khi ít nhất 95% phép truyền đã
+# thử hoàn tất; đây là phép đo chỉ có nghĩa với luồng byte nguyên bản.
 def metric_value(row, field):
     value = number(row, field)
     if not field.startswith("completion_"):
@@ -54,6 +55,16 @@ def metric_value(row, field):
     if completion_rate is None or completion_rate < MIN_COMPLETION_RATE_PCT:
         return None
     return value
+
+
+# Ghi kèm tỷ lệ mẫu đạt đủ nội dung khi tỷ lệ đó chưa tới ngưỡng công bố.
+def coverage_suffix(row, field):
+    if not field.startswith("content_complete_"):
+        return ""
+    rate = number(row, "content_complete_rate_pct")
+    if rate is None or rate >= MIN_COMPLETION_RATE_PCT:
+        return ""
+    return f"\n({rate:.0f}%)"
 
 
 # Vẽ một metric theo ba giao thức và ba kịch bản.
@@ -86,9 +97,10 @@ def plot_metric(rows, output_dir, field, title, ylabel, stem, network):
             hatch=HATCHES[protocol],
         )
         plotted.append((bars, values))
-    for bars, values in plotted:
-        for bar, value in zip(bars, values):
+    for (bars, values), (protocol, _) in zip(plotted, series):
+        for bar, value, scenario in zip(bars, values, SCENARIOS):
             shown = "N/A" if value is None else f"{value:.1f}"
+            shown += coverage_suffix(lookup.get((protocol, scenario)), field)
             axis.text(
                 bar.get_x() + bar.get_width() / 2,
                 (value or 0) + max(ceiling * 0.015, 0.1),
@@ -106,14 +118,19 @@ def plot_metric(rows, output_dir, field, title, ylabel, stem, network):
         axis.set_ylim(0, max(1.0, ceiling * 1.24))
     axis.grid(axis="y", alpha=0.25)
     axis.legend(ncol=3)
+    footnote = ""
     if field.startswith("completion_"):
-        fig.text(
-            0.5, 0.01,
+        footnote = (
             "N/A: fewer than 95% of attempted transfers completed with full "
-            "verified output.",
-            ha="center", fontsize=8,
+            "verified output."
         )
-    if field.startswith("completion_"):
+    elif field.startswith("content_complete_"):
+        footnote = (
+            "Percentage under a bar: share of samples whose full payload was "
+            "observed, when below 95%."
+        )
+    if footnote:
+        fig.text(0.5, 0.01, footnote, ha="center", fontsize=8)
         fig.tight_layout(rect=(0, 0.035, 1, 1))
     else:
         fig.tight_layout()
@@ -173,8 +190,13 @@ def plot_stream_metric(
             linewidth=0.6,
             hatch=[HATCHES[protocol] for protocol, _, _ in items],
         )
-        for bar, (_, _, value) in zip(bars, items):
+        for bar, (protocol, _, value) in zip(bars, items):
             shown = "N/A" if value is None else f"{value:.1f}"
+            source = (
+                scenario_lookup.get((protocol, scenario))
+                if protocol == "mosh" else None
+            )
+            shown += coverage_suffix(source, field) if source else ""
             axis.text(
                 bar.get_x() + bar.get_width() / 2,
                 (value or 0) + max(ceiling * 0.02, 0.1),
@@ -195,14 +217,19 @@ def plot_stream_metric(
         axis.grid(axis="y", alpha=0.25)
     axes[0].set_ylabel(ylabel)
     fig.suptitle(f"{title} — {network.capitalize()}")
+    footnote = ""
     if field.startswith("completion_"):
-        fig.text(
-            0.5, 0.01,
+        footnote = (
             "N/A: fewer than 95% of attempted transfers completed with full "
-            "verified output.",
-            ha="center", fontsize=8,
+            "verified output."
         )
-    if field.startswith("completion_"):
+    elif field.startswith("content_complete_"):
+        footnote = (
+            "Percentage under a bar: share of samples whose full payload was "
+            "observed, when below 95%."
+        )
+    if footnote:
+        fig.text(0.5, 0.01, footnote, ha="center", fontsize=8)
         fig.tight_layout(rect=(0, 0.035, 1, 1))
     else:
         fig.tight_layout()
@@ -217,12 +244,13 @@ def plot_integrity(rows, output_dir, network):
     lookup = {(row["protocol"], row["scenario"]): row for row in rows}
     fields = (
         ("completion_marker_rate_pct", "Command finished"),
+        ("content_complete_rate_pct", "Full payload observed"),
         ("fully_verified_output_rate_pct", "Full output + SHA-256"),
         ("verified_output_ratio_pct", "Verified expected content"),
         ("raw_capture_exact_rate_pct", "Lossless raw capture"),
     )
     x = np.arange(len(SCENARIOS) * len(PROTOCOLS))
-    width = 0.19
+    width = 0.16
     fig, axis = plt.subplots(figsize=(12, 5.8))
     for field_index, (field, label) in enumerate(fields):
         values = [
@@ -341,11 +369,17 @@ def main() -> int:
     args = parser.parse_args()
     rows = load_rows(args.result_dir / "scenario_summary.csv")
     stream_rows = load_rows(args.result_dir / "stream_summary.csv")
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    # Thư mục chỉ chứa hình do plot_w2 tạo; bỏ bộ hình của lần chạy trước.
+    for pattern in ("figure_*.png", "figure_*.pdf"):
+        for path in args.output_dir.glob(pattern):
+            path.unlink()
     plots = []
     for metric in ("mean", "median", "p95", "p99"):
         plots.extend((
             (f"command_visible_{metric}_ms", f"W2 command visible — {metric.upper()}", "Latency (ms)", f"figure_0_command_visible_{metric}"),
-            (f"completion_{metric}_ms", f"W2 transfer completion — {metric.upper()}", "Latency (ms)", f"figure_1_completion_{metric}"),
+            (f"content_complete_{metric}_ms", f"W2 full payload observed — {metric.upper()}", "Latency (ms)", f"figure_1_content_complete_{metric}"),
+            (f"completion_{metric}_ms", f"W2 lossless byte-stream completion — {metric.upper()}", "Latency (ms)", f"figure_1b_lossless_completion_{metric}"),
             (f"setup_{metric}_ms", f"W2 connection + streams READY — {metric.upper()}", "Setup time (ms)", f"figure_4_setup_{metric}"),
         ))
     plots.extend((
@@ -355,11 +389,22 @@ def main() -> int:
     for field, title, ylabel, stem in plots:
         plot_metric(rows, args.output_dir, field, title, ylabel, stem, args.network)
     plot_integrity(rows, args.output_dir, args.network)
-    stream_plots = (
-        ("completion_mean_ms", "W2 per-stream completion — MEAN", "Latency (ms)", "figure_6_per_stream_completion_mean"),
-        ("completion_median_ms", "W2 per-stream completion — MEDIAN", "Latency (ms)", "figure_6_per_stream_completion_median"),
-        ("completion_p95_ms", "W2 per-stream completion — P95", "Latency (ms)", "figure_6_per_stream_completion_p95"),
-        ("completion_p99_ms", "W2 per-stream completion — P99", "Latency (ms)", "figure_6_per_stream_completion_p99"),
+    stream_plots = tuple(
+        (
+            f"content_complete_{metric}_ms",
+            f"W2 per-stream full payload observed — {metric.upper()}",
+            "Latency (ms)",
+            f"figure_6_per_stream_content_complete_{metric}",
+        )
+        for metric in ("mean", "median", "p95", "p99")
+    ) + tuple(
+        (
+            f"completion_{metric}_ms",
+            f"W2 per-stream lossless completion — {metric.upper()}",
+            "Latency (ms)",
+            f"figure_6b_per_stream_completion_{metric}",
+        )
+        for metric in ("mean", "median", "p95", "p99")
     )
     for field, title, ylabel, stem in stream_plots:
         plot_stream_metric(

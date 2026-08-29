@@ -4,6 +4,7 @@ import json
 import os
 import subprocess
 import threading
+import time
 from typing import BinaryIO
 
 
@@ -104,13 +105,13 @@ class PipeReader:
     def start(self):
         self.thread.start()
 
-    # Đọc liên tục và chuyển tiếp từng khối byte.
+    # Đọc liên tục và chuyển tiếp từng khối byte kèm thời điểm quan sát.
     def _run(self):
         while True:
             chunk = os.read(self.source.fileno(), 65536)
             if not chunk:
                 return
-            self.on_data(chunk)
+            self.on_data(chunk, time.time_ns(), time.perf_counter_ns())
 
 
 class JSONPipeReader:
@@ -129,8 +130,9 @@ class JSONPipeReader:
     # Đọc và giải mã từng dòng JSON hợp lệ.
     def _run(self):
         for raw in self.source:
+            observed_wall_ns, observed_mono_ns = time.time_ns(), time.perf_counter_ns()
             try:
                 frame = json.loads(raw.decode("ascii"))
             except (UnicodeDecodeError, json.JSONDecodeError):
                 continue
-            self.on_frame(frame)
+            self.on_frame(frame, observed_wall_ns, observed_mono_ns)

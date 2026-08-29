@@ -6,3 +6,12 @@
 
 Each `*.env` file is copied to the matching workload directory on the Pi as
 `config.env`.
+
+Kiểm tra trước khi đo:
+
+```bash
+cd ~/SSH-SCRIPT
+for w in w1 w2 w3 w4; do
+  python3 stream_mux/scripts/preflight.py $w-mux-tt/config.env || break
+done
+```

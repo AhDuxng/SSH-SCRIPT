@@ -77,13 +77,32 @@ Các mốc thời gian:
 - `send_time_ns`: ngay trước khi Pi1 ghi dòng lệnh vào stream;
 - `first_byte_time_ns`: khi Pi1 quan sát byte payload đầu tiên;
 - `last_byte_time_ns`: khi Pi1 quan sát byte payload cuối cùng;
+- `content_complete_time_ns`: khi Pi1 đã quan sát đủ toàn bộ 25 dòng payload;
 - `marker_time_ns`: khi Pi1 nhận dấu hoàn thành và mã thoát.
 
-Metric chính đúng PDF:
+Mọi mốc trên được đóng dấu ngay tại vòng đọc của transport (`StreamEvent`
+mang `observed_wall_ns`/`observed_mono_ns`), không phải lúc tầng workload lấy
+sự kiện ra khỏi hàng đợi.
+
+Metric so sánh chính giữa ba giao thức:
+
+```text
+content_complete_latency_ms = content_complete_time - send_time
+```
+
+Đây là thời điểm toàn bộ nội dung của phép truyền đã hiện diện phía client.
+Với SSH/SSH3 nó bám sát byte cuối cùng của luồng; với Mosh nó được xác định
+trên viewport đã dựng lại. Cùng một định nghĩa cho cả ba giao thức nên các cột
+so sánh được với nhau, và nó đo được cả khi dấu hoàn thành không tới kịp.
+
+Metric theo đúng chữ trong PDF vẫn được giữ nguyên và báo cáo riêng:
 
 ```text
 completion_latency_ms = last_byte_time - send_time
 ```
+
+Chỉ số này chỉ có nghĩa với luồng byte nguyên bản, nên nó là `N/A` cho Mosh khi
+dưới 95% phép truyền đã thử hoàn tất.
 
 Ngoài ra chương trình ghi `first_byte_latency_ms`, `marker_latency_ms` và thông
 lượng MiB/s. Một phép truyền chỉ có `status=completed` khi:
@@ -146,21 +165,40 @@ skipped.
 - SSH3 gọi kết nối một lần và mở một QUIC bidirectional stream thật cho mỗi
   `output_X`. Các StreamID phải khác nhau nhưng cùng ConversationStreamID và UDP
   socket.
-- Mosh chỉ có một terminal session. W2-S2/W2-S4 là các tiến trình `cat` nền đồng
-  thời, không phải nhiều transport stream.
+- Mosh chỉ có một terminal session. W2-S2/W2-S4 là các tiến trình `sed` chạy
+  trong các tmux pane khác nhau của cùng terminal đó, không phải nhiều transport
+  stream.
 
-Terminal Mosh dùng kích thước `4096 cột × 128 dòng`, giống W1: một dòng payload
-không bị wrap và viewport giữ được 4 × 25 dòng cùng marker của W2-S4. Giá trị này được
-cấu hình bằng `W2_MOSH_COLUMNS` và `W2_MOSH_ROWS`; chương trình từ chối chạy nếu
-viewport nhỏ hơn batch của kịch bản.
+Trong W2-S2/W2-S4, mỗi vai trò chạy trong một tmux pane riêng nên có PTY riêng.
+Đây không phải chi tiết trình bày mà là điều kiện để phép đo đúng: nhiều tiến
+trình cùng ghi vào một PTY sẽ trộn byte của nhau, làm hỏng chính các dòng
+deterministic dùng để xác thực. Kết quả cũ cho thấy rõ điều đó — độ bao phủ nội
+dung tụt theo số vai trò dùng chung shell (S1 100%, S2 24%, S4 8%) trong khi
+SSH/SSH3 giữ 100%.
+
+Client chỉ gõ vào pane điều khiển; pane này chuyển tiếp từng dòng lệnh vào FIFO
+riêng của pane workload tương ứng, nên không bao giờ phải chuyển pane giữa lúc
+đang đo. Mỗi dòng payload mang token riêng của `trial/role/sample`, vì vậy việc
+đối chiếu nội dung không cần biết hình học pane.
+
+Terminal Mosh dùng `4096 cột × 144 dòng`: chiều rộng giữ một dòng payload 4 095
+ký tự không bị wrap, chiều cao đủ chia đều cho pane điều khiển cộng bốn pane
+payload của W2-S4. Cấu hình bằng `W2_MOSH_COLUMNS` và `W2_MOSH_ROWS`; chương
+trình từ chối chạy nếu viewport nhỏ hơn batch của kịch bản. Đặt
+`W2_MOSH_LAYOUT=single` để quay lại mô hình một shell dùng chung của bản trước.
 
 Mosh truyền trạng thái màn hình thay vì luồng byte lossless. Vì vậy raw terminal
-bytes không được so trực tiếp với file. Trước mỗi sample, viewport được xóa và
-client phải nhận marker xác nhận sau lệnh xóa; tất cả vai trò sau đó đi qua cùng
-một barrier. Chương trình lọc redraw/control
-bytes, gom đủ 25 dòng duy nhất theo prefix và dựng lại đúng thứ tự canonical để
-kiểm tra 102.400 byte cùng SHA-256. Nếu thiếu dù một dòng, sample vẫn là
-`partial`/`timeout`, không được đổi thành hoàn tất giả.
+bytes không được so trực tiếp với file. Mỗi lệnh tự xóa vùng hiển thị của pane
+mình ngay trước dấu mốc bắt đầu, rồi client đối chiếu từng dòng deterministic
+trên viewport đã dựng lại **ngay khi dòng đó xuất hiện**, thay vì chụp màn hình
+một lần sau khi mọi vai trò báo `DONE`. Cách cũ phụ thuộc vào việc chụp đúng lúc
+và cho kết quả không tái lập được giữa hai lần chạy cùng cấu hình; cách mới ghi
+lại đúng thời điểm nội dung trở nên đầy đủ.
+
+Đủ 25 dòng duy nhất thì payload canonical được dựng lại để kiểm tra 102.400 byte
+cùng SHA-256. Nếu thiếu dù một dòng, sample vẫn là `partial`/`timeout`, không
+được đổi thành hoàn tất giả — nhưng `content_coverage_pct` và
+`content_complete_latency_ms` của phần đã quan sát vẫn được giữ lại.
 
 ## Chạy
 
@@ -213,27 +251,43 @@ artifacts/results/metadata.json
 Bộ hình dùng cùng bố cục, màu, hatch, nhãn số và cách nhóm như W1:
 
 ```text
-figure_0_command_visible_*.png/pdf         marker-visible Mean/Median/P95/P99
-figure_1_completion_*.png/pdf             latency Mean/Median/P95/P99
-figure_2_first_byte_median.png/pdf         latency byte đầu
-figure_3_throughput_mean.png/pdf           thông lượng byte đã xác thực
-figure_4_setup_*.png/pdf                  setup Mean/Median/P95/P99
-figure_5_output_integrity.png/pdf          complete/byte/SHA-256
-figure_6_per_stream_completion_*.png/pdf  latency từng stream
-figure_7_per_stream_integrity.png/pdf     integrity từng stream
+figure_0_command_visible_*.png/pdf              marker-visible Mean/Median/P95/P99
+figure_1_content_complete_*.png/pdf             nội dung đủ — metric chính, cả ba giao thức
+figure_1b_lossless_completion_*.png/pdf         byte cuối — chỉ có nghĩa với SSH/SSH3
+figure_2_first_byte_median.png/pdf              latency byte đầu
+figure_3_throughput_mean.png/pdf                thông lượng byte đã xác thực
+figure_4_setup_*.png/pdf                       setup Mean/Median/P95/P99
+figure_5_output_integrity.png/pdf               marker/nội dung/byte/SHA-256
+figure_6_per_stream_content_complete_*.png/pdf  nội dung đủ từng stream
+figure_6b_per_stream_completion_*.png/pdf       byte cuối từng stream
+figure_7_per_stream_integrity.png/pdf           integrity từng stream
 ```
+
+Trên các hình `content_complete`, phần trăm in dưới giá trị của một cột cho biết
+tỷ lệ mẫu quan sát được đủ nội dung, và chỉ xuất hiện khi tỷ lệ đó dưới 95%. Cột
+vẫn được vẽ thay vì `N/A`, nhưng con số phần trăm nhắc rằng latency được tính
+trên tập mẫu đã lọc.
 
 Hai hình integrity dùng trục 0–100%. `Transfer complete` chỉ đạt 100% khi nhận
 đủ marker, byte, dòng và SHA-256. Bảng CSV vẫn giữ `content_coverage_pct` để xem
 phần nội dung hợp lệ của mẫu `partial`/`timeout` mà không tính redraw hay dòng lặp.
 
-`figure_0_command_visible_*.png/pdf` đo từ lúc gửi lệnh đến khi dấu `DONE` hiện
-trên terminal. Chỉ số này vẫn được báo cáo cho Mosh khi output không còn đủ
-100 KiB, vì nó phản ánh lúc người dùng thấy lệnh đã kết thúc. Các hình
-`figure_1_completion_*` vẫn là phép đo lossless-output và có thể ghi `N/A` cho
-Mosh. Mosh luôn dùng một terminal vật lý; sau khi mọi tiến trình của sample báo
-`DONE`, runner áp dụng ANSI/cursor update vào một viewport chung, chờ màn hình
-ổn định rồi mới tính content coverage.
+Ba phép đo tách bạch nhau, đừng gộp khi đọc kết quả:
+
+- `figure_0_command_visible_*` — từ lúc gửi lệnh đến khi dấu `DONE` hiện trên
+  terminal. Đây là lúc người dùng thấy lệnh đã kết thúc, báo cáo được cho cả ba
+  giao thức kể cả khi output không đủ 100 KiB.
+- `figure_1_content_complete_*` — từ lúc gửi lệnh đến khi client đã quan sát đủ
+  toàn bộ nội dung payload. Đây là metric so sánh chính; nó dùng cùng một định
+  nghĩa cho SSH, SSH3 và Mosh.
+- `figure_1b_lossless_completion_*` — từ lúc gửi lệnh đến byte payload cuối cùng
+  của luồng. Chỉ có nghĩa với luồng byte nguyên bản, nên ghi `N/A` cho Mosh khi
+  dưới 95% phép truyền đã thử hoàn tất.
+
+Mosh luôn dùng một terminal vật lý. Runner áp dụng ANSI/cursor update vào một
+viewport chung và đối chiếu từng dòng deterministic ngay khi nó xuất hiện, nên
+`content_complete` được chốt đúng thời điểm thay vì phụ thuộc vào một lần chụp
+màn hình sau khi mọi vai trò báo `DONE`.
 
 `ssh3_vs_ssh.csv` ghi median latency, mean throughput, tỷ số SSH3/SSH và verdict
 cho từng kịch bản. Nếu SSH3 chậm hơn quá 5%, analyzer in `[CHECK]`; đây là cảnh
@@ -243,6 +297,7 @@ báo kiểm tra kết quả thực đo, không tự sửa hay loại mẫu.
 
 ```text
 w2-mux-tt/
+├── ABLATION.md              # cô lập nguyên nhân chênh lệch SSH3 vs SSH
 ├── config.env
 ├── config.example.env
 ├── LOG_ANALYSIS.md
@@ -254,10 +309,16 @@ w2-mux-tt/
 │   ├── framing.py
 │   ├── run_w2.py
 │   ├── stream_adapter.py
+│   ├── terminal_screen.py
 │   └── trial.py
 └── tools/
     ├── analyze_w2.py
+    ├── compare_runs.py      # so sánh nhiều lần chạy theo cặp SSH3/SSH
     ├── generate_payloads.py
     ├── plot_w2.py
     └── verify_ssh3_mux.py
 ```
+
+Khi SSH3 chậm hơn SSH, đọc `ABLATION.md` trước khi quy nguyên nhân cho giao
+thức: một phần chênh lệch đến từ cách `netem` đếm gói và độ sâu buffer của
+`tbf`, không phải từ transport.

@@ -80,9 +80,14 @@ fi
 
 # Triển khai và xác minh payload trước khi tạo bất kỳ trial nào.
 REMOTE_QUOTED="$(printf '%q' "$REMOTE_PATH")"
+PREFLIGHT="mkdir -p $REMOTE_QUOTED"
+# Mosh nhiều vai trò cần tmux trên máy đích để mỗi vai trò có PTY riêng.
+if [[ ",${PROTOCOLS}," == *,mosh,* && "${W2_MOSH_LAYOUT:-tmux}" == "tmux" ]]; then
+  PREFLIGHT+=" && command -v $(printf '%q' "${TMUX_BIN:-tmux}") >/dev/null"
+fi
 ssh "${SSH_DEPLOY_ARGS[@]}" \
   "${SERVER_USER}@${SERVER_HOST}" \
-  "mkdir -p $REMOTE_QUOTED"
+  "$PREFLIGHT"
 scp "${SCP_DEPLOY_ARGS[@]}" \
   "$PAYLOAD_PATH"/large_output_s*_100KB.txt \
   "$PAYLOAD_PATH"/SHA256SUMS \

@@ -108,12 +108,16 @@ class SSHConnection(MultiplexConnection):
             self.processes[role] = process
             stdout_reader = PipeReader(
                 process.stdout,
-                lambda data, current=role: self.streams[current].put_data(data, 0),
+                lambda data, wall, mono, current=role: self.streams[current].put_data(
+                    data, 0, wall, mono
+                ),
                 f"ssh-{role}-stdout",
             )
             stderr_reader = PipeReader(
                 process.stderr,
-                lambda data, current=role: self.streams[current].put_data(data, 1),
+                lambda data, wall, mono, current=role: self.streams[current].put_data(
+                    data, 1, wall, mono
+                ),
                 f"ssh-{role}-stderr",
             )
             channel_readers = [stdout_reader, stderr_reader]

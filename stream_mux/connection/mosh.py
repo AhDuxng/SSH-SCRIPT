@@ -52,7 +52,9 @@ class MoshConnection(MultiplexConnection):
                     break
                 self.streams[role].put_error(repr(exc))
                 return
-            self.streams[role].put_data(chunk)
+            self.streams[role].put_data(
+                chunk, 0, time.time_ns(), time.perf_counter_ns()
+            )
         self.streams[role].put_exit(child.exitstatus)
 
     # Mở một terminal session Mosh.

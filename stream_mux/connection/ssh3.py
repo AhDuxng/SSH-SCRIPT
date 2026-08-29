@@ -31,7 +31,7 @@ class SSH3Connection(MultiplexConnection):
         self._stderr_buffer = bytearray()
 
     # Giữ phần cuối stderr để chẩn đoán lỗi khởi động.
-    def _capture_stderr(self, data: bytes) -> None:
+    def _capture_stderr(self, data: bytes, wall_ns: int = 0, mono_ns: int = 0) -> None:
         with self._stderr_lock:
             self._stderr_buffer.extend(data)
             if len(self._stderr_buffer) > 131072:
@@ -60,7 +60,7 @@ class SSH3Connection(MultiplexConnection):
         })
 
     # Phân phối sự kiện bridge và dữ liệu stream.
-    def _dispatch(self, frame: dict):
+    def _dispatch(self, frame: dict, observed_wall_ns: int = 0, observed_mono_ns: int = 0):
         if frame.get("type") == "data":
             role = str(frame.get("role", ""))
             stream = self.streams.get(role)
@@ -71,7 +71,10 @@ class SSH3Connection(MultiplexConnection):
             except (ValueError, TypeError):
                 stream.put_error("SSH3 bridge returned invalid Base64 data")
                 return
-            stream.put_data(data, int(frame.get("data_type", 0)))
+            stream.put_data(
+                data, int(frame.get("data_type", 0)),
+                observed_wall_ns, observed_mono_ns,
+            )
             return
         if frame.get("type") == "exit":
             role = str(frame.get("role", ""))

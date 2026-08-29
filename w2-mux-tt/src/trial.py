@@ -6,7 +6,6 @@ import hashlib
 import shlex
 import threading
 import time
-from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -139,9 +138,12 @@ def _failed_transfer(
         "first_byte_time_ns": "",
         "last_byte_time_ns": "",
         "marker_time_ns": "",
+        "content_complete_time_ns": "",
         "first_byte_latency_ms": "",
         "completion_latency_ms": "",
         "marker_latency_ms": "",
+        "content_complete_latency_ms": "",
+        "content_complete": 0,
         "exit_code": "",
         "expected_bytes": sample["expected_bytes"],
         "received_bytes": 0,
@@ -183,8 +185,7 @@ def run_stream(
     timeout: float, sample_count: int,
     live_progress: bool, live_every: int,
     continue_after_timeout: bool = False,
-    barrier_timeout=None, completion_barrier=None,
-    verification_barrier=None, screen_lines_provider=None,
+    barrier_timeout=None,
 ):
     remote_path = f"{remote_dir.rstrip('/')}/{payload['name']}"
     started_ns = 0
@@ -208,12 +209,9 @@ def run_stream(
                     sample["command"],
                     sample["line_prefix"],
                     timeout,
+                    sample["expected_lines"],
                 )
                 output = result["stdout"]
-                screen_lines = None
-                if completion_barrier is not None:
-                    completion_barrier.wait(timeout=barrier_timeout or timeout)
-                    screen_lines = tuple(screen_lines_provider())
                 received_bytes = len(output)
                 received_lines = output.count(b"\n")
                 received_hash = hashlib.sha256(output).hexdigest()
@@ -221,25 +219,17 @@ def run_stream(
                 raw_byte_ratio_pct = (
                     100.0 * received_bytes / expected_bytes
                 )
-                observed_lines = (
-                    list(screen_lines)
-                    if screen_lines is not None
-                    else output.splitlines(keepends=True)
-                )
                 expected_line_list = sample["expected_lines"]
-                # Mosh xuất các bản cập nhật màn hình có thể vẽ lại dòng và
-                # chèn cursor sequence. Tìm chính xác từng dòng deterministic
-                # trong capture cho phép xác thực nội dung mà không nhầm raw
-                # terminal-update bytes là payload bytes.
-                expected_line_set = frozenset(expected_line_list)
-                observed_counts = Counter(
-                    line for line in observed_lines if line in expected_line_set
-                )
+                # Adapter đối chiếu từng dòng deterministic ngay khi nó xuất
+                # hiện, nên tính đầy đủ nội dung không phụ thuộc vào việc chụp
+                # màn hình đúng lúc. Với Mosh, nguồn đối chiếu là viewport đã
+                # dựng lại; với SSH/SSH3 là chính luồng byte.
+                observed_counts = result.get("matched_lines", {})
                 line_counts = [observed_counts.get(line, 0) for line in expected_line_list]
                 valid_unique_lines = sum(count > 0 for count in line_counts)
                 duplicate_lines = sum(max(0, count - 1) for count in line_counts)
                 valid_occurrences = sum(line_counts)
-                invalid_lines = max(0, len(observed_lines) - valid_occurrences)
+                invalid_lines = max(0, output.count(b"\n") - valid_occurrences)
                 missing_lines = int(payload["lines"]) - valid_unique_lines
                 content_coverage_pct = (
                     100.0 * valid_unique_lines / int(payload["lines"])
@@ -324,6 +314,9 @@ def run_stream(
                         result.get("last_byte_time_ns") or ""
                     ),
                     "marker_time_ns": result.get("marker_time_ns") or "",
+                    "content_complete_time_ns": (
+                        result.get("content_complete_time_ns") or ""
+                    ),
                     "first_byte_latency_ms": _fmt_ms(
                         result.get("first_byte_latency_ms")
                     ),
@@ -331,6 +324,10 @@ def run_stream(
                     "marker_latency_ms": _fmt_ms(
                         result.get("marker_latency_ms")
                     ),
+                    "content_complete_latency_ms": _fmt_ms(
+                        result.get("content_complete_latency_ms")
+                    ),
+                    "content_complete": int(lines_complete),
                     "exit_code": (
                         "" if result.get("exit_code") is None
                         else result["exit_code"]
@@ -386,10 +383,6 @@ def run_stream(
                         f"latency_ms={row['completion_latency_ms'] or 'N/A'}",
                         flush=True,
                     )
-                if verification_barrier is not None:
-                    verification_barrier.wait(
-                        timeout=barrier_timeout or timeout
-                    )
                 if timed_out:
                     failure_note = note
                     if continue_after_timeout:
@@ -404,10 +397,6 @@ def run_stream(
             except Exception as exc:
                 failure_note = repr(exc)
                 sample_barrier.abort()
-                if completion_barrier is not None:
-                    completion_barrier.abort()
-                if verification_barrier is not None:
-                    verification_barrier.abort()
                 rows.append(_failed_transfer(
                     trial, role, index, stream, payload, remote_path,
                     sample_index, "failure", failure_note,
@@ -440,6 +429,7 @@ def run_stream(
     skipped_count = sum(row["status"] == "skipped" for row in rows)
     markers = sum(int(row["completion_marker_received"]) for row in rows)
     complete_outputs = sum(int(row["output_complete"]) for row in rows)
+    content_complete = sum(int(row["content_complete"]) for row in rows)
     coverage_rates = [float(row["content_coverage_pct"]) for row in rows]
     verified_byte_rates = [
         float(row["verified_byte_ratio_pct"]) for row in rows
@@ -461,6 +451,10 @@ def run_stream(
         ),
         "completion_markers_received": markers,
         "complete_outputs": complete_outputs,
+        "content_complete_transfers": content_complete,
+        "content_complete_rate_pct": (
+            f"{100.0 * content_complete / sample_count:.3f}"
+        ),
         "output_completeness_pct": (
             f"{100.0 * complete_outputs / sample_count:.3f}"
         ),
@@ -522,6 +516,8 @@ def unavailable_rows(
             "attempted_transfer_completion_rate_pct": "",
             "completion_markers_received": 0,
             "complete_outputs": 0,
+            "content_complete_transfers": 0,
+            "content_complete_rate_pct": "0.000",
             "output_completeness_pct": "0.000",
             "fully_verified_output_rate_pct": "0.000",
             "attempted_fully_verified_output_rate_pct": "",
@@ -588,17 +584,7 @@ def run_trial(
         setup_ms = (time.perf_counter_ns() - setup_started) / 1_000_000.0
         time.sleep(warmup)
         connection.prepare_workload(ready_timeout)
-        sample_barrier = threading.Barrier(
-            len(roles), action=connection.prepare_sample
-        )
-        completion_barrier = (
-            threading.Barrier(len(roles), action=connection.finish_sample)
-            if trial["protocol"] == "mosh" else None
-        )
-        verification_barrier = (
-            threading.Barrier(len(roles))
-            if trial["protocol"] == "mosh" else None
-        )
+        sample_barrier = threading.Barrier(len(roles))
         workload_started = time.perf_counter_ns()
         with ThreadPoolExecutor(max_workers=len(roles)) as pool:
             futures = {
@@ -607,8 +593,6 @@ def run_trial(
                     trial, role, index, streams[role], selected_payloads[index],
                     remote_dir, sample_barrier, timeout, sample_count,
                     live, live_every, continue_after_timeout, barrier_timeout,
-                    completion_barrier, verification_barrier,
-                    connection.visible_sample_lines,
                 ): role
                 for index, role in enumerate(roles)
             }
@@ -656,6 +640,9 @@ def run_trial(
         int(row["stream_completed"]) for row in stream_rows
     )
     complete_outputs = sum(int(row["output_complete"]) for row in transfers)
+    content_complete_transfers = sum(
+        int(row["content_complete"]) for row in transfers
+    )
     coverage_rates = [
         float(row["content_coverage_pct"]) for row in transfers
     ]
@@ -697,6 +684,10 @@ def run_trial(
             f"{100.0 * completed_streams / len(roles):.3f}"
         ),
         "complete_outputs": complete_outputs,
+        "content_complete_transfers": content_complete_transfers,
+        "content_complete_rate_pct": (
+            f"{100.0 * content_complete_transfers / expected:.3f}"
+        ),
         "output_completeness_pct": (
             f"{100.0 * complete_outputs / expected:.3f}"
         ),

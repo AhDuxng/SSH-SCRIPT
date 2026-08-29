@@ -41,6 +41,8 @@ class StreamEvent:
     data_type: int = 0
     exit_status: int | None = None
     message: str = ""
+    observed_wall_ns: int = 0
+    observed_mono_ns: int = 0
 
 
 @dataclass(frozen=True)
@@ -107,9 +109,16 @@ class RawStream:
                 self._input_closer()
 
     # Đưa dữ liệu nhận được vào hàng đợi.
-    def put_data(self, data: bytes, data_type: int = 0) -> None:
+    def put_data(
+        self, data: bytes, data_type: int = 0,
+        observed_wall_ns: int = 0, observed_mono_ns: int = 0,
+    ) -> None:
         if data:
-            self._events.put(StreamEvent("data", data=data, data_type=data_type))
+            self._events.put(StreamEvent(
+                "data", data=data, data_type=data_type,
+                observed_wall_ns=observed_wall_ns,
+                observed_mono_ns=observed_mono_ns,
+            ))
 
     # Báo mã thoát của tiến trình từ xa.
     def put_exit(self, exit_status: int | None, message: str = "") -> None:

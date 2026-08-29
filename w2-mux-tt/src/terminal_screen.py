@@ -37,6 +37,30 @@ class TerminalScreen:
                 if any(character != " " for character in line)
             )
 
+    # Trả các hàng bắt đầu bằng một trong các tiền tố cần theo dõi.
+    def rows_with_prefixes(
+        self, prefixes: tuple[str, ...]
+    ) -> list[tuple[int, str, bytes]]:
+        """Quét viewport theo tiền tố mà không ghép toàn bộ mọi hàng.
+
+        Chỉ hàng đã khớp phần đầu mới được ghép đầy đủ, nên chi phí quét tỷ lệ
+        với độ dài tiền tố chứ không với chiều rộng terminal. Điều này cho phép
+        gọi sau mỗi khối byte nhận được thay vì chỉ một lần lúc kết thúc.
+        """
+        if not prefixes:
+            return []
+        width = max(len(item) for item in prefixes)
+        output = []
+        with self.lock:
+            for index, row in enumerate(self.screen):
+                head = "".join(row[:width])
+                for prefix in prefixes:
+                    if head.startswith(prefix):
+                        line = ("".join(row).rstrip() + "\n").encode("utf-8")
+                        output.append((index, prefix, line))
+                        break
+        return output
+
     # Trả phiên bản màn hình để phát hiện trạng thái đã ổn định.
     def current_revision(self) -> int:
         with self.lock:

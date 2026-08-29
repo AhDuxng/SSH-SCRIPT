@@ -63,10 +63,22 @@ nội dung theo kịch bản. `raw_byte_ratio_pct` chỉ dùng phát hiện Mosh
 lặp output; `verified_byte_ratio_pct`, SHA-256 và `output_complete` mới là xác
 thực toàn vẹn chính xác.
 
-Mosh vẫn chỉ có một terminal. Runner dựng lại viewport theo ANSI, chờ mọi role
-báo `DONE` và màn hình ổn định rồi mới xác thực nội dung. Xem thêm
-`command_visible_*` trong `scenario_summary.csv`: đây là độ trễ người dùng thấy
-lệnh kết thúc, được báo cáo tách biệt với lossless-output completion.
+Mosh vẫn chỉ có một terminal, nhưng từ W2-S2 trở lên mỗi vai trò chạy trong một
+tmux pane riêng nên output của chúng không còn trộn byte vào nhau. Runner dựng
+lại viewport theo ANSI và đối chiếu từng dòng ngay khi nó xuất hiện.
+
+Ba cột latency trong `scenario_summary.csv` phải được đọc tách bạch:
+
+- `content_complete_*` — nội dung đã đủ; metric so sánh chính cho cả ba giao thức.
+- `command_visible_*` — độ trễ người dùng thấy lệnh kết thúc.
+- `completion_*` — byte cuối của luồng, chỉ có nghĩa với SSH/SSH3.
+
+Kiểm tra `content_complete_rate_pct` cùng lúc với `content_complete_median_ms`:
+latency chỉ được tính trên các mẫu đạt đủ nội dung.
+
+Nếu smoke test Mosh báo lỗi viewport, tăng `W2_MOSH_ROWS` (W2-S4 cần ít nhất
+144 dòng) hoặc đặt `W2_MOSH_LAYOUT=single` để quay lại mô hình một shell dùng
+chung của bản trước.
 
 ## Chạy chính thức
 

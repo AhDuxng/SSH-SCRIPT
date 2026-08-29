@@ -147,9 +147,14 @@ def main() -> int:
         "connection_scope": "one new connection per trial",
         "stream_open_rule": "all roles opened and READY before warm-up and barrier",
         "sample_start_rule": (
-            "all roles synchronize before every sample; Mosh receives a unique "
-            "post-clear marker before the per-sample barrier is released"
+            "all roles synchronize on a barrier before every sample; each "
+            "command clears its own terminal area before emitting the start marker"
         ),
+        "mosh_layout": cfg.get("W2_MOSH_LAYOUT", "tmux"),
+        "mosh_terminal": {
+            "columns": int(cfg.get("W2_MOSH_COLUMNS", "4096")),
+            "rows": int(cfg.get("W2_MOSH_ROWS", "144")),
+        },
         "sample_identity_rule": (
             "every trial/role/sample replaces the first 29 payload bytes of every "
             "line with a unique role-specific token while preserving 102400 bytes"
@@ -184,16 +189,15 @@ def main() -> int:
         "mosh_barrier_grace_seconds": float(
             cfg.get("MOSH_BARRIER_GRACE_SECONDS", "5")
         ),
-        "mosh_clear_timeout_seconds": float(
-            cfg.get("MOSH_CLEAR_TIMEOUT", "10")
-        ),
-        "mosh_post_marker_quiet_seconds": float(
-            cfg.get("MOSH_POST_MARKER_QUIET_SECONDS", "0.10")
-        ),
         "mosh_screen_verification": (
-            "all concurrent roles reach DONE; apply ANSI cursor updates to one "
-            "shared viewport; wait until quiet; verify deterministic rows from "
-            "the shared screen snapshot"
+            "each role runs in its own tmux pane with its own PTY, so "
+            "concurrent output is never byte-interleaved; deterministic payload "
+            "rows are matched on the reconstructed viewport as they appear"
+        ),
+        "content_complete_definition": (
+            "client observation time of the moment every expected payload line "
+            "of the sample has been seen; measured identically for SSH, SSH3 "
+            "and Mosh and therefore comparable across all three"
         ),
         "content_coverage_definition": (
             "unique exact payload lines observed divided by expected payload "

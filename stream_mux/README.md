@@ -218,6 +218,28 @@ Source build nằm trong cache `.build/` có tên theo commit và checksum patch
 patch thay đổi, script tự dùng cache mới nên không tái sử dụng source đã áp dụng
 patch cũ.
 
+## Kiểm tra trước khi đo
+
+`scripts/preflight.py` kiểm tra một cặp client/server trong một lượt: công cụ
+hai đầu, module Python, cờ `-mux-stream` của binary, mã băm patch, và **thuật
+toán congestion control đã nướng vào binary SSH3 của cả client lẫn server**.
+Sau đó nó mở thật một connection cho từng giao thức trong `PROTOCOLS` và xác
+nhận lệnh từ xa chạy được.
+
+```bash
+cd ~/SSH-SCRIPT
+python3 stream_mux/scripts/preflight.py w2-mux-tt/config.env
+```
+
+Mã thoát khác 0 nghĩa là còn mục chưa đạt; mỗi mục hỏng in kèm lệnh sửa. Dùng
+`--skip-connect` khi chỉ muốn kiểm tra tĩnh, và `--workload` khi chạy trên một
+tệp env chưa được chép vào thư mục workload.
+
+Điểm dễ bỏ sót: `run_wN.sh` chỉ tự build lại **client**. Trong W2 phía gửi
+payload là server, nên congestion control của luồng được đo là của server;
+preflight đọc trực tiếp binary đang phục vụ qua `/proc/<pid>/exe` để báo đúng
+thuật toán.
+
 ## Thuật toán congestion control của QUIC
 
 `patches/quic_go_cubic.patch` chuyển sender của quic-go từ Reno sang CUBIC.

@@ -118,6 +118,15 @@ def summarize_group(rows):
         if row.get("completion_marker_received") == "1"
         and row.get("marker_latency_ms")
     ]
+    # Thời điểm toàn bộ nội dung của mẫu đã hiện diện phía client. Tính trên
+    # mọi mẫu đạt đủ nội dung, kể cả mẫu không nhận được dấu hoàn thành, nên
+    # đo được cho cả ba giao thức thay vì chỉ cho luồng byte lossless.
+    content_rows = [row for row in rows if row.get("content_complete") == "1"]
+    content_values = [
+        float(row["content_complete_latency_ms"])
+        for row in content_rows
+        if row.get("content_complete_latency_ms")
+    ]
     coverage_values = [
         float(row["content_coverage_pct"])
         for row in rows if row["content_coverage_pct"]
@@ -163,6 +172,7 @@ def summarize_group(rows):
     completion_stats = latency_stats(completion_values)
     first_stats = latency_stats(first_values)
     visible_stats = latency_stats(visible_values)
+    content_stats = latency_stats(content_values)
     return {
         "expected_transfers": len(rows),
         "attempted_transfers": len(attempted),
@@ -174,6 +184,15 @@ def summarize_group(rows):
             100.0 * sum(row["completion_marker_received"] == "1" for row in rows)
             / len(rows)
         ),
+        "content_complete_transfers": len(content_rows),
+        "content_complete_rate_pct": fmt(
+            100.0 * len(content_rows) / len(rows)
+        ),
+        "content_complete_n": len(content_values),
+        "content_complete_mean_ms": content_stats["mean_ms"],
+        "content_complete_median_ms": content_stats["median_ms"],
+        "content_complete_p95_ms": content_stats["p95_ms"],
+        "content_complete_p99_ms": content_stats["p99_ms"],
         "command_visible_n": len(visible_values),
         "command_visible_mean_ms": visible_stats["mean_ms"],
         "command_visible_median_ms": visible_stats["median_ms"],
@@ -434,6 +453,9 @@ def mosh_output_rows(scenario_rows):
             "attempted_transfers": row["attempted_transfers"],
             "fully_verified_transfers": row["fully_verified_outputs"],
             "command_visible_rate_pct": row["completion_marker_rate_pct"],
+            "content_complete_rate_pct": row["content_complete_rate_pct"],
+            "content_complete_median_ms": row["content_complete_median_ms"],
+            "content_complete_p95_ms": row["content_complete_p95_ms"],
             "command_visible_mean_ms": row["command_visible_mean_ms"],
             "command_visible_median_ms": row["command_visible_median_ms"],
             "command_visible_p95_ms": row["command_visible_p95_ms"],
@@ -462,7 +484,7 @@ def main() -> int:
         "throughput_mib_s",
         "output_complete", "content_coverage_pct", "raw_byte_ratio_pct",
         "verified_bytes", "expected_bytes", "bytes_complete", "lines_complete",
-        "hash_complete",
+        "hash_complete", "content_complete", "content_complete_latency_ms",
         "completion_marker_received",
         "sample_index",
     })
