@@ -10,6 +10,10 @@ import sys
 import time
 from pathlib import Path
 
+PROJECT_DIR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_DIR.parent))
+
+from stream_mux import provenance  # noqa: E402
 from config import load_env, split_csv
 from constants import (
     AUDIT_FIELDS, EDITORS, KEYSTROKE_FIELDS, ORDER_FIELDS, PROTOCOLS,
@@ -177,6 +181,11 @@ def main() -> int:
         ),
         "mosh_prediction": mosh_predict,
     }
+    # Bằng chứng về binary thực sự phục vụ lần chạy này: bộ kết quả tự
+    # chứng minh nó được đo bằng thuật toán nào, không phải suy luận sau.
+    metadata["transport_provenance"] = provenance.collect(
+        cfg, protocols, PROJECT_DIR
+    )
     (result_dir / "metadata.json").write_text(
         json.dumps(metadata, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )

@@ -18,6 +18,7 @@ sys.path.insert(0, str(REPO_DIR))
 # W4 deliberately reuses the battle-tested VT100 parser from W3.
 sys.path.append(str(REPO_DIR / "w3-mux-tt" / "src"))
 
+from stream_mux import provenance  # noqa: E402
 from config import load_env, split_csv  # noqa: E402
 from constants import (  # noqa: E402
     AUDIT_FIELDS, BACKGROUND_FIELDS, EDITORS, KEYSTROKE_FIELDS, ORDER_FIELDS,
@@ -132,6 +133,11 @@ def main() -> int:
             "completion marker and visible update bytes are recorded separately from output completeness"
         ),
     }
+    # Bằng chứng về binary thực sự phục vụ lần chạy này: bộ kết quả tự
+    # chứng minh nó được đo bằng thuật toán nào, không phải suy luận sau.
+    metadata["transport_provenance"] = provenance.collect(
+        cfg, protocols, PROJECT_DIR
+    )
     (result_dir / "metadata.json").write_text(json.dumps(metadata, indent=2, ensure_ascii=False) + "\n")
     print(
         f"[PLAN] trials_per_combination={trials} total_trials={len(schedule)} "
