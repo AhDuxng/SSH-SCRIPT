@@ -62,7 +62,7 @@ class DirectCoordinator:
     # Khởi tạo bộ điều phối và giới hạn vùng giữ output.
     def __init__(
         self, raw_stream: RawStream, background: bool, max_capture_bytes: int,
-        screen: TerminalScreen | None = None,
+        screen: TerminalScreen | None = None, content_settle: float = 0.5,
     ):
         self.raw_stream = raw_stream
         self.background = background
@@ -75,6 +75,9 @@ class DirectCoordinator:
         self.screen_decoder = (
             codecs.getincrementaldecoder("utf-8")("replace") if screen else None
         )
+        self._last_wall_ns = 0
+        self._last_mono_ns = 0
+        self.content_settle = content_settle
 
     # Tạo mã dấu mốc ổn định từ mã yêu cầu.
     def _token(self, request_id: str) -> str:
@@ -202,17 +205,21 @@ class DirectCoordinator:
             by_prefix[prefix] = transfer
             prefixes.add(prefix)
 
-        for _row, prefix, line in self.screen.rows_with_prefixes(tuple(prefixes)):
-            if prefix == MARKER_ROW_PREFIX:
-                for event in MarkerDecoder().feed(line):
-                    if event.kind in {"start", "done"}:
-                        self.feed(event, wall_ns, mono_ns)
-                continue
+        rows = self.screen.rows_with_prefixes(tuple(prefixes))
+        # Nội dung phải được ghi nhận trước dấu hoàn thành: dấu hoàn thành gỡ
+        # transfer khỏi hàng chờ và đánh thức `execute`, nên mọi dòng còn lại
+        # sau đó sẽ không bao giờ được đếm.
+        for _row, prefix, line in rows:
             transfer = by_prefix.get(prefix)
-            if transfer is None:
+            if transfer is not None:
+                with self.lock:
+                    self._note_line(transfer, line, wall_ns, mono_ns)
+        for _row, prefix, line in rows:
+            if prefix != MARKER_ROW_PREFIX:
                 continue
-            with self.lock:
-                self._note_line(transfer, line, wall_ns, mono_ns)
+            for event in MarkerDecoder().feed(line):
+                if event.kind in {"start", "done"}:
+                    self.feed(event, wall_ns, mono_ns)
 
     # Giải mã một khối byte vừa nhận.
     def feed_bytes(
@@ -220,13 +227,14 @@ class DirectCoordinator:
     ) -> None:
         wall_ns = time.time_ns() if wall_ns is None else wall_ns
         mono_ns = time.perf_counter_ns() if mono_ns is None else mono_ns
+        self._last_wall_ns, self._last_mono_ns = wall_ns, mono_ns
         if self.screen is not None and self.screen_decoder is not None:
             text = self.screen_decoder.decode(data)
             if text:
                 self.screen.feed(text)
+            self._scan_screen(wall_ns, mono_ns)
         for event in self.decoder.feed(data):
             self.feed(event, wall_ns, mono_ns)
-        self._scan_screen(wall_ns, mono_ns)
 
     # Báo lỗi cho toàn bộ lần truyền đang chờ.
     def fail_all(self, message: str) -> None:
@@ -257,10 +265,9 @@ class DirectCoordinator:
             self._discard(transfer)
             raise
         timed_out = not transfer.event.wait(timeout)
+        if self.screen is not None:
+            self._settle_content(transfer)
         if timed_out:
-            # Viewport có thể vẫn đang được vẽ nốt khi dấu hoàn thành chưa tới;
-            # quét thêm một lần để không bỏ sót nội dung đã thực sự hiển thị.
-            self._scan_screen(time.time_ns(), time.perf_counter_ns())
             self._discard(transfer)
         if transfer.error:
             raise RuntimeError(transfer.error)
@@ -298,6 +305,28 @@ class DirectCoordinator:
             "output_ambiguous": transfer.ambiguous,
             "output_truncated": transfer.truncated,
         }
+
+    # Chờ viewport vẽ nốt phần nội dung còn thiếu của một lần truyền.
+    def _settle_content(self, transfer: PendingTransfer) -> None:
+        """Mosh gửi trạng thái màn hình theo nhịp riêng, không theo dấu mốc.
+
+        Dấu hoàn thành có thể tới trước khi vài hàng cuối được vẽ. Vòng chờ này
+        thoát ngay khi đủ nội dung, nên chỉ tốn thời gian đúng ở những lần
+        truyền thực sự còn thiếu. Thời điểm ghi nhận vẫn là của khối byte đã
+        mang nội dung tới, không phải lúc quét.
+        """
+        expected = len(transfer.expected_lines)
+        if not expected:
+            return
+        deadline = time.monotonic() + self.content_settle
+        while transfer.unique_matched < expected:
+            self._scan_screen(
+                self._last_wall_ns or time.time_ns(),
+                self._last_mono_ns or time.perf_counter_ns(),
+            )
+            if transfer.unique_matched >= expected or time.monotonic() >= deadline:
+                return
+            time.sleep(0.01)
 
     # Kiểm tra Bash từ xa đã sẵn sàng nhận lệnh.
     def probe(self, request_id: str, timeout: float) -> None:
@@ -514,7 +543,8 @@ class DirectW2Connection:
             )
             uses_panes = self._mosh_uses_panes()
             coordinator = DirectCoordinator(
-                raw_streams["terminal"], not uses_panes, max_capture, screen
+                raw_streams["terminal"], not uses_panes, max_capture, screen,
+                float(self.cfg.get("MOSH_CONTENT_SETTLE_SECONDS", "0.5")),
             )
             self.coordinators.append(coordinator)
             for role in self.roles:

@@ -183,9 +183,15 @@ def check_client(report: Report, cfg: dict, workload: str, project: Path) -> Non
 
     for module in LOCAL_MODULES[workload]:
         code, _ = run([interpreter, "-c", f"import {module}"])
+        # Chỉ `pexpect` là bắt buộc để đo: run_wN.sh chạy runner, analyzer và
+        # verifier, không cái nào import matplotlib hay numpy. Hai module đó chỉ
+        # cần khi vẽ hình bằng tools/plot_wN.py, việc có thể làm ở máy khác.
+        optional = module in {"matplotlib", "numpy"}
         report.check(
-            code == 0, f"module {module}",
-            "" if code == 0 else f"cài bằng: {interpreter} -m pip install -r requirements.txt",
+            code == 0, f"module {module}" + (" (chỉ cần để vẽ hình)" if optional else ""),
+            "" if code == 0 else
+            f"cài bằng: {interpreter} -m pip install -r requirements.txt",
+            soft=optional,
         )
 
     tools = [cfg.get("SSH_BIN", "ssh")]
@@ -266,17 +272,38 @@ def remote_probe_script(cfg: dict, workload: str) -> str:
         'test -w /tmp && echo "TMP ok" || echo "TMP missing"',
     ]
     if "ssh3" in cfg.get("PROTOCOLS", ""):
+        # /proc/<pid>/exe chỉ đọc được nếu tiến trình cùng chủ sở hữu. Server
+        # thường chạy dưới systemd/root, nên phải lần lượt thử: symlink của
+        # tiến trình, dòng lệnh trong ps, ExecStart của unit, rồi đường dẫn
+        # cài đặt mặc định.
         lines += [
             'pid=$(pgrep -x ssh3-server 2>/dev/null | head -1)',
-            '[ -z "$pid" ] && pid=$(pgrep -f "ssh3-server" 2>/dev/null | head -1)',
-            'if [ -n "$pid" ]; then',
-            '  exe=$(readlink -f /proc/$pid/exe 2>/dev/null)',
-            '  echo "SSH3 running $exe"',
-            '  if [ -n "$exe" ] && grep -a -q quic-go-cubic "$exe" 2>/dev/null; then',
-            '    echo "SSH3CC cubic"',
-            '  elif [ -n "$exe" ]; then echo "SSH3CC reno"; else echo "SSH3CC unknown"; fi',
-            'else echo "SSH3 stopped"; fi',
+            '[ -z "$pid" ] && pid=$(pgrep -f "[s]sh3-server" 2>/dev/null | head -1)',
+            'if [ -z "$pid" ]; then echo "SSH3 stopped"; else',
+            '  exe=$(readlink -f /proc/$pid/exe 2>/dev/null || true)',
+            '  if [ -z "$exe" ] || [ ! -r "$exe" ]; then',
+            r'    exe=$(ps -p "$pid" -o args= 2>/dev/null | awk "{print \$1}")',
+            '  fi',
+            '  if [ -z "$exe" ] || [ ! -r "$exe" ]; then',
+            '    exe=$(systemctl show -p ExecStart --value ssh3-server 2>/dev/null '
+            '| sed -n "s/.*path=\\([^ ;]*\\).*/\\1/p" | head -1)',
+            '  fi',
+            '  if [ -z "$exe" ] || [ ! -r "$exe" ]; then',
+            '    for candidate in /usr/local/bin/ssh3-server /usr/bin/ssh3-server; do',
+            '      [ -r "$candidate" ] && exe="$candidate" && break',
+            '    done',
+            '  fi',
+            '  echo "SSH3 running ${exe:-?}"',
+            '  if [ -n "$exe" ] && [ -r "$exe" ]; then',
+            '    if grep -a -q quic-go-cubic "$exe" 2>/dev/null; then',
+            '      echo "SSH3CC cubic $exe"',
+            '    else echo "SSH3CC reno $exe"; fi',
+            '    info="${exe}.build-info"',
+            '    [ -r "$info" ] && echo "SSH3INFO $(paste -sd ";" "$info")"',
+            '  else echo "SSH3CC unreadable ${exe:-khong-xac-dinh}"; fi',
+            'fi',
         ]
+    lines.append("exit 0")
     return "\n".join(lines)
 
 
@@ -287,11 +314,22 @@ def check_server(report: Report, cfg: dict, workload: str) -> None:
     command = [*ssh_base(cfg), "-o", "ConnectTimeout=10", target,
                remote_probe_script(cfg, workload)]
     code, output = run(command, timeout=45)
-    if not report.check(code == 0, f"đăng nhập SSH tới {target}",
-                        "" if code == 0 else output[-300:]):
+    lines = output.splitlines()
+    reached = any(
+        line.startswith(("TOOL ", "OS ", "TMP ", "SSH3 ")) for line in lines
+    )
+    if not report.check(
+        reached, f"đăng nhập SSH tới {target}",
+        "" if reached else output[-300:],
+    ):
         return
+    if code != 0:
+        report.add(
+            "INFO", f"lượt kiểm tra từ xa kết thúc với mã {code}",
+            "không ảnh hưởng kết quả bên dưới",
+        )
 
-    for line in output.splitlines():
+    for line in lines:
         parts = line.split(maxsplit=2)
         if not parts:
             continue
@@ -315,15 +353,31 @@ def check_server(report: Report, cfg: dict, workload: str) -> None:
                 report.add("INFO", f"binary đang phục vụ: {parts[2]}")
         elif tag == "SSH3CC":
             algorithm = parts[1]
-            report.check(
-                algorithm == "cubic",
-                f"congestion control của server = {algorithm}",
-                "" if algorithm == "cubic" else (
-                    "trên server: bash stream_mux/scripts/build_ssh3_server.sh && "
-                    "sudo install -m 0755 stream_mux/bin/ssh3-server-cubic "
-                    "/usr/local/bin/ssh3-server && sudo systemctl restart ssh3-server"
-                ),
+            binary = parts[2] if len(parts) > 2 else ""
+            rebuild = (
+                "trên server: bash stream_mux/scripts/build_ssh3_server.sh && "
+                "sudo install -m 0755 stream_mux/bin/ssh3-server-cubic "
+                "/usr/local/bin/ssh3-server && sudo systemctl restart ssh3-server"
             )
+            if algorithm == "unreadable":
+                report.add(
+                    "WARN",
+                    "không đọc được binary của ssh3-server để xác định "
+                    "congestion control",
+                    f"binary={binary or 'không xác định'}; kiểm tra thủ công trên "
+                    "server: sudo readlink -f /proc/$(pgrep -x ssh3-server)/exe "
+                    "rồi sudo grep -ac quic-go-cubic <đường-dẫn> "
+                    "(khác 0 nghĩa là CUBIC)",
+                )
+            else:
+                report.check(
+                    algorithm == "cubic",
+                    f"congestion control của server = {algorithm}"
+                    + (f" ({binary})" if binary else ""),
+                    "" if algorithm == "cubic" else rebuild,
+                )
+        elif tag == "SSH3INFO":
+            report.add("INFO", "build-info của server", parts[1].strip(";"))
 
 
 # Mở thật một connection cho từng giao thức và kiểm tra audit.

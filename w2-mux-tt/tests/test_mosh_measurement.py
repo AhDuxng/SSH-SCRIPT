@@ -112,6 +112,34 @@ class ContentCompletionTests(unittest.TestCase):
         self.assertEqual(transfer.unique_matched, 2)
         self.assertEqual(transfer.content_complete_mono_ns, 25)
 
+    def test_last_line_arriving_with_done_marker_is_still_counted(self):
+        """Dòng cuối và dấu hoàn thành thường nằm trong cùng một khối byte.
+
+        Nếu dấu hoàn thành được xử lý trước, transfer bị gỡ khỏi hàng chờ và
+        dòng cuối không bao giờ được đếm — đúng triệu chứng 24/25 dòng quan sát
+        được trên Pi.
+        """
+        screen = TerminalScreen(rows=8, columns=60)
+        coordinator = make_coordinator(screen)
+        token = request_token("trial:output_0:5")
+        prefix = b"W2S0|" + token.encode()
+        expected = (prefix + b"AAA\n", prefix + b"BBB\n")
+        transfer = coordinator._register("trial:output_0:5", prefix, expected)
+        head = prefix.decode()
+
+        # PTY chuyển \n thành \r\n, nên cột được đưa về 0 giữa các dòng.
+        coordinator.feed_bytes(f"{head}AAA\r\n".encode(), 10, 10)
+        self.assertEqual(transfer.unique_matched, 1)
+
+        # Một khối duy nhất mang cả dòng cuối lẫn dấu hoàn thành, và dấu hoàn
+        # thành ở đây tách được từ chính luồng byte.
+        coordinator.feed_bytes(
+            f"{head}BBB\r\n__W2TT_DONE__:{token}:0\r\n".encode(), 20, 20,
+        )
+        self.assertEqual(transfer.unique_matched, 2)
+        self.assertEqual(transfer.content_complete_mono_ns, 20)
+        self.assertTrue(transfer.event.is_set())
+
     def test_marker_is_recovered_from_reconstructed_viewport(self):
         screen = TerminalScreen(rows=8, columns=60)
         coordinator = make_coordinator(screen)
