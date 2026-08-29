@@ -50,12 +50,7 @@ class ExperimentMatrixTests(unittest.TestCase):
         self.assertTrue(all(item.reason for item in matrix.skipped))
 
     def test_interference_scenarios_keep_every_protocol(self):
-        """Kịch bản đo can nhiễu không đánh giá multiplexing.
-
-        Nhiều vai trò ở đây là tình huống cần đo, nên giao thức không multiplex
-        vẫn tham gia — nó chỉ chạy chúng trong một terminal, và điều đó được ghi
-        lại bằng stream_count chứ không bằng cách loại khỏi ma trận.
-        """
+        """Kịch bản đo can nhiễu giữ mọi giao thức; khác biệt nằm ở stream_count."""
         scenarios = [Scenario("MIX", 3, measures_multiplexing=False)]
         matrix = build_matrix(ALL_PROTOCOLS, scenarios)
         self.assertEqual(len(matrix), 3)

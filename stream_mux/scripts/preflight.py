@@ -124,14 +124,9 @@ def detect_workload(config_path: Path) -> str:
     )
 
 
-# Tính mã băm gộp của toàn bộ patch, giống hệt các script run_wN.sh.
+# Tái tạo `shasum -a 256 <patch> | shasum -a 256`. Giá trị gắn với đường dẫn
+# tuyệt đối nên chỉ so sánh được trong phạm vi một máy.
 def patch_hash() -> str:
-    """Tái tạo `shasum -a 256 <các patch> | shasum -a 256`.
-
-    Các script build ghép mã băm cùng **đường dẫn tuyệt đối** của từng tệp, nên
-    giá trị này chỉ so sánh được trong phạm vi một máy — đúng như cách
-    `run_wN.sh` dùng nó để quyết định có build lại hay không.
-    """
     import hashlib
 
     listing = "".join(
@@ -142,14 +137,8 @@ def patch_hash() -> str:
     return hashlib.sha256(listing.encode()).hexdigest()
 
 
-# Đọc thuật toán congestion control đã được nướng vào một binary.
+# Đọc thuật toán congestion control từ metadata module của binary.
 def binary_congestion(path: Path) -> str:
-    """Trả về 'cubic', 'reno' hoặc 'unknown'.
-
-    `go mod edit -replace` trỏ quic-go sang cây nguồn đã vá trong `.build/`,
-    và đường dẫn đó nằm lại trong khối metadata module của binary. Không cần
-    Go trên máy đang kiểm tra.
-    """
     if not path.exists():
         return "unknown"
     try:
@@ -183,9 +172,7 @@ def check_client(report: Report, cfg: dict, workload: str, project: Path) -> Non
 
     for module in LOCAL_MODULES[workload]:
         code, _ = run([interpreter, "-c", f"import {module}"])
-        # Chỉ `pexpect` là bắt buộc để đo: run_wN.sh chạy runner, analyzer và
-        # verifier, không cái nào import matplotlib hay numpy. Hai module đó chỉ
-        # cần khi vẽ hình bằng tools/plot_wN.py, việc có thể làm ở máy khác.
+        # Chỉ pexpect bắt buộc để đo; matplotlib/numpy chỉ cần khi vẽ hình.
         optional = module in {"matplotlib", "numpy"}
         report.check(
             code == 0, f"module {module}" + (" (chỉ cần để vẽ hình)" if optional else ""),
@@ -272,10 +259,8 @@ def remote_probe_script(cfg: dict, workload: str) -> str:
         'test -w /tmp && echo "TMP ok" || echo "TMP missing"',
     ]
     if "ssh3" in cfg.get("PROTOCOLS", ""):
-        # /proc/<pid>/exe chỉ đọc được nếu tiến trình cùng chủ sở hữu. Server
-        # thường chạy dưới systemd/root, nên phải lần lượt thử: symlink của
-        # tiến trình, dòng lệnh trong ps, ExecStart của unit, rồi đường dẫn
-        # cài đặt mặc định.
+        # /proc/<pid>/exe chỉ đọc được nếu cùng chủ sở hữu; server thường chạy
+        # dưới systemd nên phải thử lần lượt nhiều nguồn.
         lines += [
             'pid=$(pgrep -x ssh3-server 2>/dev/null | head -1)',
             '[ -z "$pid" ] && pid=$(pgrep -f "[s]sh3-server" 2>/dev/null | head -1)',

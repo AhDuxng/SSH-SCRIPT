@@ -16,9 +16,7 @@ def write_rows(path: Path, fieldnames, rows) -> None:
     fieldnames = list(fieldnames)
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="", encoding="utf-8") as handle:
-        # Schema là hợp đồng do workload khai báo. Lịch chạy dùng chung mang
-        # theo nhiều trường hơn mức một workload cần, nên cột thừa được bỏ qua
-        # thay vì làm hỏng việc ghi tệp.
+        # Lịch chạy dùng chung mang nhiều trường hơn một workload cần.
         writer = csv.DictWriter(handle, fieldnames=fieldnames, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(rows)

@@ -112,12 +112,8 @@ def plot_scenario_metric(lookup, output_dir, column, title, ylabel, stem, *, gat
     save_figure(figure, output_dir, stem)
 
 
+# Bốn mức xác thực từ lỏng tới chặt; trục x là mức, màu vẫn là giao thức.
 def plot_integrity(lookup, output_dir):
-    """Bốn mức xác thực, từ lỏng tới chặt, cho từng kịch bản.
-
-    Trục x là mức xác thực còn màu vẫn là giao thức, để nhận dạng trực quan của
-    giao thức giữ nguyên trên mọi hình trong bài.
-    """
     measures = (
         ("completion_marker_rate_pct", "Marker"),
         ("content_complete_rate_pct", "Payload"),
@@ -167,12 +163,8 @@ def plot_integrity(lookup, output_dir):
     save_figure(figure, output_dir, "figure_5_output_integrity")
 
 
+# Từng vai trò của giao thức có multiplexing; Mosh không có vai trò song song.
 def plot_per_stream(streams, output_dir, column, title, ylabel, stem):
-    """Từng vai trò của các giao thức có multiplexing.
-
-    Mosh không xuất hiện ở đây: nó chỉ có một terminal, nên "vai trò thứ hai"
-    không tồn tại để so sánh.
-    """
     lookup = stream_index(streams)
     multi = [
         protocol for protocol in ("ssh", "ssh3")

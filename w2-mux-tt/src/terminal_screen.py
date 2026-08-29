@@ -41,12 +41,7 @@ class TerminalScreen:
     def rows_with_prefixes(
         self, prefixes: tuple[str, ...]
     ) -> list[tuple[int, str, bytes]]:
-        """Quét viewport theo tiền tố mà không ghép toàn bộ mọi hàng.
-
-        Chỉ hàng đã khớp phần đầu mới được ghép đầy đủ, nên chi phí quét tỷ lệ
-        với độ dài tiền tố chứ không với chiều rộng terminal. Điều này cho phép
-        gọi sau mỗi khối byte nhận được thay vì chỉ một lần lúc kết thúc.
-        """
+        """Quét viewport theo tiền tố; chỉ hàng khớp phần đầu mới ghép đầy đủ."""
         if not prefixes:
             return []
         width = max(len(item) for item in prefixes)

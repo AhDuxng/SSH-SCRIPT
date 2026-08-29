@@ -70,12 +70,9 @@ def plot_by_editor(lookup, output_dir, column, title, ylabel, stem, *, percent=F
     save_figure(figure, output_dir, stem)
 
 
+# Tải nền: tỷ lệ hoàn thành và tính đầy đủ output, cột sau chỉ xác thực
+# được với giao thức truyền luồng byte nguyên bản.
 def plot_background(rows, output_dir, network):
-    """Tải nền: tỷ lệ hoàn thành và tính đầy đủ output.
-
-    Tính đầy đủ output chỉ được xác thực chặt với giao thức truyền luồng byte
-    nguyên bản; với giao thức đồng bộ màn hình, cột này được ghi n/a thay vì 0.
-    """
     grouped: dict[tuple[str, str, str], list[dict]] = {}
     for row in rows:
         key = (row["protocol"], row["scenario"], row["stream_role"])

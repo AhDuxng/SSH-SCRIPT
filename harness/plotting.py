@@ -69,27 +69,17 @@ def use_paper_style() -> None:
 
 @dataclass(frozen=True)
 class Series:
-    """Một giao thức và các giá trị của nó theo từng kịch bản.
-
-    `values[i]` là None khi cấu hình đó không nằm trong ma trận thí nghiệm.
-    Giá trị None được **bỏ qua** khi vẽ, không phải vẽ thành 0.
-    """
+    """Giá trị của một giao thức theo từng kịch bản; None = không có trong ma trận."""
 
     protocol: str
     values: list[float | None]
 
 
-# Vẽ nhóm cột, chỉ đặt cột ở nơi thực sự có phép đo.
+# Vẽ nhóm cột, chỉ cấp vị trí cho cấu hình thực sự có số liệu và căn giữa
+# nhóm quanh tick. Trả về vị trí tick trên trục x.
 def grouped_bars(
     axis, scenarios, series, *, annotate=True, annotation_format="{:.1f}",
 ):
-    """Trả về vị trí tick trên trục x.
-
-    Với mỗi kịch bản, chỉ những giao thức có số liệu mới được cấp một vị trí
-    cột, và nhóm được căn giữa quanh tick. Nhờ vậy một kịch bản chỉ có SSH và
-    SSH3 sẽ hiện đúng hai cột sát nhau thay vì hai cột lệch sang bên cạnh một
-    khoảng trống gợi ý phép đo bị thiếu.
-    """
     ticks = np.arange(len(scenarios), dtype=float)
     width = 0.26
     observed = [

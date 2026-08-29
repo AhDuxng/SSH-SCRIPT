@@ -185,14 +185,9 @@ class DirectCoordinator:
 
     # Đọc nội dung payload và dấu mốc từ viewport đã dựng lại.
     def _scan_screen(self, wall_ns: int, mono_ns: int) -> None:
-        """Với Mosh, terminal update là nguồn sự thật thay cho byte thô.
-
-        Mosh đồng bộ trạng thái màn hình chứ không truyền một luồng byte
-        lossless, nên byte thô nhận được không giữ nguyên ranh giới dòng của
-        payload. Viewport đã dựng lại thì có, và mỗi dòng mang token riêng của
-        trial/role/sample nên không thể lẫn giữa các mẫu.
-        """
         if self.screen is None:
+    # Với Mosh, viewport đã dựng lại là nguồn sự thật thay cho byte thô, vốn
+    # không giữ nguyên ranh giới dòng. Token riêng mỗi sample tránh lẫn mẫu.
             return
         with self.lock:
             waiting = list(self.pending.values())
@@ -308,15 +303,10 @@ class DirectCoordinator:
 
     # Chờ viewport vẽ nốt phần nội dung còn thiếu của một lần truyền.
     def _settle_content(self, transfer: PendingTransfer) -> None:
-        """Mosh gửi trạng thái màn hình theo nhịp riêng, không theo dấu mốc.
-
-        Dấu hoàn thành có thể tới trước khi vài hàng cuối được vẽ. Vòng chờ này
-        thoát ngay khi đủ nội dung, nên chỉ tốn thời gian đúng ở những lần
-        truyền thực sự còn thiếu. Thời điểm ghi nhận vẫn là của khối byte đã
-        mang nội dung tới, không phải lúc quét.
-        """
         expected = len(transfer.expected_lines)
         if not expected:
+    # Dấu hoàn thành có thể tới trước khi vài hàng cuối được vẽ. Vòng chờ này
+    # thoát ngay khi đủ nội dung; thời điểm ghi nhận vẫn là của khối byte.
             return
         deadline = time.monotonic() + self.content_settle
         while transfer.unique_matched < expected:

@@ -92,14 +92,9 @@ def mean_pct(values) -> str:
     return fmt(statistics.mean(numbers)) if numbers else ""
 
 
-# Đọc một cột số từ các hàng CSV, bỏ qua ô trống.
+# Lấy cột số từ các hàng CSV, bỏ qua ô trống. Người gọi phải tự báo cáo
+# completion rate, nếu không phân bố độ trễ sẽ thiên lệch.
 def column(rows, name: str, predicate=None) -> list[float]:
-    """Chỉ bỏ qua ô **trống**; mẫu thất bại vẫn phải được đếm ở nơi khác.
-
-    Hàm này dành cho việc lấy độ trễ của các mẫu đã hoàn thành. Người gọi phải
-    tự báo cáo completion rate và timeout rate, nếu không phân bố độ trễ sẽ bị
-    thiên lệch do chỉ còn lại mẫu thành công.
-    """
     output = []
     for row in rows:
         if predicate is not None and not predicate(row):

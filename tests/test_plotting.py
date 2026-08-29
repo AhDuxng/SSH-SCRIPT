@@ -47,11 +47,7 @@ class GroupedBarTests(unittest.TestCase):
         self.assertTrue(all(bar.get_height() > 0 for bar in self.axis.patches))
 
     def test_present_protocols_are_centred_in_their_group(self):
-        """Kịch bản chỉ có hai giao thức phải hiện hai cột sát nhau.
-
-        Nếu giữ nguyên vị trí của giao thức vắng mặt, nhóm sẽ lệch và người đọc
-        hiểu nhầm là phép đo bị mất.
-        """
+        """Nhóm phải căn giữa lại, nếu không người đọc tưởng phép đo bị mất."""
         series = [
             Series("ssh", [1.0, 1.0]),
             Series("ssh3", [1.0, 1.0]),

@@ -41,11 +41,7 @@ class W4Tests(unittest.TestCase):
         self.assertEqual(roles_for("W4-MIX"), ["interactive_0", "command_0", "output_0"])
 
     def test_experiment_matrix_keeps_every_protocol(self):
-        """Kịch bản của W4 đo can nhiễu, không đo multiplexing.
-
-        Vì vậy giao thức không multiplex vẫn tham gia; điều nó thiếu được ghi
-        lại bằng stream_count = 1 chứ không bằng cách loại khỏi ma trận.
-        """
+        """W4 đo can nhiễu nên giữ mọi giao thức; Mosh có stream_count = 1."""
         scenarios = [
             Scenario(name, len(roles_for(name)), measures_multiplexing=False)
             for name in ("W4-CMD", "W4-OUTPUT", "W4-MIX")

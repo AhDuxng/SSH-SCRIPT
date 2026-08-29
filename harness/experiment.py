@@ -20,19 +20,7 @@ DEFAULT_TRIALS_PER_CONFIGURATION = 5
 
 @dataclass(frozen=True)
 class Scenario:
-    """Một kịch bản của workload.
-
-    `stream_count` là số vai trò logic chạy đồng thời. `measures_multiplexing`
-    phân biệt hai loại kịch bản khác nhau về bản chất:
-
-    - True: kịch bản tồn tại để so sánh khả năng multiplexing (W1/W2 S1-S2-S4,
-      W3 I1-I2-I4). Giao thức không có stream logic sẽ bị loại khỏi các kịch bản
-      nhiều stream, vì với chúng phép so sánh không có nghĩa.
-    - False: kịch bản tồn tại để đo can nhiễu giữa các workload (W4 CMD/OUTPUT/
-      MIX). Ở đây nhiều vai trò là một phần của tình huống cần đo, không phải
-      thứ đang được đánh giá, nên mọi giao thức đều tham gia — giao thức không
-      multiplex đơn giản là chạy chúng trong cùng một terminal.
-    """
+    """Kịch bản của workload; đặt measures_multiplexing=False cho kịch bản đo can nhiễu."""
 
     name: str
     stream_count: int
@@ -51,13 +39,9 @@ class Configuration:
     scenario: Scenario
     editor: str = ""
 
+    # Số vai trò thực sự mở được; giao thức không multiplex luôn là 1.
     @property
     def stream_count(self) -> int:
-        """Số vai trò thực sự được mở cho giao thức này.
-
-        Giao thức không multiplex luôn chạy trên một session, kể cả trong kịch
-        bản can nhiễu có nhiều vai trò logic.
-        """
         return capability(self.protocol).max_concurrent_streams(
             self.scenario.stream_count
         )
@@ -108,15 +92,11 @@ class ExperimentMatrix:
         )
 
 
-# Lọc ma trận theo khả năng thật của từng giao thức.
+# Lọc ma trận theo khả năng thật của từng giao thức; loại trước khi chạy
+# nên thí nghiệm không hỏng giữa chừng vì một tổ hợp không hợp lệ.
 def build_matrix(
     protocols, scenarios, editors=(),
 ) -> ExperimentMatrix:
-    """Sinh ma trận và loại các ô mà giao thức không phục vụ được.
-
-    Việc loại bỏ diễn ra trước khi chạy, nên thí nghiệm không bao giờ hỏng giữa
-    chừng vì một tổ hợp không hợp lệ.
-    """
     editor_list = tuple(editors) or ("",)
     kept: list[Configuration] = []
     skipped: list[SkippedConfiguration] = []
@@ -138,16 +118,11 @@ def build_matrix(
     return ExperimentMatrix(tuple(kept), tuple(skipped))
 
 
-# Sinh lịch chạy theo randomized complete blocks.
+# Sinh lịch randomized complete blocks; hạt giống dẫn xuất từ seed và
+# block_id nên lịch tái lập được.
 def build_schedule(
     matrix: ExperimentMatrix, trials: int, seed: int, run_id: str,
 ) -> list[dict]:
-    """Mỗi block chứa đúng một lần của mọi cấu hình, thứ tự trong block ngẫu nhiên.
-
-    Ngẫu nhiên hoá thứ tự trong block giúp trôi dạt theo thời gian của bàn thí
-    nghiệm không dồn hết vào một giao thức. Hạt giống dẫn xuất từ `seed` và
-    `block_id` nên lịch chạy tái lập được.
-    """
     if trials < 1:
         raise ValueError(f"trials phải >= 1, nhận {trials}")
     if not matrix.configurations:
@@ -161,10 +136,8 @@ def build_schedule(
         for item in block:
             order += 1
             trial_id = item.trial_id(block_id)
-            # Hai đại lượng khác nhau và không được lẫn lộn:
-            #   logical_workload_count — số vai trò mà kịch bản định nghĩa;
-            #   stream_count           — số stream transport thực sự được mở,
-            #                            bằng 1 với giao thức không multiplex.
+            # logical_workload_count: vai trò do kịch bản định nghĩa.
+            # stream_count: stream transport thực mở, = 1 nếu không multiplex.
             entry = {
                 "run_id": run_id,
                 "block_id": block_id,

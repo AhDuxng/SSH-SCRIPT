@@ -25,10 +25,8 @@ class ProtocolCapability:
         return requested if self.supports_multi_stream else 1
 
 
-# Mosh đồng bộ trạng thái màn hình của đúng một terminal session; nó không có
-# khái niệm channel hay stream tương đương SSH channel / QUIC stream. Vì vậy nó
-# chỉ được đánh giá ở kịch bản một workload. Mọi kịch bản nhiều stream chỉ áp
-# dụng cho SSH và SSH3, nơi phép so sánh multiplexing mới có nghĩa.
+# Mosh chỉ được đánh giá ở kịch bản một workload: nó không có stream logic
+# tương đương SSH channel hay QUIC stream.
 CAPABILITIES: dict[str, ProtocolCapability] = {
     "ssh": ProtocolCapability(
         name="ssh",

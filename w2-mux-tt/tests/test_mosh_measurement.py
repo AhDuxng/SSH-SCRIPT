@@ -113,12 +113,7 @@ class ContentCompletionTests(unittest.TestCase):
         self.assertEqual(transfer.content_complete_mono_ns, 25)
 
     def test_last_line_arriving_with_done_marker_is_still_counted(self):
-        """Dòng cuối và dấu hoàn thành thường nằm trong cùng một khối byte.
-
-        Nếu dấu hoàn thành được xử lý trước, transfer bị gỡ khỏi hàng chờ và
-        dòng cuối không bao giờ được đếm — đúng triệu chứng 24/25 dòng quan sát
-        được trên Pi.
-        """
+        """Dấu hoàn thành xử lý trước sẽ làm mất dòng cuối: triệu chứng 24/25."""
         screen = TerminalScreen(rows=8, columns=60)
         coordinator = make_coordinator(screen)
         token = request_token("trial:output_0:5")
@@ -157,11 +152,7 @@ class ContentCompletionTests(unittest.TestCase):
 
 
 class MoshSessionTests(unittest.TestCase):
-    """Mosh luôn là một terminal session duy nhất.
-
-    Nó chỉ được đánh giá ở kịch bản một workload, nên không có cấu hình nào
-    khiến workload phải dựng nhiều pane để giả lập stream song song.
-    """
+    """Mosh luôn là một terminal session duy nhất."""
 
     def _connection(self, roles, rows="128"):
         return DirectW2Connection(

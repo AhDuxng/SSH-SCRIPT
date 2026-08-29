@@ -10,14 +10,9 @@ from pathlib import Path
 from stream_mux.connection.common import ssh_base
 
 
-# Đọc thuật toán congestion control đã được nướng vào một binary.
+# Đọc thuật toán congestion control từ metadata module của binary; đường dẫn
+# replace tới cây nguồn đã vá nằm lại trong đó nên không cần Go.
 def binary_congestion(path: Path) -> str:
-    """Trả về 'cubic', 'reno' hoặc 'unknown'.
-
-    `go mod edit -replace` trỏ quic-go sang cây nguồn đã vá trong `.build/`, và
-    đường dẫn đó nằm lại trong khối metadata module của binary. Không cần Go
-    trên máy đang kiểm tra.
-    """
     try:
         data = Path(path).read_bytes()
     except OSError:
