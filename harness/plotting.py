@@ -114,6 +114,80 @@ def grouped_bars(
 
 
 # Chú giải không lặp nhãn khi mỗi cột được vẽ riêng.
+
+
+# Vẽ mỗi kịch bản một panel, mỗi stream vật lý một cột, nhóm theo giao thức.
+#
+# Khác với grouped_bars (gộp mọi stream thành một cột cho mỗi giao thức), hàm
+# này giữ nguyên chi tiết từng stream mà stream_summary.csv đã thống kê. Giao
+# thức nào không hỗ trợ đa stream chỉ xuất hiện ở kịch bản một workload — cột
+# của nó không bị bịa ra ở các kịch bản còn lại.
+def per_stream_panels(
+    scenarios, lookup, column, protocol_order, *,
+    ylabel, title="", scenario_titles=None, role_label=None, note="",
+    annotation_format="{:.1f}",
+):
+    scenario_titles = scenario_titles or {}
+    role_label = role_label or (lambda protocol, role: role)
+
+    # Thứ tự cột: theo giao thức trước, rồi tới stream trong giao thức đó.
+    panels = []
+    for scenario in scenarios:
+        bars = []
+        for protocol in protocol_order:
+            roles = sorted(
+                key[2] for key in lookup
+                if key[0] == protocol and key[1] == scenario
+            )
+            for role in roles:
+                value = value_or_none(lookup, (protocol, scenario, role), column)
+                if value is not None:
+                    bars.append((protocol, role, value))
+        panels.append((scenario, bars))
+
+    # Panel có nhiều stream phải rộng hơn, nếu không cột và nhãn chồng lên nhau.
+    widths = [max(len(bars), 1) for _, bars in panels]
+    total = sum(widths)
+    figure, axes = plt.subplots(
+        1, len(panels), sharey=True,
+        figsize=(max(7.0, 0.62 * total + 1.4), 4.2),
+        gridspec_kw={"width_ratios": widths},
+    )
+    if len(panels) == 1:
+        axes = [axes]
+
+    observed = [value for _, bars in panels for _, _, value in bars]
+    ceiling = max(observed, default=1.0) or 1.0
+    for axis, (scenario, bars) in zip(axes, panels):
+        labels = []
+        for index, (protocol, role, value) in enumerate(bars):
+            style = PROTOCOL_STYLE.get(protocol, {})
+            axis.bar(
+                index, value, 0.72, edgecolor="black", linewidth=0.5,
+                color=style.get("color"), hatch=style.get("hatch"),
+            )
+            labels.append(
+                f"{protocol_label(protocol)}\n{role_label(protocol, role)}"
+            )
+        if bars:
+            axis.set_xticks(range(len(bars)), labels, fontsize=5.5)
+            axis.set_xlim(-0.65, len(bars) - 0.35)
+            for container in axis.containers:
+                axis.bar_label(
+                    container, fmt=annotation_format, fontsize=5.5,
+                    padding=1.5, rotation=90,
+                )
+        axis.set_ylim(0, ceiling * 1.30)
+        axis.set_title(scenario_titles.get(scenario, scenario), fontsize=8)
+        axis.tick_params(axis="x", length=0)
+
+    axes[0].set_ylabel(ylabel)
+    if title:
+        figure.suptitle(title, y=1.0)
+    if note:
+        figure.text(0.5, -0.05, note, ha="center", fontsize=6.5)
+    return figure
+
 def deduplicated_legend(axis, **kwargs):
     handles, labels = axis.get_legend_handles_labels()
     unique: dict[str, object] = {}

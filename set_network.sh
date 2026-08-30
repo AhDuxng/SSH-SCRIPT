@@ -38,7 +38,7 @@ case "$SCENARIO" in
         echo "       BW=40Mbps, OWD=20ms, jitter=0ms, loss=0%"
         echo "       RTT (nếu áp cả 2 đầu) = 2 × 20ms = ~40ms"
         clear_tc
-        sudo tc qdisc add dev "$IFACE" root handle 1: tbf rate 40mbit burst 64kbit latency 400ms
+        sudo tc qdisc add dev "$IFACE" root handle 1: tbf rate 40mbit burst 128kbit latency 400ms
         sudo tc qdisc add dev "$IFACE" parent 1:1 handle 10: netem delay 20ms loss 0%
         show_tc
         ;;
@@ -47,7 +47,7 @@ case "$SCENARIO" in
         echo "       BW=40Mbps, OWD=20ms, jitter=4ms, loss=1.5%"
         echo "       RTT trung tâm (nếu áp cả 2 đầu) = 2 × 20ms = ~40ms; jitter cấu hình 4ms mỗi chiều"
         clear_tc
-        sudo tc qdisc add dev "$IFACE" root handle 1: tbf rate 40mbit burst 64kbit latency 400ms
+        sudo tc qdisc add dev "$IFACE" root handle 1: tbf rate 40mbit burst 128kbit latency 400ms
         sudo tc qdisc add dev "$IFACE" parent 1:1 handle 10: netem delay 20ms 4ms distribution normal loss 1.5%
         show_tc
         ;;
@@ -56,7 +56,7 @@ case "$SCENARIO" in
         echo "       BW=40Mbps, OWD=20ms, jitter=16ms, loss=3%"
         echo "       RTT trung tâm (nếu áp cả 2 đầu) = 2 × 20ms = ~40ms; jitter cấu hình 16ms mỗi chiều"
         clear_tc
-        sudo tc qdisc add dev "$IFACE" root handle 1: tbf rate 40mbit burst 64kbit latency 400ms
+        sudo tc qdisc add dev "$IFACE" root handle 1: tbf rate 40mbit burst 128kbit latency 400ms
         sudo tc qdisc add dev "$IFACE" parent 1:1 handle 10: netem delay 20ms 16ms distribution normal loss 3%
         show_tc
         ;;

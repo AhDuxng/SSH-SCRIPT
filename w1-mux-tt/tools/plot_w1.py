@@ -20,13 +20,17 @@ from harness.plotting import (  # noqa: E402
     clear_figures,
     deduplicated_legend,
     grouped_bars,
+    per_stream_panels,
     save_figure,
     use_paper_style,
     value_or_none,
 )
-from stream_mux.capability import label as protocol_label  # noqa: E402
+from stream_mux.capability import (  # noqa: E402
+    label as protocol_label, supports_stream_count,
+)
 
 SCENARIOS = ("W1-S1", "W1-S2", "W1-S4")
+SCENARIO_STREAMS = {"W1-S1": 1, "W1-S2": 2, "W1-S4": 4}
 PROTOCOL_ORDER = ("ssh", "ssh3", "mosh")
 
 
@@ -106,40 +110,47 @@ def plot_reliability(lookup, output_dir, network):
     save_figure(figure, output_dir, "figure_3_reliability")
 
 
+SCENARIO_TITLES = {
+    "W1-S1": "W1-S1 · 1 workload",
+    "W1-S2": "W1-S2 · 2 workload",
+    "W1-S4": "W1-S4 · 4 workload",
+}
+
+
+# Nhãn trục: Mosh là một terminal session, không phải stream truyền tải.
+def role_label(protocol: str, role: str) -> str:
+    if protocol == "mosh":
+        return "Terminal"
+    if role.startswith("command_"):
+        return f"Stream {role.split('_', 1)[1]}"
+    return role.replace("_", " ").title()
+
+
 def plot_per_stream(streams, output_dir, column, title, ylabel, stem):
-    """Chỉ giao thức có multiplexing mới có nhiều vai trò để tách."""
+    """Giữ nguyên chi tiết từng stream mà stream_summary.csv đã thống kê."""
     lookup = {
         (row["protocol"], row["scenario"], row["stream_role"]): row
         for row in streams
+        # Giao thức không hỗ trợ đa stream chỉ được vẽ ở kịch bản một workload.
+        if supports_stream_count(row["protocol"], SCENARIO_STREAMS[row["scenario"]])
     }
-    multi = [p for p in ("ssh", "ssh3") if any(k[0] == p for k in lookup)]
-    figure, axes = plt.subplots(1, len(SCENARIOS), figsize=WIDE, sharey=True)
-    for axis, scenario in zip(axes, SCENARIOS):
-        roles = sorted({k[2] for k in lookup if k[1] == scenario})
-        width = 0.8 / max(len(multi), 1)
-        for protocol_index, protocol in enumerate(multi):
-            for role_index, role in enumerate(roles):
-                value = value_or_none(lookup, (protocol, scenario, role), column)
-                if value is None:
-                    continue
-                offset = (protocol_index - (len(multi) - 1) / 2) * width
-                axis.bar(
-                    role_index + offset, value, width, edgecolor="black",
-                    linewidth=0.4,
-                    label=protocol_label(protocol) if role_index == 0 else None,
-                )
-        axis.set_xticks(
-            range(len(roles)), [r.replace("command_", "R") for r in roles],
+    dropped = sorted({
+        row["protocol"] for row in streams
+        if not supports_stream_count(
+            row["protocol"], SCENARIO_STREAMS[row["scenario"]]
         )
-        axis.set_title(scenario)
-    axes[0].set_ylabel(ylabel)
-    deduplicated_legend(axes[0], ncol=2, loc="upper left")
-    figure.suptitle(title)
-    figure.text(
-        0.5, -0.03,
-        "Mosh không xuất hiện: một terminal session không có vai trò song song "
-        "để so sánh theo stream.",
-        ha="center", fontsize=6.5,
+    })
+    note = ""
+    if dropped:
+        names = ", ".join(protocol_label(item) for item in dropped)
+        note = (
+            f"{names} chỉ được đo với một workload: giao thức này không cung "
+            "cấp stream logic tương đương SSH channel hay QUIC stream."
+        )
+    figure = per_stream_panels(
+        SCENARIOS, lookup, column, PROTOCOL_ORDER,
+        ylabel=ylabel, title=title, scenario_titles=SCENARIO_TITLES,
+        role_label=role_label, note=note,
     )
     save_figure(figure, output_dir, stem)
 
@@ -170,7 +181,7 @@ def main() -> int:
             "Thời gian thiết lập (ms)", f"figure_2_setup_{metric}",
         )
     plot_reliability(lookup, args.output_dir, args.network)
-    for metric in ("median", "p95"):
+    for metric in ("mean", "median", "p95", "p99"):
         plot_per_stream(
             streams, args.output_dir, f"{metric}_ms",
             f"W1 — độ trễ theo từng stream, {metric.upper()}{suffix}",

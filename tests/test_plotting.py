@@ -15,6 +15,7 @@ REPO_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_DIR))
 
 from harness.plotting import (
+    per_stream_panels,
     PROTOCOL_STYLE,
     Series,
     grouped_bars,
@@ -89,3 +90,61 @@ class SummaryReadingTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PerStreamPanelTests(unittest.TestCase):
+    SCENARIOS = ("S1", "S2", "S4")
+
+    def _lookup(self):
+        rows = {}
+        for scenario, count in zip(self.SCENARIOS, (1, 2, 4)):
+            for protocol in ("ssh", "ssh3"):
+                for index in range(count):
+                    rows[(protocol, scenario, f"output_{index}")] = {
+                        "mean_ms": str(10.0 + index)
+                    }
+        rows[("mosh", "S1", "output_0")] = {"mean_ms": "99.0"}
+        return rows
+
+    # Mỗi stream phải có một cột riêng, không bị gộp lại theo giao thức.
+    def test_one_bar_per_stream(self):
+        figure = per_stream_panels(
+            self.SCENARIOS, self._lookup(), "mean_ms", ("ssh", "ssh3", "mosh"),
+            ylabel="ms",
+        )
+        counts = [len(axis.patches) for axis in figure.axes]
+        self.assertEqual(counts, [3, 4, 8])
+        plt.close(figure)
+
+    # Giao thức vắng mặt ở một kịch bản thì không được vẽ cột rỗng ở đó.
+    def test_absent_protocol_draws_no_bar(self):
+        figure = per_stream_panels(
+            self.SCENARIOS, self._lookup(), "mean_ms", ("ssh", "ssh3", "mosh"),
+            ylabel="ms",
+        )
+        labels = [
+            text.get_text() for text in figure.axes[1].get_xticklabels()
+        ]
+        self.assertFalse(any("Mosh" in item for item in labels))
+        plt.close(figure)
+
+    # Panel nhiều stream phải rộng hơn panel ít stream.
+    def test_panel_width_scales_with_stream_count(self):
+        figure = per_stream_panels(
+            self.SCENARIOS, self._lookup(), "mean_ms", ("ssh", "ssh3", "mosh"),
+            ylabel="ms",
+        )
+        widths = [axis.get_position().width for axis in figure.axes]
+        self.assertLess(widths[0], widths[2])
+        plt.close(figure)
+
+    # Ô không có số liệu thì bỏ qua, không vẽ cột 0.
+    def test_missing_value_skipped(self):
+        lookup = self._lookup()
+        lookup[("ssh", "S1", "output_0")] = {"mean_ms": ""}
+        figure = per_stream_panels(
+            self.SCENARIOS, lookup, "mean_ms", ("ssh", "ssh3", "mosh"),
+            ylabel="ms",
+        )
+        self.assertEqual(len(figure.axes[0].patches), 2)
+        plt.close(figure)

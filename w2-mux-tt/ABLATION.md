@@ -245,7 +245,7 @@ binary, nhưng chỉ từ commit `2d3e436` (25/08/2026) trở đi:
 cat ../stream_mux/bin/ssh3-mux-stdio.build-info
 # ssh3_commit=...
 # quic_go_version=v0.40.1-0.20240102075208-1083d1fb8f98
-# cc_algorithm=cubic
+# cc_algorithm=reno        # hoặc cubic, theo SSH3_CC
 # patch_hash=...
 ```
 
@@ -268,3 +268,106 @@ sudo systemctl status ssh3-server --no-pager | head -5
 
 Client và server phải được build từ cùng một `patch_hash`; nếu chỉ một bên đổi,
 kết quả không so sánh được với lần chạy trước.
+
+## Đổi thuật toán chống tắc nghẽn
+
+`SSH3_CC` trong `config.env` chọn thuật toán cho quic-go; mặc định là `reno`.
+
+```bash
+SSH3_CC=reno   bash run_w2.sh config.env    # quic-go gốc
+SSH3_CC=cubic  bash run_w2.sh config.env    # áp patches/quic_go_cubic.patch
+```
+
+Giá trị này nằm trong mã băm patch (`scripts/patch_hash.sh`), nên đổi nó sẽ
+tự kích hoạt build lại binary — không thể vô tình đo bằng binary của thuật
+toán trước. `metadata.json` ghi cả `congestion_control_requested` (điều bạn
+yêu cầu) lẫn `transport_provenance.*.congestion_control` (điều thực sự nằm
+trong binary); hai giá trị lệch nhau nghĩa là lần chạy đó không hợp lệ.
+
+Server phải được build lại cùng thuật toán, nếu không hai đầu sẽ khác nhau:
+
+```bash
+SSH3_CC=reno bash stream_mux/scripts/build_ssh3_server.sh
+sudo install -m 0755 stream_mux/bin/ssh3-server /usr/local/bin/ssh3-server
+sudo systemctl restart ssh3-server
+```
+
+`preflight.py` so thuật toán của cả client lẫn server với `SSH3_CC` và báo
+FAIL nếu lệch.
+
+## Bộ đếm mạng
+
+Mỗi trial chụp bộ đếm `tc -s qdisc` và `/proc/net/{snmp,netstat}` ở cả hai
+đầu, **trước và sau** trial nên nằm ngoài khoảng đo. Kết quả ghi vào
+`network_counters.csv`, và `tools/analyze_counters.py` quy đổi thành
+`network_summary.csv`.
+
+Ba cột trả lời trực tiếp ba giả thuyết về chênh lệch SSH vs SSH3:
+
+| Cột | Trả lời câu hỏi |
+|---|---|
+| `mean_wire_packet_bytes`, `wire_packets` | QUIC dùng gói 1252 B so với TCP MSS ~1448 B — đo được, không phải suy đoán |
+| `wire_bytes_per_payload_byte` | chi phí phát lại thực tế của từng giao thức |
+| `tcp_dsack_recv`, `tcp_spurious_rto` | số lần Linux TCP phát hiện mất gói giả do jitter đảo thứ tự và hoàn tác — quic-go v0.40 không có cơ chế tương đương |
+
+Tắt bằng `COLLECT_NETWORK_COUNTERS=0`; đổi interface bằng `NETEM_IFACE`.
+
+## qlog: nhìn thẳng vào cwnd của quic-go
+
+`patches/ssh3_qlog.patch` thêm package `qlogenv` vào ssh3 và gắn tracer vào
+`quic.Config` của **cả** client (`cmd/ssh3.go`) lẫn server
+(`cmd/ssh3-server.go`). Khi `QLOGDIR` rỗng, `Tracer` là `nil` và quic-go
+không tốn gì.
+
+> Không patch được vào chính quic-go: `qlog/event.go` import ngược package
+> `quic` để dùng các kiểu lỗi, nên thêm `import qlog` vào `config.go` tạo
+> vòng import. Patch phải nằm ở ssh3.
+
+**Bật cho lần chạy chẩn đoán, không bao giờ cho lần chạy lấy số liệu chính** —
+qlog ghi khoảng 0.5 MB cho mỗi MB dữ liệu, và ghi thẻ SD trong lúc đo sẽ tự
+làm chậm phép đo:
+
+```bash
+SSH3_QLOG=1 SSH3_QLOG_DIR=artifacts/qlog RESULT_DIR=artifacts/qlogrun \
+  TRIALS_PER_COMBINATION=1 PROTOCOLS=ssh3 bash run_w2.sh config.env
+```
+
+### Phía nào mới quan trọng
+
+Trong W2, bên **gửi** 100 KiB là **server** (`cat` tệp payload). Cửa sổ tắc
+nghẽn cần nhìn vì thế nằm ở qlog của `ssh3-server`, không phải của client.
+qlog phía client chỉ cho biết nó nhận và ACK ra sao.
+
+Bật qlog cho service trên server:
+
+```bash
+sudo mkdir -p /var/log/ssh3-qlog && sudo chown $USER /var/log/ssh3-qlog
+sudo systemctl edit ssh3-server
+# thêm:
+#   [Service]
+#   Environment=QLOGDIR=/var/log/ssh3-qlog
+sudo systemctl restart ssh3-server
+```
+
+Kéo về rồi đọc:
+
+```bash
+scp -r trungnt@<server>:/var/log/ssh3-qlog artifacts/qlog-server
+python3 tools/analyze_qlog.py artifacts/qlog-server artifacts/qlogrun
+```
+
+Nhớ tắt lại (`systemctl revert ssh3-server`) trước khi chạy lấy số liệu chính.
+
+### Đọc kết quả
+
+`qlog_summary.csv` trả lời ba câu:
+
+| Cột | Ý nghĩa |
+|---|---|
+| `cwnd_min_bytes`, `cwnd_median_bytes` | cửa sổ có sập và **ở lại** mức thấp giữa các sample không — đây là giả thuyết chính giải thích vì sao mọi phép truyền đều bị phạt, kể cả phép không mất gói |
+| `lost_reordering_threshold` so với `lost_time_threshold` | mất gói được phát hiện bằng ngưỡng thứ tự (nhanh) hay ngưỡng thời gian (chậm) |
+| `pto_count_max` | số lần phải chờ hết timeout thay vì phát lại nhanh |
+
+Nếu `cwnd_median_bytes` ở mức vài KB trong khi `low` cho ra hàng trăm KB thì
+giả thuyết "cửa sổ sập và không hồi" được xác nhận, và câu trả lời cho W2
+không nằm ở Reno hay CUBIC mà ở cơ chế phục hồi mất gói.
