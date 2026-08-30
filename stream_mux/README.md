@@ -72,7 +72,8 @@ stream_mux/
 └── scripts/
     ├── build_ssh3_mux.sh
     ├── build_ssh3_server.sh
-    └── prepare_quic_cubic.sh
+    ├── patch_hash.sh
+    └── prepare_quic_cc.sh
 ```
 
 Ví dụ phần chuyên biệt của W1 nằm trong:

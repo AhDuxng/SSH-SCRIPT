@@ -38,9 +38,24 @@ LOCAL_MODULES = {
 PATCH_FILES = (
     "patches/ssh3_mux_stdio.patch",
     "patches/ssh3_jwt_clock_skew.patch",
+    "patches/ssh3_qlog.patch",
     "patches/quic_go_cubic.patch",
-    "scripts/prepare_quic_cubic.sh",
+    "scripts/prepare_quic_cc.sh",
 )
+
+# Thuật toán chống tắc nghẽn mặc định, phải khớp scripts/patch_hash.sh.
+DEFAULT_SSH3_CC = "reno"
+
+# Phiên bản Go tối thiểu để build ssh3; khớp scripts/go_toolchain.sh.
+GO_MIN_MINOR = 21
+
+
+# Thuật toán chống tắc nghẽn mà cấu hình yêu cầu.
+def configured_cc(cfg: dict) -> str:
+    value = (cfg.get("SSH3_CC") or DEFAULT_SSH3_CC).strip().lower()
+    if value not in ("reno", "cubic"):
+        raise ValueError(f"SSH3_CC phải là reno hoặc cubic, nhận được: {value!r}")
+    return value
 
 
 class Report:
@@ -126,7 +141,7 @@ def detect_workload(config_path: Path) -> str:
 
 # Tái tạo `shasum -a 256 <patch> | shasum -a 256`. Giá trị gắn với đường dẫn
 # tuyệt đối nên chỉ so sánh được trong phạm vi một máy.
-def patch_hash() -> str:
+def patch_hash(cc: str) -> str:
     import hashlib
 
     listing = "".join(
@@ -134,6 +149,8 @@ def patch_hash() -> str:
         f"{REPO_DIR / 'stream_mux' / relative}\n"
         for relative in PATCH_FILES
     )
+    # Băm phủ cả lựa chọn thuật toán, đúng như scripts/patch_hash.sh.
+    listing += f"cc_algorithm={cc}\n"
     return hashlib.sha256(listing.encode()).hexdigest()
 
 
@@ -201,6 +218,7 @@ def check_ssh3_binary(report: Report, cfg: dict, project: Path) -> None:
     if "ssh3" not in cfg.get("PROTOCOLS", ""):
         return
     report.section("SSH3 client binary")
+    wanted_cc = configured_cc(cfg)
     raw = cfg.get("SSH3_MUX_BIN", "../stream_mux/bin/ssh3-mux-stdio")
     path = Path(raw) if os.path.isabs(raw) else (project / raw)
     path = path.resolve()
@@ -214,7 +232,7 @@ def check_ssh3_binary(report: Report, cfg: dict, project: Path) -> None:
     code, output = run([str(path), "-h"], timeout=15)
     report.check("-mux-stream" in output, "binary có cờ -mux-stream")
 
-    expected = patch_hash()
+    expected = patch_hash(wanted_cc)
     stamp = path.with_suffix(path.suffix + ".patch.sha256")
     actual = stamp.read_text().strip() if stamp.exists() else ""
     fresh = actual == expected
@@ -229,9 +247,10 @@ def check_ssh3_binary(report: Report, cfg: dict, project: Path) -> None:
 
     algorithm = binary_congestion(path)
     report.check(
-        algorithm == "cubic", f"congestion control = {algorithm}",
-        "" if algorithm == "cubic" else
-        "build lại: bash stream_mux/scripts/build_ssh3_mux.sh",
+        algorithm == wanted_cc,
+        f"congestion control = {algorithm} (cấu hình: {wanted_cc})",
+        "" if algorithm == wanted_cc else
+        f"build lại: SSH3_CC={wanted_cc} bash stream_mux/scripts/build_ssh3_mux.sh",
     )
 
     info = path.with_suffix(path.suffix + ".build-info")
@@ -287,6 +306,18 @@ def remote_probe_script(cfg: dict, workload: str) -> str:
             '    [ -r "$info" ] && echo "SSH3INFO $(paste -sd ";" "$info")"',
             '  else echo "SSH3CC unreadable ${exe:-khong-xac-dinh}"; fi',
             'fi',
+            # Go chỉ cần khi phải build lại trên server; bản mới thường nằm
+            # ngoài PATH của phiên SSH không tương tác.
+            'best=""; best_minor=-1',
+            'for g in $(command -v go) /usr/local/go/bin/go '
+            '"$HOME/go/bin/go" /usr/lib/go-1.*/bin/go; do',
+            '  [ -x "$g" ] || continue',
+            '  m=$("$g" env GOVERSION 2>/dev/null | '
+            r'sed -n "s/^go1\.\([0-9]*\).*/\1/p")',
+            '  [ -n "$m" ] || continue',
+            '  if [ "$m" -gt "$best_minor" ]; then best_minor=$m; best=$g; fi',
+            'done',
+            'echo "GO ${best_minor} ${best:-khong-co}"',
         ]
     lines.append("exit 0")
     return "\n".join(lines)
@@ -294,6 +325,7 @@ def remote_probe_script(cfg: dict, workload: str) -> str:
 
 # Chạy kiểm tra trên máy đích qua một phiên SSH duy nhất.
 def check_server(report: Report, cfg: dict, workload: str) -> None:
+    wanted_cc = configured_cc(cfg)
     target = f"{cfg['SERVER_USER']}@{cfg['SERVER_HOST']}"
     report.section(f"Server {target}")
     command = [*ssh_base(cfg), "-o", "ConnectTimeout=10", target,
@@ -340,8 +372,9 @@ def check_server(report: Report, cfg: dict, workload: str) -> None:
             algorithm = parts[1]
             binary = parts[2] if len(parts) > 2 else ""
             rebuild = (
-                "trên server: bash stream_mux/scripts/build_ssh3_server.sh && "
-                "sudo install -m 0755 stream_mux/bin/ssh3-server-cubic "
+                f"trên server: SSH3_CC={wanted_cc} "
+                "bash stream_mux/scripts/build_ssh3_server.sh && "
+                f"sudo install -m 0755 stream_mux/bin/ssh3-server-{wanted_cc} "
                 "/usr/local/bin/ssh3-server && sudo systemctl restart ssh3-server"
             )
             if algorithm == "unreadable":
@@ -352,15 +385,28 @@ def check_server(report: Report, cfg: dict, workload: str) -> None:
                     f"binary={binary or 'không xác định'}; kiểm tra thủ công trên "
                     "server: sudo readlink -f /proc/$(pgrep -x ssh3-server)/exe "
                     "rồi sudo grep -ac quic-go-cubic <đường-dẫn> "
-                    "(khác 0 nghĩa là CUBIC)",
+                    "(khác 0 nghĩa là CUBIC, bằng 0 nghĩa là Reno)",
                 )
             else:
                 report.check(
-                    algorithm == "cubic",
-                    f"congestion control của server = {algorithm}"
+                    algorithm == wanted_cc,
+                    f"congestion control của server = {algorithm} "
+                    f"(cấu hình: {wanted_cc})"
                     + (f" ({binary})" if binary else ""),
-                    "" if algorithm == "cubic" else rebuild,
+                    "" if algorithm == wanted_cc else rebuild,
                 )
+        elif tag == "GO":
+            minor = int(parts[1]) if parts[1].lstrip("-").isdigit() else -1
+            binary = parts[2] if len(parts) > 2 else ""
+            report.check(
+                minor >= GO_MIN_MINOR,
+                f"Go trên server: go1.{minor} ({binary})" if minor >= 0
+                else "Go trên server: không tìm thấy",
+                "" if minor >= GO_MIN_MINOR else
+                f"cần >= 1.{GO_MIN_MINOR} để build lại ssh3-server; "
+                "build_ssh3_server.sh tự chọn bản mới nhất tìm được",
+                soft=True,
+            )
         elif tag == "SSH3INFO":
             report.add("INFO", "build-info của server", parts[1].strip(";"))
 

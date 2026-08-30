@@ -11,6 +11,7 @@ import signal
 import subprocess
 import threading
 import time
+from pathlib import Path
 
 from .base import ConnectionAudit, MultiplexConnection, RawStream, StreamSpec
 from .common import JSONPipeReader, PipeReader, cfg_bool, process_tree, socket_rows
@@ -126,6 +127,14 @@ class SSH3Connection(MultiplexConnection):
         command.append(f"{target}:{port}{path}")
 
         process_env = dict(os.environ)
+        # qlog chỉ bật cho lần chạy chẩn đoán: ghi tệp trong lúc đo sẽ tự
+        # làm chậm chính phép đo.
+        qlog_dir = (self.cfg.get("SSH3_QLOG_DIR") or "").strip()
+        if cfg_bool(self.cfg, "SSH3_QLOG", "0") and qlog_dir:
+            target = Path(qlog_dir).expanduser()
+            target.mkdir(parents=True, exist_ok=True)
+            process_env["QLOGDIR"] = str(target)
+            process_env["QLOG_LABEL"] = self.trial_tag.replace("/", "_")
         if pty_specs:
             shape = pty_specs[0]
             process_env.update({

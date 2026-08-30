@@ -42,11 +42,8 @@ stream_mux_start_run_log "$RESULT_PATH" "$PROJECT_DIR/run_w2.sh" "$CONFIG"
 "$PYTHON_COMMAND" tools/generate_payloads.py "$PAYLOAD_PATH"
 
 if [[ ",${PROTOCOLS}," == *,ssh3,* ]]; then
-  PATCH_PATH="$REPO_DIR/stream_mux/patches/ssh3_mux_stdio.patch"
-  JWT_PATCH_PATH="$REPO_DIR/stream_mux/patches/ssh3_jwt_clock_skew.patch"
-  QUIC_PATCH_PATH="$REPO_DIR/stream_mux/patches/quic_go_cubic.patch"
-  QUIC_PREPARE_SCRIPT="$REPO_DIR/stream_mux/scripts/prepare_quic_cubic.sh"
-  PATCH_HASH="$(shasum -a 256 "$PATCH_PATH" "$JWT_PATCH_PATH" "$QUIC_PATCH_PATH" "$QUIC_PREPARE_SCRIPT" | shasum -a 256 | awk '{print $1}')"
+  source "$REPO_DIR/stream_mux/scripts/patch_hash.sh"
+  PATCH_HASH="$(stream_mux_patch_hash "$REPO_DIR/stream_mux")"
   BUILT_HASH="$(test -f "${SSH3_MUX_BIN}.patch.sha256" && sed -n '1p' "${SSH3_MUX_BIN}.patch.sha256" || true)"
   if [[ ! -x "$SSH3_MUX_BIN" || "$PATCH_HASH" != "$BUILT_HASH" ]]; then
     if [[ "${AUTO_BUILD_SSH3_MUX:-1}" != "1" ]]; then
@@ -97,6 +94,10 @@ PYTHONPATH="$REPO_DIR${PYTHONPATH:+:$PYTHONPATH}" \
 "$PYTHON_COMMAND" tools/analyze_w2.py "$RESULT_PATH"
 if [[ ",${PROTOCOLS}," == *,ssh3,* ]]; then
   "$PYTHON_COMMAND" tools/verify_ssh3_mux.py "$RESULT_PATH"
+fi
+"$PYTHON_COMMAND" tools/analyze_counters.py "$RESULT_PATH"
+if [[ "${SSH3_QLOG:-0}" == "1" ]]; then
+  "$PYTHON_COMMAND" tools/analyze_qlog.py "${SSH3_QLOG_DIR:-artifacts/qlog}" "$RESULT_PATH"
 fi
 
 echo "Hoàn tất. Xem $RESULT_PATH/scenario_summary.csv"

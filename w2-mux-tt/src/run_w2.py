@@ -14,7 +14,7 @@ PROJECT_DIR = Path(__file__).resolve().parents[1]
 REPO_DIR = PROJECT_DIR.parent
 sys.path.insert(0, str(REPO_DIR))
 
-from harness import provenance
+from harness import provenance, telemetry
 from harness.experiment import Scenario, build_schedule, render_matrix
 from harness.results import write_rows
 from harness.settings import build_plan, load_settings
@@ -91,6 +91,12 @@ def main() -> int:
         f"total_trials={len(schedule)}",
         flush=True,
     )
+
+    # Bộ đếm mạng: bật mặc định, tắt được khi bàn đo không có netem.
+    collect_counters = settings.flag("COLLECT_NETWORK_COUNTERS", True)
+    # Rỗng nghĩa là tự dò interface theo tuyến tới máy đích; hai đầu
+    # thường có tên khác nhau (eth0 trên Pi, enp1s0 trên PC).
+    netem_iface = settings.text("NETEM_IFACE", "")
 
     result_dir = plan.result_dir
     result_dir.mkdir(parents=True, exist_ok=True)
@@ -199,6 +205,16 @@ def main() -> int:
     }
     # Bằng chứng về binary thực sự phục vụ lần chạy này: bộ kết quả tự
     # chứng minh nó được đo bằng thuật toán nào, không phải suy luận sau.
+    metadata["congestion_control_requested"] = settings.text("SSH3_CC", "reno")
+    metadata["qlog_enabled"] = settings.flag("SSH3_QLOG", False)
+    metadata["network_counters"] = {
+        "collected": collect_counters,
+        "interface": netem_iface if collect_counters else "",
+        "note": (
+            "hiệu số bộ đếm kernel/tc chụp trước và sau mỗi trial, ngoài "
+            "khoảng đo"
+        ),
+    }
     metadata["transport_provenance"] = provenance.collect(
         cfg, plan.protocols, PROJECT_DIR
     )
@@ -208,15 +224,37 @@ def main() -> int:
     )
 
     all_transfers, all_streams, all_trials, audits = [], [], [], []
+    counters: list[dict] = []
     for trial_index, trial in enumerate(schedule):
         print(
             f"[RUN] {trial['trial_order']:03d}/{len(schedule):03d} "
             f"trial={trial['trial_id']} streams={trial['stream_count']}",
             flush=True,
         )
+        # Chụp bộ đếm trước và sau trial, ngoài khoảng đo.
+        server_host = cfg.get("SERVER_HOST", "")
+        before_local: dict = {}
+        before_remote: dict = {}
+        if collect_counters:
+            before_local = telemetry.local_snapshot(netem_iface, server_host)
+            before_remote = telemetry.remote_snapshot(cfg, netem_iface)
         transfers, streams, trial_row, audit = run_trial(
             cfg, trial, payloads, open_direct_w2_connection
         )
+        if collect_counters:
+            counters.extend(telemetry.rows(
+                trial, "client",
+                telemetry.delta(
+                    before_local,
+                    telemetry.local_snapshot(netem_iface, server_host),
+                ),
+            ))
+            counters.extend(telemetry.rows(
+                trial, "server",
+                telemetry.delta(
+                    before_remote, telemetry.remote_snapshot(cfg, netem_iface)
+                ),
+            ))
         all_transfers.extend(transfers)
         all_streams.extend(streams)
         all_trials.append(trial_row)
@@ -245,6 +283,11 @@ def main() -> int:
         write_rows(result_dir / "streams.csv", STREAM_FIELDS, all_streams)
         write_rows(result_dir / "trials.csv", TRIAL_FIELDS, all_trials)
         write_rows(result_dir / "stream_audit.csv", AUDIT_FIELDS, audits)
+        if counters:
+            write_rows(
+                result_dir / "network_counters.csv",
+                telemetry.COUNTER_FIELDS, counters,
+            )
         if plan.inter_trial_delay_seconds and trial_index + 1 < len(schedule):
             time.sleep(plan.inter_trial_delay_seconds)
 

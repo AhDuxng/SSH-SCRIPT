@@ -245,12 +245,20 @@ def remote_cleanup(cfg, paths):
         pass
 
 
+# Trình soạn thảo kết thúc dòng cuối bằng newline theo quy ước tệp văn bản
+# POSIX. Probe đã kết thúc bằng "\n" nên buffer có thêm một dòng trống và tệp
+# lưu ra dài hơn đúng một byte. Đó là ngữ nghĩa của editor, không phải sai
+# lệch của transport, nên vẫn tính là khớp.
+def probe_saved_ok(file_bytes, expected: bytes) -> bool:
+    return file_bytes == expected or file_bytes == expected + b"\n"
+
+
 def summarize_interactive(trial, stream, rows, file_bytes, probe, note=""):
     completed = [row for row in rows if row["completed"] == 1]
     values = [float(row["latency_ms"]) for row in completed]
     stalls = sum(row["stall"] == 1 for row in rows)
     timeouts = sum(row["timeout"] == 1 for row in rows)
-    output_complete = file_bytes == probe.data
+    output_complete = probe_saved_ok(file_bytes, probe.data)
     received_bytes = len(file_bytes) if file_bytes is not None else 0
     complete = len(completed) == len(rows) and output_complete
     return {
@@ -408,14 +416,14 @@ def run_trial(cfg, trial, probe):
             note,
             "final output markers were not reconstructed before timeout",
         )))
-    elif file_bytes != probe.data:
+    elif not probe_saved_ok(file_bytes, probe.data):
         note = "; ".join(filter(None, (
             note,
             "final output mismatch: "
             f"bytes={len(file_bytes)}/{len(probe.data)} "
             f"sha256={hashlib.sha256(file_bytes).hexdigest()}",
         )))
-    final_output_complete = file_bytes == probe.data
+    final_output_complete = probe_saved_ok(file_bytes, probe.data)
     logical_streams = {role: streams.get(role) for role in roles}
     if not key_rows:
         for item in probe.items():

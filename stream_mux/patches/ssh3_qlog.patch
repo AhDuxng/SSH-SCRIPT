@@ -1,0 +1,177 @@
+diff --git a/cmd/ssh3-server.go b/cmd/ssh3-server.go
+index 3f9e2c7..a04082f 100644
+--- a/cmd/ssh3-server.go
++++ b/cmd/ssh3-server.go
+@@ -30,6 +30,7 @@ import (
+ 	ssh3 "github.com/francoismichel/ssh3"
+ 	"github.com/francoismichel/ssh3/internal"
+ 	ssh3Messages "github.com/francoismichel/ssh3/message"
++	"github.com/francoismichel/ssh3/qlogenv"
+ 	"github.com/francoismichel/ssh3/server_auth"
+ 	util "github.com/francoismichel/ssh3/util"
+ 	"github.com/francoismichel/ssh3/util/unix_util"
+@@ -830,6 +831,7 @@ func ServerMain() int {
+ 
+ 	quicConf := &quic.Config{
+ 		Allow0RTT: true,
++		Tracer:    qlogenv.Tracer(),
+ 	}
+ 
+ 	var err error
+diff --git a/cmd/ssh3.go b/cmd/ssh3.go
+index dceec1c..656c67e 100644
+--- a/cmd/ssh3.go
++++ b/cmd/ssh3.go
+@@ -26,6 +26,7 @@ import (
+ 	"github.com/francoismichel/ssh3/client"
+ 	client_config "github.com/francoismichel/ssh3/client/config"
+ 	"github.com/francoismichel/ssh3/internal"
++	"github.com/francoismichel/ssh3/qlogenv"
+ 	"github.com/francoismichel/ssh3/util"
+ 	"github.com/quic-go/quic-go"
+ 	"github.com/quic-go/quic-go/http3"
+@@ -99,6 +100,7 @@ func setupQUICConnection(ctx context.Context, skipHostVerification bool, keylog
+ 	qconf.Allow0RTT = true
+ 	qconf.EnableDatagrams = true
+ 	qconf.KeepAlivePeriod = 1 * time.Second
++	qconf.Tracer = qlogenv.Tracer()
+ 
+ 	if certs, ok := knownHosts[options.CanonicalHostFormat()]; ok {
+ 		foundSelfsignedSSH3 := false
+diff --git a/go.mod b/go.mod
+index 1981c17..28dc2d1 100644
+--- a/go.mod
++++ b/go.mod
+@@ -18,6 +18,7 @@ require (
+ )
+ 
+ require (
++	github.com/francoispqt/gojay v1.2.13 // indirect
+ 	github.com/go-jose/go-jose/v3 v3.0.1 // indirect
+ 	github.com/go-logr/logr v1.2.4 // indirect
+ 	github.com/go-task/slim-sprig v0.0.0-20230315185526-52ccab3ef572 // indirect
+diff --git a/go.sum b/go.sum
+index 8a59fb0..1e2b06d 100644
+--- a/go.sum
++++ b/go.sum
+@@ -8,12 +8,14 @@ github.com/chzyer/test v0.0.0-20180213035817-a1ea475d72b1/go.mod h1:Q3SI9o4m/ZMn
+ github.com/coreos/go-oidc/v3 v3.7.0 h1:FTdj0uexT4diYIPlF4yoFVI5MRO1r5+SEcIpEw9vC0o=
+ github.com/coreos/go-oidc/v3 v3.7.0/go.mod h1:yQzSCqBnK3e6Fs5l+f5i0F8Kwf0zpH9bPEsbY00KanM=
+ github.com/coreos/go-systemd/v22 v22.5.0/go.mod h1:Y58oyj3AT4RCenI/lSvhwexgC+NSVTIJ3seZv2GcEnc=
+-github.com/creack/pty v1.1.9/go.mod h1:oKZEueFk5CKHvIhNR5MUki03XCEU+Q6VDXinZuGJ33E=
+ github.com/creack/pty v1.1.18 h1:n56/Zwd5o6whRC5PMGretI4IdRLlmBXYNjScPaBgsbY=
+ github.com/creack/pty v1.1.18/go.mod h1:MOBLtS5ELjhRRrroQr9kyvTxUAFNvYEK993ew/Vr4O4=
++github.com/creack/pty v1.1.9/go.mod h1:oKZEueFk5CKHvIhNR5MUki03XCEU+Q6VDXinZuGJ33E=
+ github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
+ github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
+ github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
++github.com/francoispqt/gojay v1.2.13 h1:d2m3sFjloqoIUQU3TsHBgj6qg/BVGlTBeHDUmyJnXKk=
++github.com/francoispqt/gojay v1.2.13/go.mod h1:ehT5mTG4ua4581f1++1WLG0vPdaA9HaiDsoyrBGkyDY=
+ github.com/go-jose/go-jose/v3 v3.0.1 h1:pWmKFVtt+Jl0vBZTIpz/eAKwsm6LkIxDVVbFHKkchhA=
+ github.com/go-jose/go-jose/v3 v3.0.1/go.mod h1:RNkWWRld676jZEYoV3+XK8L2ZnNSvIsxFMht0mSX+u8=
+ github.com/go-logr/logr v1.2.4 h1:g01GSCwiDw2xSZfjJ2/T9M+S6pFdcNtFYsp+Y43HYDQ=
+@@ -100,9 +102,9 @@ golang.org/x/crypto v0.17.0 h1:r8bRNjWL3GshPW3gkd+RpvzWrZAwPS49OmTGZ/uhM4k=
+ golang.org/x/crypto v0.17.0/go.mod h1:gCAAfMLgwOJRpTjQ2zCCt2OcSfYMTeZVSRtQlPC7Nq4=
+ golang.org/x/exp v0.0.0-20221205204356-47842c84f3db h1:D/cFflL63o2KSLJIwjlcIt8PR064j/xsmdEJL/YvY/o=
+ golang.org/x/exp v0.0.0-20221205204356-47842c84f3db/go.mod h1:CxIveKay+FTh1D0yPZemJVgC/95VzuuOLq5Qi4xnoYc=
+-golang.org/x/mod v0.6.0-dev.0.20220419223038-86c51ed26bb4/go.mod h1:jJ57K6gSWd91VN4djpZkiMVwK6gcyfeH4XE8wZrZaV4=
+ golang.org/x/mod v0.12.0 h1:rmsUpXtvNzj340zd98LZ4KntptpfRHwpFOHG188oHXc=
+ golang.org/x/mod v0.12.0/go.mod h1:iBbtSCu2XBx23ZKBPSOrRkjjQPZFPuis4dIYUhu/chs=
++golang.org/x/mod v0.6.0-dev.0.20220419223038-86c51ed26bb4/go.mod h1:jJ57K6gSWd91VN4djpZkiMVwK6gcyfeH4XE8wZrZaV4=
+ golang.org/x/net v0.0.0-20190404232315-eb5bcb51f2a3/go.mod h1:t9HGtf8HONx5eT2rtn7q6eTqICYqUVnKs3thJo3Qplg=
+ golang.org/x/net v0.0.0-20190620200207-3b0461eec859/go.mod h1:z5CRVTTTmAJ677TzLLGU+0bjPO0LkuOLi4/5GtJWs/s=
+ golang.org/x/net v0.0.0-20210226172049-e18ecbb05110/go.mod h1:m0MpNAwzfU5UDzcl9v0D8zg8gWTRqZa9RBIspLL5mdg=
+@@ -123,21 +125,21 @@ golang.org/x/sys v0.0.0-20210615035016-665e8c7367d1/go.mod h1:oPkhp1MJrh7nUepCBc
+ golang.org/x/sys v0.0.0-20220520151302-bc2c85ada10a/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
+ golang.org/x/sys v0.0.0-20220722155257-8c9f86f7a55f/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
+ golang.org/x/sys v0.0.0-20220811171246-fbc7d0a398ab/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
+-golang.org/x/sys v0.5.0/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
+-golang.org/x/sys v0.6.0/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
+ golang.org/x/sys v0.12.0/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
+ golang.org/x/sys v0.15.0 h1:h48lPFYpsTvQJZF4EKyI4aLHaev3CxivZmv7yZig9pc=
+ golang.org/x/sys v0.15.0/go.mod h1:/VUhepiaJMQUp4+oa/7Zr1D23ma6VTLIYjOOTFZPUcA=
++golang.org/x/sys v0.5.0/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
++golang.org/x/sys v0.6.0/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
+ golang.org/x/term v0.0.0-20201126162022-7de9c90e9dd1/go.mod h1:bj7SfCRtBDWHUb9snDiAeCFNEtKQo2Wmx5Cou7ajbmo=
+ golang.org/x/term v0.0.0-20210927222741-03fcf44c2211/go.mod h1:jbD1KX2456YbFQfuXm/mYQcufACuNUgVhRMnK/tPxf8=
+ golang.org/x/term v0.15.0 h1:y/Oo/a/q3IXu26lQgl04j/gjuBDOBlx7X6Om1j2CPW4=
+ golang.org/x/term v0.15.0/go.mod h1:BDl952bC7+uMoWR75FIrCDx79TPU9oHkTZ9yRbYOrX0=
++golang.org/x/text v0.14.0 h1:ScX5w1eTa3QqT8oi6+ziP7dTV1S2+ALU0bI+0zXKWiQ=
++golang.org/x/text v0.14.0/go.mod h1:18ZOQIKpY8NJVqYksKHtTdi31H5itFRjB5/qKTNYzSU=
+ golang.org/x/text v0.3.0/go.mod h1:NqM8EUOU14njkJ3fqMW+pc6Ldnwhi/IjpwHt7yyuwOQ=
+ golang.org/x/text v0.3.3/go.mod h1:5Zoc/QRtKVWzQhOtBMvqHzDpF6irO9z98xDceosuGiQ=
+ golang.org/x/text v0.3.7/go.mod h1:u+2+/6zg+i71rQMx5EYifcz6MCKuco9NR6JIITiCfzQ=
+ golang.org/x/text v0.3.8/go.mod h1:E6s5w1FMmriuDzIBO73fBruAKo1PCIq6d2Q6DHfQ8WQ=
+-golang.org/x/text v0.14.0 h1:ScX5w1eTa3QqT8oi6+ziP7dTV1S2+ALU0bI+0zXKWiQ=
+-golang.org/x/text v0.14.0/go.mod h1:18ZOQIKpY8NJVqYksKHtTdi31H5itFRjB5/qKTNYzSU=
+ golang.org/x/tools v0.0.0-20180917221912-90fa682c2a6e/go.mod h1:n7NCudcB/nEzxVGmLbDWY5pfWTLqBcC2KZ6jyYvM4mQ=
+ golang.org/x/tools v0.0.0-20191119224855-298f0cb1881e/go.mod h1:b+2E5dAYhXwXZwtnZ6UAqBI28+e2cm9otk0dWdXHAEo=
+ golang.org/x/tools v0.1.12/go.mod h1:hNGJHUnrk76NpqgfD5Aqm5Crs+Hm0VOH/i9J2+nxYbc=
+diff --git a/qlogenv/qlogenv.go b/qlogenv/qlogenv.go
+new file mode 100644
+index 0000000..1eff52b
+--- /dev/null
++++ b/qlogenv/qlogenv.go
+@@ -0,0 +1,62 @@
++// Package qlogenv bật ghi qlog theo biến môi trường QLOGDIR.
++//
++// Chỉ dùng cho lần chạy chẩn đoán: ghi qlog tốn I/O và sẽ làm nhiễu chính
++// phép đo độ trễ. Khi QLOGDIR rỗng, Tracer là nil và quic-go không tốn gì.
++package qlogenv
++
++import (
++	"bufio"
++	"context"
++	"fmt"
++	"os"
++	"path/filepath"
++
++	"github.com/quic-go/quic-go"
++	"github.com/quic-go/quic-go/logging"
++	"github.com/quic-go/quic-go/qlog"
++)
++
++// fileWriter đệm ghi để không sinh một syscall cho mỗi sự kiện qlog.
++type fileWriter struct {
++	*bufio.Writer
++	file *os.File
++}
++
++// Xả phần còn lại rồi đóng tệp.
++func (w *fileWriter) Close() error {
++	if err := w.Flush(); err != nil {
++		w.file.Close()
++		return err
++	}
++	return w.file.Close()
++}
++
++// Tracer trả về tracer ghi vào QLOGDIR, hoặc nil nếu biến này chưa đặt.
++func Tracer() func(context.Context, logging.Perspective, quic.ConnectionID) *logging.ConnectionTracer {
++	dir := os.Getenv("QLOGDIR")
++	if dir == "" {
++		return nil
++	}
++	return func(_ context.Context, p logging.Perspective, connID quic.ConnectionID) *logging.ConnectionTracer {
++		if err := os.MkdirAll(dir, 0o755); err != nil {
++			return nil
++		}
++		role := "server"
++		if p == logging.PerspectiveClient {
++			role = "client"
++		}
++		label := os.Getenv("QLOG_LABEL")
++		if label != "" {
++			label += "_"
++		}
++		name := fmt.Sprintf("%s%s_%s_%d.sqlog", label, connID.String(), role, os.Getpid())
++		file, err := os.Create(filepath.Join(dir, name))
++		if err != nil {
++			return nil
++		}
++		return qlog.NewConnectionTracer(
++			&fileWriter{Writer: bufio.NewWriterSize(file, 64*1024), file: file},
++			p, connID,
++		)
++	}
++}
