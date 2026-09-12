@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+import textwrap
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -33,6 +34,12 @@ PROTOCOL_STYLE = {
     "ssh3": {"color": "#E69F00", "hatch": "---"},
     "mosh": {"color": "#009E73", "hatch": "\\\\\\"},
 }
+
+# Trục phần trăm dùng chung cho mọi hình tỷ lệ. Ghim ở 0–100 % để hình của
+# workload này so sánh được với workload khác; phần dư phía trên chỉ để chứa
+# nhãn số của cột chạm trần.
+PERCENT_CEILING = 100.0
+PERCENT_AXIS_TOP = 118.0
 
 # Kích thước theo chuẩn bài báo hai cột.
 SINGLE_COLUMN = (3.4, 2.4)
@@ -77,8 +84,14 @@ class Series:
 
 # Vẽ nhóm cột, chỉ cấp vị trí cho cấu hình thực sự có số liệu và căn giữa
 # nhóm quanh tick. Trả về vị trí tick trên trục x.
+#
+# `percent=True` dành cho hình tỷ lệ: trục bị ghim ở 0–100 % thay vì co giãn
+# theo giá trị lớn nhất, nếu không một hình toàn 99–100 % và một hình toàn
+# 40–60 % sẽ trông giống hệt nhau. Nhãn số cũng được xoay đứng vì hình tỷ lệ
+# thường có nhiều phép đo trên một panel.
 def grouped_bars(
     axis, scenarios, series, *, annotate=True, annotation_format="{:.1f}",
+    percent=False, log=False,
 ):
     ticks = np.arange(len(scenarios), dtype=float)
     width = 0.26
@@ -87,7 +100,14 @@ def grouped_bars(
     ]
     # Một nhóm toàn giá trị 0 (ví dụ tỷ lệ timeout bằng không) vẫn cần trục có
     # chiều cao dương, nếu không matplotlib cảnh báo và trục bị suy biến.
-    ceiling = max(observed, default=1.0) or 1.0
+    ceiling = PERCENT_CEILING if percent else (max(observed, default=1.0) or 1.0)
+    # Trục log: cột mọc từ đáy trục chứ không từ 0, và nhãn phải đặt bằng phép
+    # nhân — cộng một phần của ceiling sẽ dồn hết nhãn lên sát đỉnh.
+    floor = None
+    if log and not percent:
+        smallest = min((v for v in observed if v > 0), default=1.0)
+        floor = smallest / 3.0
+        axis.set_yscale("log")
     for index, scenario_tick in enumerate(ticks):
         present = [item for item in series if item.values[index] is not None]
         if not present:
@@ -98,18 +118,26 @@ def grouped_bars(
             value = item.values[index]
             axis.bar(
                 scenario_tick + offset, value, width,
+                bottom=floor if floor is not None else 0,
                 color=style["color"], hatch=style["hatch"],
                 edgecolor="black", linewidth=0.5,
                 label=protocol_label(item.protocol),
             )
             if annotate:
                 axis.text(
-                    scenario_tick + offset, value + ceiling * 0.02,
+                    scenario_tick + offset,
+                    value * 1.12 if floor is not None
+                    else value + ceiling * 0.02,
                     annotation_format.format(value),
-                    ha="center", va="bottom", fontsize=6,
+                    ha="center", va="bottom",
+                    fontsize=5 if percent else 6,
+                    rotation=90 if percent else 0,
                 )
     axis.set_xticks(ticks, scenarios)
-    axis.set_ylim(0, ceiling * 1.18)
+    if floor is not None:
+        axis.set_ylim(floor, ceiling * 2.2)
+    else:
+        axis.set_ylim(0, PERCENT_AXIS_TOP if percent else ceiling * 1.18)
     return ticks
 
 
@@ -125,7 +153,7 @@ def grouped_bars(
 def per_stream_panels(
     scenarios, lookup, column, protocol_order, *,
     ylabel, title="", scenario_titles=None, role_label=None, note="",
-    annotation_format="{:.1f}",
+    annotation_format="{:.1f}", percent=False, sharey=True,
 ):
     scenario_titles = scenario_titles or {}
     role_label = role_label or (lambda protocol, role: role)
@@ -149,7 +177,7 @@ def per_stream_panels(
     widths = [max(len(bars), 1) for _, bars in panels]
     total = sum(widths)
     figure, axes = plt.subplots(
-        1, len(panels), sharey=True,
+        1, len(panels), sharey=sharey,
         figsize=(max(7.0, 0.62 * total + 1.4), 4.2),
         gridspec_kw={"width_ratios": widths},
     )
@@ -157,8 +185,12 @@ def per_stream_panels(
         axes = [axes]
 
     observed = [value for _, bars in panels for _, _, value in bars]
-    ceiling = max(observed, default=1.0) or 1.0
+    shared_ceiling = PERCENT_CEILING if percent else (max(observed, default=1.0) or 1.0)
     for axis, (scenario, bars) in zip(axes, panels):
+        if sharey or percent:
+            ceiling = shared_ceiling
+        else:
+            ceiling = max((value for _, _, value in bars), default=1.0) or 1.0
         labels = []
         for index, (protocol, role, value) in enumerate(bars):
             style = PROTOCOL_STYLE.get(protocol, {})
@@ -177,7 +209,7 @@ def per_stream_panels(
                     container, fmt=annotation_format, fontsize=5.5,
                     padding=1.5, rotation=90,
                 )
-        axis.set_ylim(0, ceiling * 1.30)
+        axis.set_ylim(0, PERCENT_AXIS_TOP if percent else ceiling * 1.30)
         axis.set_title(scenario_titles.get(scenario, scenario), fontsize=8)
         axis.tick_params(axis="x", length=0)
 
@@ -185,14 +217,106 @@ def per_stream_panels(
     if title:
         figure.suptitle(title, y=1.0)
     if note:
-        figure.text(0.5, -0.05, note, ha="center", fontsize=6.5)
+        width = figure.get_size_inches()[0]
+        wrapped = textwrap.fill(note, width=max(60, int(width * 15)))
+        figure.text(0.5, -0.05, wrapped, ha="center", va="top", fontsize=6.5)
     return figure
 
-def deduplicated_legend(axis, **kwargs):
-    handles, labels = axis.get_legend_handles_labels()
+# Vẽ một hàng panel toàn số phần trăm: mỗi panel là một nhóm (kịch bản, hoặc
+# editor), trục x là các phép đo tỷ lệ, màu vẫn là giao thức.
+#
+# Bốn workload đều cần đúng hình này cho "tỷ lệ hoàn thành" và "tỷ lệ đầy đủ
+# output", nên nó nằm ở đây thay vì được chép lại bốn lần với bốn cách chọn
+# thang trục khác nhau.
+#
+# `panels`   : [(tiêu đề panel, khoá tra cứu)]
+# `measures` : [(tên cột trong CSV, nhãn hiển thị)]
+# `value_of` : (khoá, giao thức, cột) -> float | None; None nghĩa là cấu hình
+#              không được đo, và ô đó được ghi "n/a" chứ không vẽ cột 0.
+def percent_panels(
+    panels, measures, protocol_order, value_of, *,
+    ylabel="Tỷ lệ (%)", title="", note="", figsize=None, legend_below=True,
+):
+    names = [name for _column, name in measures]
+    figure, axes = plt.subplots(
+        1, len(panels), sharey=True, squeeze=False,
+        figsize=figsize or (
+            max(7.0, len(panels) * (0.58 * len(names) + 0.5)), 2.9,
+        ),
+    )
+    axes = list(axes[0])
+    for axis, (panel_title, key) in zip(axes, panels):
+        series = [
+            Series(
+                protocol,
+                [value_of(key, protocol, column) for column, _name in measures],
+            )
+            for protocol in protocol_order
+            # Giao thức không có mặt trong panel này thì không chiếm chỗ; ma
+            # trận thí nghiệm phải đọc được ngay trên hình.
+            if any(
+                value_of(key, protocol, column) is not None
+                for column, _name in measures
+            )
+        ]
+        grouped_bars(axis, names, series, percent=True)
+        axis.set_title(panel_title)
+        # Nhãn nghiêng phải neo ở đầu phải, nếu không nhãn dài sẽ trượt sang
+        # tick bên cạnh và hai phép đo chồng chữ lên nhau.
+        axis.tick_params(axis="x", labelrotation=30)
+        plt.setp(
+            axis.get_xticklabels(), ha="right", rotation_mode="anchor",
+        )
+        # Phép đo không áp dụng cho giao thức đó (ví dụ byte thô với Mosh) phải
+        # được ghi rõ, nếu để trống người đọc tưởng số liệu bị mất.
+        for item in series:
+            for index, value in enumerate(item.values):
+                if value is None:
+                    axis.text(
+                        index, 6, "n/a", ha="center", va="bottom",
+                        fontsize=5, rotation=90, zorder=5,
+                        bbox={
+                            "boxstyle": "square,pad=0.15", "facecolor": "white",
+                            "edgecolor": "none", "alpha": 0.85,
+                        },
+                    )
+    axes[0].set_ylabel(ylabel)
+    legend_axis = axes[len(axes) // 2]
+    if legend_below:
+        deduplicated_legend(
+            legend_axis, sources=axes, ncol=3, loc="lower center",
+            bbox_to_anchor=(0.5, -0.95 if note else -0.72),
+        )
+    else:
+        deduplicated_legend(
+            legend_axis, sources=axes, ncol=3, loc="upper left",
+        )
+    if title:
+        figure.suptitle(title, y=1.08)
+    if note:
+        # `bbox_inches="tight"` nới khung hình ra vừa mọi artist, nên một dòng
+        # ghi chú dài sẽ kéo hình rộng gấp đôi và bóp các panel lại. Ngắt dòng
+        # theo bề rộng thật của hình thay vì để matplotlib tự xử lý.
+        width = figure.get_size_inches()[0]
+        wrapped = textwrap.fill(note, width=max(60, int(width * 15)))
+        figure.text(0.5, -0.30, wrapped, ha="center", va="top", fontsize=6.5)
+    return figure
+
+
+# `sources` cho phép gom nhãn từ nhiều panel rồi vẽ chú giải trên một panel.
+# Cần thiết vì một giao thức có thể chỉ xuất hiện ở panel đầu (Mosh chỉ được đo
+# ở kịch bản một workload) — lấy handle từ đúng panel mang chú giải sẽ bỏ sót
+# nó, và người đọc thấy cột màu không có trong chú giải.
+def deduplicated_legend(axis, *, sources=None, **kwargs):
     unique: dict[str, object] = {}
-    for handle, name in zip(handles, labels):
-        unique.setdefault(name, handle)
+    # `sources` thường là mảng axes của plt.subplots; mảng numpy không dùng
+    # được với `or` nên phải kiểm tra None tường minh.
+    if sources is None:
+        sources = [axis]
+    for source in sources:
+        handles, labels = source.get_legend_handles_labels()
+        for handle, name in zip(handles, labels):
+            unique.setdefault(name, handle)
     if unique:
         axis.legend(unique.values(), unique.keys(), **kwargs)
 

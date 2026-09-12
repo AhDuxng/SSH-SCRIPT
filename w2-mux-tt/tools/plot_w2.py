@@ -20,12 +20,12 @@ import matplotlib.pyplot as plt  # noqa: E402
 
 from harness.plotting import (  # noqa: E402
     DOUBLE_COLUMN,
-    WIDE,
     Series,
     clear_figures,
     deduplicated_legend,
     grouped_bars,
     per_stream_panels,
+    percent_panels,
     save_figure,
     use_paper_style,
     value_or_none,
@@ -115,55 +115,66 @@ def plot_scenario_metric(lookup, output_dir, column, title, ylabel, stem, *, gat
     save_figure(figure, output_dir, stem)
 
 
-# Bốn mức xác thực từ lỏng tới chặt; trục x là mức, màu vẫn là giao thức.
-def plot_integrity(lookup, output_dir):
-    measures = (
-        ("completion_marker_rate_pct", "Marker"),
-        ("content_complete_rate_pct", "Payload"),
-        ("fully_verified_output_rate_pct", "+SHA-256"),
-        ("raw_capture_exact_rate_pct", "Byte thô"),
-    )
-    names = [name for _column, name in measures]
-    figure, axes = plt.subplots(
-        1, len(SCENARIOS), figsize=(7.0, 2.6), sharey=True,
-    )
-    for axis, scenario in zip(axes, SCENARIOS):
-        series = [
-            Series(
-                protocol,
-                [
-                    value_or_none(lookup, (protocol, scenario), column)
-                    for column, _name in measures
-                ],
-            )
-            for protocol in PROTOCOL_ORDER
-            if (protocol, scenario) in lookup
-        ]
-        grouped_bars(axis, names, series, annotate=False)
-        axis.set_ylim(0, 108)
-        axis.set_title(scenario)
-        axis.tick_params(axis="x", labelrotation=30)
-        # "Luồng byte nguyên bản" không áp dụng cho giao thức đồng bộ màn hình;
-        # ghi rõ n/a thay vì để trống gây hiểu là phép đo bị thiếu.
-        for item in series:
-            for index, value in enumerate(item.values):
-                if value is None:
-                    axis.text(
-                        index, 3, "n/a", ha="center", va="bottom",
-                        fontsize=5, rotation=90,
-                    )
-    axes[0].set_ylabel("Tỷ lệ (%)")
-    deduplicated_legend(
-        axes[1], ncol=3, loc="lower center", bbox_to_anchor=(0.5, -0.72),
-    )
-    figure.suptitle("W2 — mức độ xác thực output", y=1.06)
-    figure.text(
-        0.5, -0.46,
-        "Marker: lệnh báo kết thúc · Payload: quan sát đủ nội dung · "
-        "+SHA-256: khớp băm · Byte thô: luồng byte nguyên bản (n/a với Mosh)",
-        ha="center", fontsize=6,
+# Tỷ lệ hoàn thành phép truyền, kèm ba mức xác thực chặt dần phía sau.
+#
+# "Hoàn thành" là định nghĩa nghiêm ngặt nhất trong README: nhận đủ marker, mã
+# thoát 0, đủ 102 400 byte, đủ 25 dòng duy nhất và khớp SHA-256. Ba cột còn lại
+# tách ra để thấy phép truyền hỏng ở khâu nào, chứ không thay thế được nó.
+INTEGRITY_MEASURES = (
+    ("transfer_completion_rate_pct", "Hoàn thành"),
+    ("completion_marker_rate_pct", "Marker"),
+    ("content_complete_rate_pct", "Payload"),
+    ("fully_verified_output_rate_pct", "+SHA-256"),
+    ("raw_capture_exact_rate_pct", "Byte thô"),
+)
+
+# Ba cách đo "output có đủ không", từ đếm phép truyền tới đếm byte.
+#
+# Tách khỏi hình trên vì chúng trả lời câu khác: không phải "bao nhiêu phép
+# truyền đạt", mà "quan sát được bao nhiêu phần nội dung" — con số này vẫn có
+# nghĩa với những phép truyền chỉ về được một phần.
+COMPLETENESS_MEASURES = (
+    ("output_completeness_pct", "Output đủ"),
+    ("verified_output_ratio_pct", "Byte xác thực"),
+    ("mean_content_coverage_pct", "Bao phủ"),
+)
+
+
+def plot_integrity(lookup, output_dir, network):
+    figure = percent_panels(
+        [(scenario, scenario) for scenario in SCENARIOS],
+        INTEGRITY_MEASURES,
+        PROTOCOL_ORDER,
+        lambda scenario, protocol, column: value_or_none(
+            lookup, (protocol, scenario), column,
+        ),
+        title=f"W2 — tỷ lệ hoàn thành và mức xác thực output ({network})",
+        note=(
+            "Hoàn thành: marker + exit 0 + byte + dòng + SHA-256 · "
+            "Marker: lệnh báo kết thúc · Payload: quan sát đủ nội dung · "
+            "+SHA-256: khớp băm · Byte thô: luồng byte nguyên bản (n/a với Mosh)"
+        ),
     )
     save_figure(figure, output_dir, "figure_5_output_integrity")
+
+
+def plot_output_completeness(lookup, output_dir, network):
+    figure = percent_panels(
+        [(scenario, scenario) for scenario in SCENARIOS],
+        COMPLETENESS_MEASURES,
+        PROTOCOL_ORDER,
+        lambda scenario, protocol, column: value_or_none(
+            lookup, (protocol, scenario), column,
+        ),
+        title=f"W2 — tỷ lệ đầy đủ của output ({network})",
+        note=(
+            "Output đủ: phép truyền quan sát đủ nội dung · "
+            "Byte đã xác thực: byte thuộc dòng deterministic đúng và duy nhất "
+            "trên tổng byte theo kế hoạch · "
+            "Bao phủ nội dung: trung bình phần dòng hợp lệ của từng phép truyền"
+        ),
+    )
+    save_figure(figure, output_dir, "figure_5b_output_completeness")
 
 
 # Từng vai trò của giao thức có multiplexing; Mosh không có vai trò song song.
@@ -184,7 +195,9 @@ def role_label(protocol: str, role: str) -> str:
     return role.replace("_", " ").title()
 
 
-def plot_per_stream(streams, output_dir, column, title, ylabel, stem):
+def plot_per_stream(
+    streams, output_dir, column, title, ylabel, stem, *, percent=False,
+):
     """Giữ nguyên chi tiết từng stream mà stream_summary.csv đã thống kê."""
     # Giao thức không hỗ trợ đa stream chỉ được vẽ ở kịch bản một workload.
     keep = [
@@ -206,7 +219,7 @@ def plot_per_stream(streams, output_dir, column, title, ylabel, stem):
     figure = per_stream_panels(
         SCENARIOS, stream_index(keep), column, PROTOCOL_ORDER,
         ylabel=ylabel, title=title, scenario_titles=SCENARIO_TITLES,
-        role_label=role_label, note=note,
+        role_label=role_label, note=note, percent=percent,
     )
     save_figure(figure, output_dir, stem)
 
@@ -256,13 +269,34 @@ def main() -> int:
         f"W2 — thông lượng payload đã xác thực, MEAN{suffix}",
         "Thông lượng (MiB/s)", "figure_3_throughput_mean",
     )
-    plot_integrity(lookup, args.output_dir)
+    plot_integrity(lookup, args.output_dir, args.network)
+    plot_output_completeness(lookup, args.output_dir, args.network)
     for metric in ("mean", "median", "p95", "p99"):
         plot_per_stream(
             streams, args.output_dir, f"content_complete_{metric}_ms",
             f"W2 — quan sát đủ payload theo từng stream, {metric.upper()}{suffix}",
             "Độ trễ (ms)", f"figure_6_per_stream_content_complete_{metric}",
         )
+        plot_per_stream(
+            streams, args.output_dir, f"completion_{metric}_ms",
+            f"W2 — byte cuối của luồng theo từng stream, {metric.upper()}{suffix}",
+            "Độ trễ (ms)", f"figure_6b_per_stream_completion_{metric}",
+        )
+    # Trung bình của một kịch bản che mất một stream hỏng lẻ, mà đó lại đúng là
+    # thứ cần thấy khi so multiplexing: bốn stream cùng connection có thể hỏng
+    # rất lệch nhau.
+    plot_per_stream(
+        streams, args.output_dir, "transfer_completion_rate_pct",
+        f"W2 — tỷ lệ hoàn thành theo từng stream{suffix}",
+        "Tỷ lệ hoàn thành (%)", "figure_7_per_stream_completion_rate",
+        percent=True,
+    )
+    plot_per_stream(
+        streams, args.output_dir, "output_completeness_pct",
+        f"W2 — tỷ lệ đầy đủ output theo từng stream{suffix}",
+        "Tỷ lệ output đủ (%)", "figure_7b_per_stream_output_completeness",
+        percent=True,
+    )
     print(f"Đã lưu hình W2 vào {args.output_dir}")
     return 0
 

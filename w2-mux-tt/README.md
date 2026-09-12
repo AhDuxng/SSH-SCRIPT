@@ -248,10 +248,12 @@ figure_1b_lossless_completion_*.png/pdf         byte cuối — chỉ có nghĩa
 figure_2_first_byte_median.png/pdf              latency byte đầu
 figure_3_throughput_mean.png/pdf                thông lượng byte đã xác thực
 figure_4_setup_*.png/pdf                       setup Mean/Median/P95/P99
-figure_5_output_integrity.png/pdf               marker/nội dung/byte/SHA-256
+figure_5_output_integrity.png/pdf               tỷ lệ hoàn thành + marker/nội dung/SHA-256/byte thô
+figure_5b_output_completeness.png/pdf           tỷ lệ đầy đủ output: phép truyền, byte, bao phủ
 figure_6_per_stream_content_complete_*.png/pdf  nội dung đủ từng stream
 figure_6b_per_stream_completion_*.png/pdf       byte cuối từng stream
-figure_7_per_stream_integrity.png/pdf           integrity từng stream
+figure_7_per_stream_completion_rate.png/pdf     tỷ lệ hoàn thành từng stream
+figure_7b_per_stream_output_completeness.png/pdf tỷ lệ đầy đủ output từng stream
 ```
 
 Trên các hình `content_complete`, phần trăm in dưới giá trị của một cột cho biết
@@ -259,9 +261,20 @@ tỷ lệ mẫu quan sát được đủ nội dung, và chỉ xuất hiện khi
 vẫn được vẽ thay vì `N/A`, nhưng con số phần trăm nhắc rằng latency được tính
 trên tập mẫu đã lọc.
 
-Hai hình integrity dùng trục 0–100%. `Transfer complete` chỉ đạt 100% khi nhận
-đủ marker, byte, dòng và SHA-256. Bảng CSV vẫn giữ `content_coverage_pct` để xem
-phần nội dung hợp lệ của mẫu `partial`/`timeout` mà không tính redraw hay dòng lặp.
+Mọi hình tỷ lệ dùng trục 0–100% cố định và in giá trị lên từng cột, nên hai lần
+chạy khác nhau so được với nhau bằng mắt. Cột `Hoàn thành` của
+`figure_5_output_integrity` là `transfer_completion_rate_pct`: chỉ đạt 100% khi
+nhận đủ marker, mã thoát 0, byte, dòng và SHA-256 — đây là định nghĩa nghiêm
+ngặt nhất, bốn cột còn lại chỉ để thấy phép truyền hỏng ở khâu nào.
+
+`figure_5b_output_completeness` trả lời câu khác: quan sát được bao nhiêu phần
+nội dung, kể cả ở những phép truyền chỉ về được một phần. Bảng CSV vẫn giữ
+`content_coverage_pct` để xem phần nội dung hợp lệ của mẫu `partial`/`timeout`
+mà không tính redraw hay dòng lặp.
+
+Ô ghi `n/a` là cấu hình không đo được chứ không phải số liệu bị thiếu — ví dụ
+`Byte thô` với Mosh, vì Mosh truyền trạng thái màn hình chứ không phải luồng
+byte nguyên bản.
 
 Ba phép đo tách bạch nhau, đừng gộp khi đọc kết quả:
 

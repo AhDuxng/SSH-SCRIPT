@@ -15,12 +15,12 @@ import matplotlib.pyplot as plt  # noqa: E402
 
 from harness.plotting import (  # noqa: E402
     DOUBLE_COLUMN,
-    WIDE,
     Series,
     clear_figures,
     deduplicated_legend,
     grouped_bars,
     per_stream_panels,
+    percent_panels,
     save_figure,
     use_paper_style,
     value_or_none,
@@ -73,41 +73,55 @@ def plot_metric(lookup, output_dir, column, title, ylabel, stem):
     save_figure(figure, output_dir, stem)
 
 
+# Tỷ lệ hoàn thành lệnh và tỷ lệ đầy đủ output, cùng một trục 0–100 %.
+#
+# Bốn phép đo đi từ lỏng tới chặt: "kế hoạch" tính trên toàn bộ lệnh dự kiến,
+# "đã gửi" chỉ tính những lệnh thực sự được gửi đi, "Stream hoàn thành" là vai
+# trò chạy trọn vẹn, và "Output đủ" là phần lệnh có output xác thực được và
+# khớp nội dung mong đợi.
+RELIABILITY_MEASURES = (
+    ("command_completion_rate_pct", "Kế hoạch"),
+    ("attempted_completion_rate_pct", "Đã gửi"),
+    ("stream_completion_rate_pct", "Stream"),
+    ("output_completeness_pct", "Output đủ"),
+)
+
+
 def plot_reliability(lookup, output_dir, network):
-    measures = (
-        ("command_completion_rate_pct", "Theo kế hoạch"),
-        ("attempted_completion_rate_pct", "Đã gửi"),
-        ("stream_completion_rate_pct", "Vai trò"),
-        ("output_completeness_pct", "Output"),
+    figure = percent_panels(
+        [(scenario, scenario) for scenario in SCENARIOS],
+        RELIABILITY_MEASURES,
+        PROTOCOL_ORDER,
+        lambda scenario, protocol, column: value_or_none(
+            lookup, (protocol, scenario), column,
+        ),
+        title=f"W1 — tỷ lệ hoàn thành lệnh và đầy đủ output ({network})",
+        note=" · ".join(filter(None, (
+            "Kế hoạch: hoàn thành trên tổng lệnh dự kiến · "
+            "Đã gửi: hoàn thành trên số lệnh thực sự gửi đi · "
+            "Stream: vai trò chạy trọn vẹn · "
+            "Output đủ: output xác thực được và khớp nội dung mong đợi",
+            matrix_note(lookup),
+        ))),
     )
-    names = [name for _column, name in measures]
-    figure, axes = plt.subplots(1, len(SCENARIOS), figsize=(7.0, 2.6), sharey=True)
-    for axis, scenario in zip(axes, SCENARIOS):
-        series = [
-            Series(
-                protocol,
-                [
-                    value_or_none(lookup, (protocol, scenario), column)
-                    for column, _name in measures
-                ],
-            )
-            for protocol in PROTOCOL_ORDER
-            if (protocol, scenario) in lookup
-        ]
-        grouped_bars(axis, names, series, annotate=False)
-        axis.set_ylim(0, 108)
-        axis.set_title(scenario)
-        axis.tick_params(axis="x", labelrotation=30)
-        for item in series:
-            for index, value in enumerate(item.values):
-                if value is None:
-                    axis.text(index, 3, "n/a", ha="center", fontsize=5, rotation=90)
-    axes[0].set_ylabel("Tỷ lệ (%)")
-    deduplicated_legend(
-        axes[1], ncol=3, loc="lower center", bbox_to_anchor=(0.5, -0.72),
-    )
-    figure.suptitle(f"W1 — hoàn thành lệnh và toàn vẹn output ({network})", y=1.06)
     save_figure(figure, output_dir, "figure_3_reliability")
+
+
+# Cùng bốn phép đo nhưng tách theo từng stream: một stream hỏng lẻ bị trung
+# bình của kịch bản che mất, mà đó lại là thứ cần thấy khi so multiplexing.
+def plot_per_stream_reliability(streams, output_dir, network):
+    lookup = {
+        (row["protocol"], row["scenario"], row["stream_role"]): row
+        for row in streams
+        if supports_stream_count(row["protocol"], SCENARIO_STREAMS[row["scenario"]])
+    }
+    figure = per_stream_panels(
+        SCENARIOS, lookup, "command_completion_rate_pct", PROTOCOL_ORDER,
+        ylabel="Tỷ lệ hoàn thành (%)",
+        title=f"W1 — tỷ lệ hoàn thành theo từng stream ({network})",
+        scenario_titles=SCENARIO_TITLES, role_label=role_label, percent=True,
+    )
+    save_figure(figure, output_dir, "figure_5_per_stream_completion_rate")
 
 
 SCENARIO_TITLES = {
@@ -181,6 +195,7 @@ def main() -> int:
             "Thời gian thiết lập (ms)", f"figure_2_setup_{metric}",
         )
     plot_reliability(lookup, args.output_dir, args.network)
+    plot_per_stream_reliability(streams, args.output_dir, args.network)
     for metric in ("mean", "median", "p95", "p99"):
         plot_per_stream(
             streams, args.output_dir, f"{metric}_ms",

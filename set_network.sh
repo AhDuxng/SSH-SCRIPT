@@ -5,7 +5,7 @@ IFACE="${1:-eth0}"
 SCENARIO="${2:-}"
 
 RATE="40mbit"
-BURST="128kb"       
+BURST="16kb"       
 TBF_LATENCY="400ms"
 NETEM_LIMIT="1000"
 

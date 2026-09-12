@@ -23,6 +23,7 @@ from harness.plotting import (  # noqa: E402
     clear_figures,
     deduplicated_legend,
     grouped_bars,
+    per_stream_panels,
     save_figure,
     use_paper_style,
     value_or_none,
@@ -69,12 +70,19 @@ def plot_by_editor(lookup, output_dir, column, title, ylabel, stem, *, percent=F
             )
             for protocol in PROTOCOL_ORDER
         ]
-        grouped_bars(axis, SCENARIOS, series, annotate=not percent)
-        if percent:
-            axis.set_ylim(0, 108)
+        # Hình tỷ lệ vẫn phải hiện số: đây là con số công bố, và mắt không đọc
+        # được chênh lệch 98,7 % với 99,4 % trên một trục 0–100 %.
+        grouped_bars(axis, SCENARIOS, series, percent=percent)
         axis.set_title(editor.capitalize())
     axes[0].set_ylabel(ylabel)
-    deduplicated_legend(axes[0], ncol=3, loc="upper left")
+    if percent:
+        # Trục tỷ lệ luôn kín tới 100 %, không còn góc trống cho chú giải.
+        deduplicated_legend(
+            axes[0], sources=axes, ncol=3, loc="upper center",
+            bbox_to_anchor=(1.03, -0.10),
+        )
+    else:
+        deduplicated_legend(axes[0], sources=axes, ncol=3, loc="upper left")
     figure.suptitle(title, y=1.02)
     note = matrix_note(lookup)
     if note:
@@ -82,58 +90,34 @@ def plot_by_editor(lookup, output_dir, column, title, ylabel, stem, *, percent=F
     save_figure(figure, output_dir, stem)
 
 
-def plot_per_stream(streams, output_dir, column, title, ylabel, stem):
-    """Chỉ SSH và SSH3 có nhiều vai trò tương tác để tách riêng."""
-    lookup = {
-        (row["editor"], row["protocol"], row["scenario"], row["stream_role"]): row
-        for row in streams
-    }
-    multi = [p for p in ("ssh", "ssh3") if any(k[1] == p for k in lookup)]
-    figure, axes = plt.subplots(
-        len(EDITORS), len(SCENARIOS), figsize=(7.0, 4.2), sharey=True, squeeze=False,
-    )
-    for row_index, editor in enumerate(EDITORS):
-        for column_index, scenario in enumerate(SCENARIOS):
-            axis = axes[row_index][column_index]
-            roles = sorted({
-                key[3] for key in lookup
-                if key[0] == editor and key[2] == scenario
-            })
-            width = 0.8 / max(len(multi), 1)
-            for protocol_index, protocol in enumerate(multi):
-                for role_index, role in enumerate(roles):
-                    value = value_or_none(
-                        lookup, (editor, protocol, scenario, role), column,
-                    )
-                    if value is None:
-                        continue
-                    offset = (protocol_index - (len(multi) - 1) / 2) * width
-                    axis.bar(
-                        role_index + offset, value, width, edgecolor="black",
-                        linewidth=0.4,
-                        label=(
-                            protocol_label(protocol)
-                            if role_index == 0 and row_index == 0
-                            else None
-                        ),
-                    )
-            axis.set_xticks(
-                range(len(roles)),
-                [role.replace("interactive_", "R") for role in roles],
-            )
-            if row_index == 0:
-                axis.set_title(scenario)
-            if column_index == 0:
-                axis.set_ylabel(f"{editor.capitalize()}\n{ylabel}")
-    deduplicated_legend(axes[0][0], ncol=2, loc="upper left")
-    figure.suptitle(title, y=1.0)
-    figure.text(
-        0.5, -0.02,
-        "Mosh không xuất hiện: một terminal session không có vai trò song song "
-        "để so sánh theo stream.",
-        ha="center", fontsize=6.5,
-    )
-    save_figure(figure, output_dir, stem)
+def plot_per_stream(streams, output_dir, column, title, ylabel, stem_template):
+    """Một hình cho mỗi editor, dùng chung bố cục per-stream với W1 và W2."""
+    for editor in EDITORS:
+        lookup = {
+            (row["protocol"], row["scenario"], row["stream_role"]): row
+            for row in streams
+            if row["editor"] == editor
+        }
+        if not lookup:
+            continue
+        figure = per_stream_panels(
+            SCENARIOS, lookup, column, PROTOCOL_ORDER,
+            ylabel=ylabel,
+            title=f"{title} — {editor.capitalize()}",
+            role_label=lambda protocol, role: (
+                # Mosh chia màn hình trong một terminal duy nhất; gọi nó là
+                # "stream" sẽ ngụ ý sai rằng đó là transport stream độc lập.
+                f"Pane {role.removeprefix('interactive_')}"
+                if protocol == "mosh"
+                else f"Stream {role.removeprefix('interactive_')}"
+            ),
+            note=(
+                "Mosh chỉ có một phiên tương tác: các pane nằm trong cùng một "
+                "terminal, không phải stream transport độc lập như SSH channel "
+                "hay QUIC stream."
+            ),
+        )
+        save_figure(figure, output_dir, stem_template.format(editor=editor))
 
 
 def main() -> int:
@@ -163,21 +147,36 @@ def main() -> int:
         f"W3 — mở connection và editor sẵn sàng, MEDIAN{suffix}",
         "Thời gian thiết lập (ms)", "figure_4_setup_median",
     )
+    # Ba mức "hoàn thành" của W3, từ nhỏ tới lớn: từng phím, từng stream, rồi
+    # cả connection. W3 không có payload để đối chiếu nên không có phép đo "đầy
+    # đủ output" tương ứng như W1/W2/W4 — chỉ số gần nhất là tỷ lệ phím render
+    # kịp dưới đây.
     plot_by_editor(
         lookup, args.output_dir, "keystroke_completion_rate_pct",
         f"W3 — tỷ lệ phím render kịp{suffix}",
         "Tỷ lệ (%)", "figure_3_completion_rate", percent=True,
     )
     plot_by_editor(
+        lookup, args.output_dir, "stream_completion_rate_pct",
+        f"W3 — tỷ lệ stream hoàn thành{suffix}",
+        "Tỷ lệ (%)", "figure_3c_stream_completion_rate", percent=True,
+    )
+    plot_by_editor(
         lookup, args.output_dir, "timeout_rate_pct",
         f"W3 — tỷ lệ phím quá hạn{suffix}",
         "Tỷ lệ (%)", "figure_3b_timeout_rate", percent=True,
     )
-    for metric in ("median", "p95"):
+    plot_by_editor(
+        lookup, args.output_dir, "stall_rate_pct",
+        f"W3 — tỷ lệ phím bị khựng{suffix}",
+        "Tỷ lệ (%)", "figure_3d_stall_rate", percent=True,
+    )
+    for metric in ("mean", "median", "p95", "p99"):
         plot_per_stream(
             streams, args.output_dir, f"{metric}_ms",
             f"W3 — độ trễ theo từng stream, {metric.upper()}{suffix}",
-            "Độ trễ (ms)", f"figure_1_per_stream_latency_{metric}",
+            "Độ trễ (ms)",
+            "figure_1_{editor}_per_stream_latency_" + metric,
         )
     print(f"Đã lưu hình W3 vào {args.output_dir}")
     return 0
